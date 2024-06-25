@@ -27,14 +27,18 @@ const roleMiner = {
 
         if (creep.memory.mining && creep.memory.sourceId) {
             const source = Game.getObjectById(creep.memory.sourceId);
-            if (creep.store.getFreeCapacity() === 0) {
-                creep.memory.mining = false;
-            } else if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
-                creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
-            } else if (creep.harvest(source) === OK) {
-                statsConsole.log(`${creep.name} is mining at source ${creep.memory.sourceId}`, 6);
+            if (source) {
+                const harvestResult = creep.harvest(source);
+                if (harvestResult === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
+                } else if (harvestResult === OK) {
+                    statsConsole.log(`${creep.name} is mining at source ${creep.memory.sourceId}`, 6);
+                } else {
+                    statsConsole.log(`${creep.name} failed to mine at source ${creep.memory.sourceId} with error ${harvestResult}`, 6);
+                }
             } else {
-                statsConsole.log(`${creep.name} failed to mine at source ${creep.memory.sourceId}`, 6);
+                statsConsole.log(`${creep.name} cannot find source with id ${creep.memory.sourceId}`, 6);
+                creep.memory.sourceId = null; // Clear the invalid source ID
             }
         }
 

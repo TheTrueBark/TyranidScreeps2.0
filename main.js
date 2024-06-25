@@ -45,6 +45,7 @@ module.exports.loop = function () {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
         roomManager.scanRoom(room);
+        spawnManager.buildInfrastructure(room); // Add this line
     }
 
     for (const spawnName in Game.spawns) {
