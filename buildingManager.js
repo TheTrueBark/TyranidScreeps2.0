@@ -1,5 +1,5 @@
-const statsConsole = require("statsConsole");
 const roomPlanner = require("roomPlanner");
+const statsConsole = require("statsConsole");
 
 const buildingManager = {
     buildInfrastructure: function(room) {

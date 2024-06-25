@@ -6,7 +6,7 @@ const roleBuilder = {
         }
         if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
             creep.memory.working = true;
-            creep.say('⚡ build');
+            creep.say('⚡ build/repair');
         }
 
         if (creep.memory.working) {
@@ -16,8 +16,20 @@ const roleBuilder = {
                     creep.moveTo(constructionSites[0], { visualizePathStyle: { stroke: '#ffffff' } });
                 }
             } else {
-                if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                    creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
+                const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
+                    filter: object => object.hits < object.hitsMax
+                });
+
+                structuresNeedingRepair.sort((a, b) => a.hits - b.hits);
+
+                if (structuresNeedingRepair.length > 0) {
+                    if (creep.repair(structuresNeedingRepair[0]) === ERR_NOT_IN_RANGE) {
+                        creep.moveTo(structuresNeedingRepair[0], { visualizePathStyle: { stroke: '#ffffff' } });
+                    }
+                } else {
+                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+                        creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
+                    }
                 }
             }
         } else {
