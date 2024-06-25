@@ -68,7 +68,7 @@ const spawnManager = {
         // Check if we can spawn a miner from the queue
         if (this.minerQueue.length > 0) {
             const minerToSpawn = this.minerQueue[0];
-            if (spawn.spawnCreep(minerToSpawn.bodyParts, 'Miner' + Game.time, { memory: { role: 'miner', sourceId: minerToSpawn.sourceId } }) === OK) {
+            if (spawn.spawnCreep(minerToSpawn.bodyParts, 'Miner' + Game.time, { memory: { role: 'miner', sourceId: minerToSpawn.sourceId, spawnTime: Game.time } }) === OK) {
                 statsConsole.log(`Spawning miner for source ${minerToSpawn.sourceId}`, 6);
                 this.minerQueue.shift(); // Remove the miner from the queue
             }
@@ -105,6 +105,25 @@ const spawnManager = {
         }
 
         return bodyParts;
+    },
+    calculateTimeToSource: function(spawn, source) {
+        const path = PathFinder.search(spawn.pos, { pos: source.pos, range: 1 }).path;
+        return path.length;
+    },
+    planNextMiner: function(spawn) {
+        const sources = spawn.room.find(FIND_SOURCES);
+        for (const source of sources) {
+            const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner' && creep.memory.sourceId === source.id);
+            if (miners.length > 0) {
+                const miner = miners[0];
+                const timeToSource = this.calculateTimeToSource(spawn, source);
+                const timeToSpawn = miner.ticksToLive - timeToSource - 1; // Plan to spawn one tick before the miner reaches 0 ticksToLive
+
+                if (timeToSpawn > 0) {
+                    spawn.memory.nextMinerSpawn = Game.time + timeToSpawn;
+                }
+            }
+        }
     }
 };
 

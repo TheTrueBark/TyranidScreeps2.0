@@ -57,6 +57,7 @@ module.exports.loop = function () {
         spawnManager.spawnMinerCreeps(spawn);
         spawnManager.spawnUpgraderCreeps(spawn);
         spawnManager.spawnBuilderCreeps(spawn);
+        spawnManager.planNextMiner(spawn);
     }
 
     for (const name in Game.creeps) {
