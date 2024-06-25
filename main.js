@@ -7,6 +7,7 @@ const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
+const distanceTransform = require("distanceTransform");
 
 let myStats = [];
 
@@ -49,6 +50,11 @@ module.exports.loop = function () {
         const room = Game.rooms[roomName];
         roomManager.scanRoom(room);
         buildingManager.buildInfrastructure(room);
+
+        // Distance Transform Visualization
+        const terrainData = distanceTransform.getTerrainData(roomName);
+        const dist = distanceTransform.distanceTransform(terrainData);
+        distanceTransform.visualizeDistanceTransform(roomName, dist);
     }
 
     for (const spawnName in Game.spawns) {
