@@ -1,6 +1,6 @@
 const statsConsole = require("statsConsole");
 
-const roleAllPurpose = {
+const roleBuilder = {
     run: function(creep) {
         if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
             creep.memory.working = false;
@@ -8,34 +8,19 @@ const roleAllPurpose = {
         }
         if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
             creep.memory.working = true;
-            creep.say('⚡ transfer');
+            creep.say('🚧 build');
         }
 
         if (creep.memory.working) {
-            if (creep.room.controller.level >= 2) {
-                const constructionSite = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
-                if (constructionSite) {
-                    if (creep.build(constructionSite) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(constructionSite, {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
-                } else {
-                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
+            const constructionSite = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            if (constructionSite) {
+                if (creep.build(constructionSite) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(constructionSite, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
             } else {
-                const targets = creep.room.find(FIND_STRUCTURES, {
-                    filter: structure => (structure.structureType === STRUCTURE_EXTENSION || structure.structureType === STRUCTURE_SPAWN) &&
-                    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-                });
-                if (targets.length > 0) {
-                    if (creep.transfer(targets[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(targets[0], {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
-                } else {
-                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
+                // Switch to upgrader role if no construction sites
+                if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
             }
         } else {
@@ -70,4 +55,4 @@ const roleAllPurpose = {
     }
 };
 
-module.exports = roleAllPurpose;
+module.exports = roleBuilder;

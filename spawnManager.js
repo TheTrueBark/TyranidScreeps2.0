@@ -40,6 +40,16 @@ const spawnManager = {
             }
         }
     },
+    spawnBuilderCreeps: function(spawn) {
+        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+        if (builders.length < 2) { // Adjust the number as needed
+            const newName = 'Builder' + Game.time;
+            const result = spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'builder' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new builder: " + newName, 6);
+            }
+        }
+    },
     buildInfrastructure: function(room) {
         if (room.controller.level >= 2) {
             const sources = room.find(FIND_SOURCES);

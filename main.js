@@ -4,6 +4,7 @@ const spawnManager = require("spawnManager");
 const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
+const roleBuilder = require("role.builder");
 
 let myStats = [];
 
@@ -45,7 +46,7 @@ module.exports.loop = function () {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
         roomManager.scanRoom(room);
-        spawnManager.buildInfrastructure(room);
+        spawnManager.buildInfrastructure(room); // Add this line
     }
 
     for (const spawnName in Game.spawns) {
@@ -53,6 +54,7 @@ module.exports.loop = function () {
         spawnManager.spawnAllPurposeCreeps(spawn);
         spawnManager.spawnUpgraderCreeps(spawn);
         spawnManager.spawnMinerCreeps(spawn);
+        spawnManager.spawnBuilderCreeps(spawn);
     }
 
     for (const name in Game.creeps) {
@@ -63,6 +65,8 @@ module.exports.loop = function () {
             roleUpgrader.run(creep);
         } else if (creep.memory.role === 'miner') {
             roleMiner.run(creep);
+        } else if (creep.memory.role === 'builder') {
+            roleBuilder.run(creep);
         }
     }
 }
