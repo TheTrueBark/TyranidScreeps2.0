@@ -2,16 +2,54 @@ const roomPlanner = require("roomPlanner");
 const statsConsole = require("statsConsole");
 
 const buildingManager = {
+    cacheBuildableAreas: function(room) {
+        const sources = room.find(FIND_SOURCES);
+        const buildableAreas = {};
+
+        for (const source of sources) {
+            const positions = roomPlanner.findMiningPositions(room)[source.id];
+            buildableAreas[source.id] = positions;
+        }
+
+        room.memory.buildableAreas = buildableAreas;
+        room.memory.lastCacheUpdate = Game.time;
+    },
+
+    shouldUpdateCache: function(room) {
+        if (!room.memory.buildableAreas) {
+            return true; // Initial cache creation
+        }
+
+        const lastCacheUpdate = room.memory.lastCacheUpdate || 0;
+        const ticksSinceLastUpdate = Game.time - lastCacheUpdate;
+        const controllerLevel = room.controller.level;
+        const lastControllerLevel = room.memory.lastControllerLevel || 0;
+
+        // Update if controller level changed or if it's been more than 1000 ticks
+        if (controllerLevel !== lastControllerLevel || ticksSinceLastUpdate > 1000) {
+            room.memory.lastControllerLevel = controllerLevel;
+            return true;
+        }
+
+        return false;
+    },
+
     buildInfrastructure: function(room) {
+        if (this.shouldUpdateCache(room)) {
+            this.cacheBuildableAreas(room);
+            statsConsole.log(`Recalculated buildable areas for room ${room.name}`, 6);
+        }
+
         if (room.controller.level >= 2) {
             const sources = room.find(FIND_SOURCES);
             for (const source of sources) {
-                const positions = roomPlanner.findMiningPositions(room)[source.id];
+                const positions = room.memory.buildableAreas[source.id];
                 if (positions.length > 0) {
-                    const containerPos = positions[0]; // Nearest position to the source
+                    const containerPos = new RoomPosition(positions[0].x, positions[0].y, room.name); // Ensure it's a RoomPosition object
                     const containerSite = containerPos.lookFor(LOOK_CONSTRUCTION_SITES).filter(site => site.structureType === STRUCTURE_CONTAINER);
-                    if (containerSite.length === 0) {
-                        containerPos.createConstructionSite(STRUCTURE_CONTAINER);
+                    const containerStructure = containerPos.lookFor(LOOK_STRUCTURES).filter(struct => struct.structureType === STRUCTURE_CONTAINER);
+                    if (containerSite.length === 0 && containerStructure.length === 0) {
+                        room.createConstructionSite(containerPos, STRUCTURE_CONTAINER);
                         statsConsole.log(`Queued container construction at ${containerPos}`, 6);
                     }
                 }
