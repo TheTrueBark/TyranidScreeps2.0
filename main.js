@@ -1,6 +1,8 @@
 const statsConsole = require("statsConsole");
 const roomManager = require("roomManager");
 const spawnManager = require("spawnManager");
+const buildingManager = require("buildingManager");
+const roomPlanner = require("roomPlanner");
 const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
@@ -46,14 +48,14 @@ module.exports.loop = function () {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
         roomManager.scanRoom(room);
-        spawnManager.buildInfrastructure(room); // Add this line
+        buildingManager.buildInfrastructure(room);
     }
 
     for (const spawnName in Game.spawns) {
         const spawn = Game.spawns[spawnName];
         spawnManager.spawnAllPurposeCreeps(spawn);
-        spawnManager.spawnUpgraderCreeps(spawn);
         spawnManager.spawnMinerCreeps(spawn);
+        spawnManager.spawnUpgraderCreeps(spawn);
         spawnManager.spawnBuilderCreeps(spawn);
     }
 
@@ -69,4 +71,4 @@ module.exports.loop = function () {
             roleBuilder.run(creep);
         }
     }
-}
+};

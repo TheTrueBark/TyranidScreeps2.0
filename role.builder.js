@@ -1,5 +1,3 @@
-const statsConsole = require("statsConsole");
-
 const roleBuilder = {
     run: function(creep) {
         if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
@@ -8,22 +6,18 @@ const roleBuilder = {
         }
         if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
             creep.memory.working = true;
-            creep.say('🚧 build');
+            creep.say('⚡ build');
         }
 
         if (creep.memory.working) {
-            const constructionSite = creep.room.find(FIND_CONSTRUCTION_SITES, {
-                filter: (site) => site.structureType === STRUCTURE_EXTENSION
-            })[0];
-
-            if (constructionSite) {
-                if (creep.build(constructionSite) === ERR_NOT_IN_RANGE) {
-                    creep.moveTo(constructionSite, {visualizePathStyle: {stroke: '#ffffff'}});
+            const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+            if (constructionSites.length > 0) {
+                if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(constructionSites[0], { visualizePathStyle: { stroke: '#ffffff' } });
                 }
             } else {
-                // Switch to upgrader role if no construction sites
                 if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                    creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
+                    creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
                 }
             }
         } else {
@@ -48,14 +42,9 @@ const roleBuilder = {
                     creep.moveTo(container, { visualizePathStyle: { stroke: '#ffaa00' } });
                 }
             } else {
-                const miners = _.filter(Game.creeps, (c) => c.memory.role === 'miner');
-                if (miners.length > 0) {
-                    const miner = creep.pos.findClosestByPath(miners);
-                    if (miner) {
-                        if (creep.pos.getRangeTo(miner) > 1) {
-                            creep.moveTo(miner, { visualizePathStyle: { stroke: '#ffaa00' } });
-                        }
-                    }
+                const source = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+                if (source && creep.harvest(source) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
                 }
             }
         }
