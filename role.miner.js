@@ -10,7 +10,7 @@ const roleMiner = {
             const sources = creep.room.find(FIND_SOURCES);
             let availableSource = null;
             for (const source of sources) {
-                const minersAssigned = _.filter(Game.creeps, (c) => c.memory.sourceId === source.id);
+                const minersAssigned = _.filter(Game.creeps, (c) => c.memory.role === 'miner' && c.memory.sourceId === source.id);
                 if (minersAssigned.length < 2) { // Adjust this number based on how many miners you want per source
                     availableSource = source;
                     break;

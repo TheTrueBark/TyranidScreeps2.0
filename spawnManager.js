@@ -44,11 +44,11 @@ const spawnManager = {
         if (room.controller.level >= 2) {
             const sources = room.find(FIND_SOURCES);
             for (const source of sources) {
-                // Queue construction of containers near sources
-                const containerSite = source.pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {
+                // Queue construction of containers under sources
+                const containerSite = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
                     filter: (site) => site.structureType === STRUCTURE_CONTAINER
                 });
-                if (!containerSite) {
+                if (!containerSite.length) {
                     source.pos.createConstructionSite(STRUCTURE_CONTAINER);
                 }
             }
@@ -59,17 +59,36 @@ const spawnManager = {
                 const extensionSites = room.find(FIND_CONSTRUCTION_SITES, {
                     filter: (site) => site.structureType === STRUCTURE_EXTENSION
                 });
-                if (extensionSites.length < 5) {
-                    for (let i = 0; i < 5; i++) {
-                        const closestStructure = spawn.pos.findClosestByRange(FIND_MY_STRUCTURES, {
-                            filter: { structureType: STRUCTURE_EXTENSION }
-                        });
 
-                        if (closestStructure && closestStructure.pos) {
-                            const position = closestStructure.pos;
-                            position.createConstructionSite(STRUCTURE_EXTENSION);
-                        } else {
-                            statsConsole.log("Could not find a valid position to create an extension site", 6);
+                const extensions = room.find(FIND_MY_STRUCTURES, {
+                    filter: (structure) => structure.structureType === STRUCTURE_EXTENSION
+                });
+
+                if (extensions.length + extensionSites.length < 5) { // Adjust the limit based on your needs
+                    const positions = [
+                        { x: -2, y: -2 },
+                        { x: -2, y: 2 },
+                        { x: 2, y: -2 },
+                        { x: 2, y: 2 },
+                        { x: -3, y: 0 },
+                        { x: 3, y: 0 },
+                        { x: 0, y: -3 },
+                        { x: 0, y: 3 }
+                    ];
+
+                    for (let i = 0; i < positions.length; i++) {
+                        const pos = new RoomPosition(spawn.pos.x + positions[i].x, spawn.pos.y + positions[i].y, room.name);
+                        const structuresAtPos = pos.lookFor(LOOK_STRUCTURES);
+                        const constructionSitesAtPos = pos.lookFor(LOOK_CONSTRUCTION_SITES);
+
+                        if (structuresAtPos.length === 0 && constructionSitesAtPos.length === 0) {
+                            const result = pos.createConstructionSite(STRUCTURE_EXTENSION);
+                            if (result === OK) {
+                                statsConsole.log(`Queued extension construction at ${pos}`, 6);
+                                break;
+                            } else {
+                                statsConsole.log(`Failed to queue extension construction at ${pos} with error ${result}`, 6);
+                            }
                         }
                     }
                 }
