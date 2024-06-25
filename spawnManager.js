@@ -30,19 +30,39 @@ const spawnManager = {
             }
         }
     },
+
     spawnUpgraderCreeps: function(spawn) {
         const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
         const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
 
         // Only spawn upgraders if there are miners available
         if (miners.length > 0 && upgraders.length < 2) { // Adjust the number as needed
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
             const newName = 'Upgrader' + Game.time;
-            const result = spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'upgrader' } });
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'upgrader' } });
             if (result === OK) {
                 statsConsole.log("Spawning new upgrader: " + newName, 6);
             }
         }
     },
+
+    spawnBuilderCreeps: function(spawn) {
+        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
+        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
+
+        // Only spawn builders if there are miners available
+        if (miners.length > 0 && builders.length < 2) { // Adjust the number as needed
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
+            const newName = 'Builder' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'builder' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new builder: " + newName, 6);
+            }
+        }
+    },
+
     spawnMinerCreeps: function(spawn) {
         const sources = spawn.room.find(FIND_SOURCES);
         const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
@@ -74,19 +94,29 @@ const spawnManager = {
             }
         }
     },
-    spawnBuilderCreeps: function(spawn) {
-        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
-        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
 
-        // Only spawn builders if there are miners available
-        if (miners.length > 0 && builders.length < 2) { // Adjust the number as needed
-            const newName = 'Builder' + Game.time;
-            const result = spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'builder' } });
-            if (result === OK) {
-                statsConsole.log("Spawning new builder: " + newName, 6);
+    calculateDynamicBodyParts: function(energyCapacityAvailable, partTypes) {
+        let bodyParts = [];
+        let energyUsed = 0;
+
+        while (energyUsed + 50 <= energyCapacityAvailable) {
+            if (partTypes.work && energyUsed + 100 <= energyCapacityAvailable) {
+                bodyParts.push(WORK);
+                energyUsed += 100;
+            }
+            if (partTypes.carry && energyUsed + 50 <= energyCapacityAvailable) {
+                bodyParts.push(CARRY);
+                energyUsed += 50;
+            }
+            if (partTypes.move && energyUsed + 50 <= energyCapacityAvailable) {
+                bodyParts.push(MOVE);
+                energyUsed += 50;
             }
         }
+
+        return bodyParts;
     },
+
     calculateMinerBodyParts: function(energyCapacityAvailable, requiredWorkParts) {
         let bodyParts = [];
         let energyUsed = 0;
@@ -106,10 +136,22 @@ const spawnManager = {
 
         return bodyParts;
     },
+
     calculateTimeToSource: function(spawn, source) {
         const path = PathFinder.search(spawn.pos, { pos: source.pos, range: 1 }).path;
-        return path.length;
+        let fatigue = 0;
+
+        // Estimate fatigue based on the number of work parts and one move part
+        for (const step of path) {
+            fatigue += 2; // 1 fatigue for each WORK part, with 1 MOVE part
+            if (fatigue > 1) {
+                fatigue -= 1; // MOVE part reduces 1 fatigue each tick
+            }
+        }
+
+        return path.length + Math.ceil(fatigue / path.length);
     },
+
     planNextMiner: function(spawn) {
         const sources = spawn.room.find(FIND_SOURCES);
         for (const source of sources) {
