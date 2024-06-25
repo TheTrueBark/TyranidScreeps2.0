@@ -3,6 +3,7 @@ const roomManager = require("roomManager");
 const spawnManager = require("spawnManager");
 const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
+const roleMiner = require("role.miner");
 
 let myStats = [];
 
@@ -50,6 +51,7 @@ module.exports.loop = function () {
         const spawn = Game.spawns[spawnName];
         spawnManager.spawnAllPurposeCreeps(spawn);
         spawnManager.spawnUpgraderCreeps(spawn);
+        spawnManager.spawnMinerCreeps(spawn);
     }
 
     for (const name in Game.creeps) {
@@ -58,6 +60,8 @@ module.exports.loop = function () {
             roleAllPurpose.run(creep);
         } else if (creep.memory.role === 'upgrader') {
             roleUpgrader.run(creep);
+        } else if (creep.memory.role === 'miner') {
+            roleMiner.run(creep);
         }
     }
 }

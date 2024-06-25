@@ -22,6 +22,16 @@ const spawnManager = {
                 statsConsole.log("Spawning new upgrader: " + newName, 6);
             }
         }
+    },
+    spawnMinerCreeps: function(spawn) {
+        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
+        if (miners.length < 3) { // Adjust the number as needed
+            const newName = 'Miner' + Game.time;
+            const result = spawn.spawnCreep([WORK, WORK, CARRY, MOVE], newName, { memory: { role: 'miner' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new miner: " + newName, 6);
+            }
+        }
     }
 };
 
