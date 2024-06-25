@@ -7,22 +7,10 @@ const spawnManager = {
 
     spawnAllPurposeCreeps: function(spawn) {
         const room = spawn.room;
-        const sources = room.find(FIND_SOURCES);
 
         // Count current all-purpose creeps
         const allPurposeCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'allPurpose');
-        const miners = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner');
-
-        // Determine the required number of all-purpose creeps (mining + hauling)
-        let requiredAllPurposeCreeps = sources.length * 2; // 1 miner and 1 hauler per source
-
-        // If no miners are available, increase the number of all-purpose creeps needed
-        if (miners.length === 0) {
-            requiredAllPurposeCreeps = sources.length * 3; // 2 miners and 1 hauler per source
-        }
-
-        // Spawn all-purpose creeps until we have the required number
-        if (allPurposeCreeps.length < requiredAllPurposeCreeps) {
+        if (room.controller.level < 2 && allPurposeCreeps.length < 5) { // Adjust the number as needed
             const newName = 'AllPurpose' + Game.time;
             const result = spawn.spawnCreep([WORK, CARRY, MOVE, MOVE], newName, { memory: { role: 'allPurpose' } });
             if (result === OK) {
@@ -31,41 +19,13 @@ const spawnManager = {
         }
     },
 
-    spawnUpgraderCreeps: function(spawn) {
-        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
-        const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
-        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
-
-        // Only spawn upgraders if there are miners available
-        if (miners.length > 0 && upgraders.length < 2) { // Adjust the number as needed
-            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
-            const newName = 'Upgrader' + Game.time;
-            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'upgrader' } });
-            if (result === OK) {
-                statsConsole.log("Spawning new upgrader: " + newName, 6);
-            }
-        }
-    },
-
-    spawnBuilderCreeps: function(spawn) {
-        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
-        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
-        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
-
-        // Only spawn builders if there are miners available
-        if (miners.length > 0 && builders.length < 2) { // Adjust the number as needed
-            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
-            const newName = 'Builder' + Game.time;
-            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'builder' } });
-            if (result === OK) {
-                statsConsole.log("Spawning new builder: " + newName, 6);
-            }
-        }
-    },
-
     spawnMinerCreeps: function(spawn) {
         const sources = spawn.room.find(FIND_SOURCES);
         const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
+
+        if (spawn.room.controller.level < 2) {
+            return;
+        }
 
         for (const source of sources) {
             const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner' && creep.memory.sourceId === source.id);
@@ -95,9 +55,63 @@ const spawnManager = {
         }
     },
 
+    spawnHaulerCreeps: function(spawn) {
+        const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
+        const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
+
+        // Only spawn haulers if there are miners available
+        if (miners.length >= 2 && (haulers.length < 2 || haulers.length < Math.ceil(miners.length / 3))) {
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { carry: true, move: true });
+            const newName = 'Hauler' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'hauler' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new hauler: " + newName, 6);
+            }
+        }
+    },
+
+    spawnBuilderCreeps: function(spawn) {
+        const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
+        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
+
+        // Only spawn builders if there are at least 2 haulers available
+        if (haulers.length >= 2 && builders.length < 1) {
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
+            const newName = 'Builder' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'builder' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new builder: " + newName, 6);
+            }
+        }
+    },
+
+    spawnUpgraderCreeps: function(spawn) {
+        const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+        const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
+
+        // Only spawn upgraders if there is at least one builder available and less than 4 upgraders
+        if (builders.length >= 1 && upgraders.length < 4) {
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { work: true, carry: true, move: true });
+            const newName = 'Upgrader' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'upgrader' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new upgrader: " + newName, 6);
+            }
+        }
+    },
+
     calculateDynamicBodyParts: function(energyCapacityAvailable, partTypes) {
         let bodyParts = [];
         let energyUsed = 0;
+
+        // Ensure at least one MOVE part if no parts added yet
+        if (energyUsed + 50 <= energyCapacityAvailable && partTypes.move) {
+            bodyParts.push(MOVE);
+            energyUsed += 50;
+        }
 
         while (energyUsed + 50 <= energyCapacityAvailable) {
             if (partTypes.work && energyUsed + 100 <= energyCapacityAvailable) {

@@ -7,8 +7,10 @@ const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
+const roleHauler = require("role.hauler");
 const distanceTransform = require("distanceTransform");
 const hudManager = require("hudManager");
+const stampManager = require("stampManager");
 
 let myStats = [];
 global.visualizeDT = false;
@@ -75,14 +77,16 @@ module.exports.loop = function () {
 
         // Create HUD
         hudManager.createHUD(room);
+
     }
 
     for (const spawnName in Game.spawns) {
         const spawn = Game.spawns[spawnName];
         spawnManager.spawnAllPurposeCreeps(spawn);
         spawnManager.spawnMinerCreeps(spawn);
-        spawnManager.spawnUpgraderCreeps(spawn);
+        spawnManager.spawnHaulerCreeps(spawn);
         spawnManager.spawnBuilderCreeps(spawn);
+        spawnManager.spawnUpgraderCreeps(spawn);
         spawnManager.planNextMiner(spawn);
     }
 
@@ -96,6 +100,8 @@ module.exports.loop = function () {
             roleMiner.run(creep);
         } else if (creep.memory.role === 'builder') {
             roleBuilder.run(creep);
+        } else if (creep.memory.role === 'hauler') {
+            roleHauler.run(creep);
         }
     }
 };
