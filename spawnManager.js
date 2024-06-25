@@ -122,16 +122,16 @@ const spawnManager = {
         let energyUsed = 0;
         let workParts = 0;
 
+        // Ensure at least one MOVE part
+        if (energyUsed + 50 <= energyCapacityAvailable) {
+            bodyParts.push(MOVE);
+            energyUsed += 50;
+        }
+
         while (energyUsed + 100 <= energyCapacityAvailable && workParts < requiredWorkParts) { // 100 for WORK
             bodyParts.push(WORK);
             energyUsed += 100;
             workParts += 1;
-        }
-
-        // Add one MOVE part
-        if (energyUsed + 50 <= energyCapacityAvailable) {
-            bodyParts.push(MOVE);
-            energyUsed += 50;
         }
 
         return bodyParts;
