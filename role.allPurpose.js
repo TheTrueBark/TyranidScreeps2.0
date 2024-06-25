@@ -12,8 +12,21 @@ const roleAllPurpose = {
         }
 
         if (creep.memory.working) {
-            if (creep.room.controller.level >= 2) {
-                const constructionSite = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            // Prioritize topping off the spawn and extensions
+            const targets = creep.room.find(FIND_STRUCTURES, {
+                filter: structure => (structure.structureType === STRUCTURE_SPAWN || structure.structureType === STRUCTURE_EXTENSION) &&
+                structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+            });
+
+            if (targets.length > 0) {
+                if (creep.transfer(targets[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(targets[0], {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+            } else if (creep.room.controller.level >= 2) {
+                const constructionSite = creep.room.find(FIND_CONSTRUCTION_SITES, {
+                    filter: (site) => site.structureType === STRUCTURE_EXTENSION
+                })[0];
+
                 if (constructionSite) {
                     if (creep.build(constructionSite) === ERR_NOT_IN_RANGE) {
                         creep.moveTo(constructionSite, {visualizePathStyle: {stroke: '#ffffff'}});
@@ -24,18 +37,8 @@ const roleAllPurpose = {
                     }
                 }
             } else {
-                const targets = creep.room.find(FIND_STRUCTURES, {
-                    filter: structure => (structure.structureType === STRUCTURE_EXTENSION || structure.structureType === STRUCTURE_SPAWN) &&
-                    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-                });
-                if (targets.length > 0) {
-                    if (creep.transfer(targets[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(targets[0], {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
-                } else {
-                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                        creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
-                    }
+                if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(creep.room.controller, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
             }
         } else {
@@ -48,8 +51,12 @@ const roleAllPurpose = {
             });
 
             if (droppedEnergy) {
-                if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
-                    creep.moveTo(droppedEnergy, { visualizePathStyle: { stroke: '#ffaa00' } });
+                const highestEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
+                    filter: (resource) => resource.resourceType === RESOURCE_ENERGY
+                }).sort((a, b) => b.amount - a.amount)[0];
+
+                if (creep.pickup(highestEnergy) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(highestEnergy, { visualizePathStyle: { stroke: '#ffaa00' } });
                 }
             } else if (container) {
                 if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {

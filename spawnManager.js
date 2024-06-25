@@ -58,7 +58,7 @@ const spawnManager = {
                 const containerSite = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
                     filter: (site) => site.structureType === STRUCTURE_CONTAINER
                 });
-                if (!containerSite.length) {
+                if (containerSite.length === 0) {
                     source.pos.createConstructionSite(STRUCTURE_CONTAINER);
                 }
             }

@@ -12,7 +12,10 @@ const roleBuilder = {
         }
 
         if (creep.memory.working) {
-            const constructionSite = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            const constructionSite = creep.room.find(FIND_CONSTRUCTION_SITES, {
+                filter: (site) => site.structureType === STRUCTURE_EXTENSION
+            })[0];
+
             if (constructionSite) {
                 if (creep.build(constructionSite) === ERR_NOT_IN_RANGE) {
                     creep.moveTo(constructionSite, {visualizePathStyle: {stroke: '#ffffff'}});
@@ -33,8 +36,12 @@ const roleBuilder = {
             });
 
             if (droppedEnergy) {
-                if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
-                    creep.moveTo(droppedEnergy, { visualizePathStyle: { stroke: '#ffaa00' } });
+                const highestEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
+                    filter: (resource) => resource.resourceType === RESOURCE_ENERGY
+                }).sort((a, b) => b.amount - a.amount)[0];
+
+                if (creep.pickup(highestEnergy) === ERR_NOT_IN_RANGE) {
+                    creep.moveTo(highestEnergy, { visualizePathStyle: { stroke: '#ffaa00' } });
                 }
             } else if (container) {
                 if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
