@@ -136,7 +136,7 @@ var chart = {
             var d = data[i];
             var p = d / m;
             var y = Math.round((h - 2) * p);
-            var c = y < 0 ? '�' : '�';
+            var c = y < 0 ? '█' : '█';
             if (y < 0) y = -y;
             
             while (y--) {
