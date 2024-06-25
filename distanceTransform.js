@@ -16,7 +16,8 @@ module.exports = {
         return data;
     },
 
-    distanceTransform: function(terrainData) {
+    distanceTransform: function(room) {
+        const terrainData = this.getTerrainData(room.name);
         const dist = new Array(2500).fill(Infinity);
 
         for (let y = 0; y < 50; y++) {
@@ -46,6 +47,8 @@ module.exports = {
             }
         }
 
+        // Save the distance transform data to room memory
+        room.memory.distanceTransform = dist;
         return dist;
     },
 

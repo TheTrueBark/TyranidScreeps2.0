@@ -8,8 +8,24 @@ const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
 const distanceTransform = require("distanceTransform");
+const hudManager = require("hudManager");
 
 let myStats = [];
+global.visualizeDT = false;
+
+global.visual = {
+    DT: function(toggle) {
+        if (toggle === 1) {
+            visualizeDT = true;
+            console.log("Distance Transform Visualization: ON");
+        } else if (toggle === 0) {
+            visualizeDT = false;
+            console.log("Distance Transform Visualization: OFF");
+        } else {
+            console.log("Usage: visual.DT(1) to show, visual.DT(0) to hide");
+        }
+    }
+};
 
 module.exports.loop = function () {
     let totalCPUUsage = Game.cpu.getUsed();
@@ -51,10 +67,14 @@ module.exports.loop = function () {
         roomManager.scanRoom(room);
         buildingManager.buildInfrastructure(room);
 
-        // Distance Transform Visualization
-        const terrainData = distanceTransform.getTerrainData(roomName);
-        const dist = distanceTransform.distanceTransform(terrainData);
-        distanceTransform.visualizeDistanceTransform(roomName, dist);
+        // Distance Transform Calculation and Visualization
+        if (visualizeDT) {
+            const dist = distanceTransform.distanceTransform(room);
+            distanceTransform.visualizeDistanceTransform(roomName, dist);
+        }
+
+        // Create HUD
+        hudManager.createHUD(room);
     }
 
     for (const spawnName in Game.spawns) {
