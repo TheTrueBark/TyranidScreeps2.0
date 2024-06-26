@@ -59,9 +59,9 @@ const spawnManager = {
         const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
         const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
         const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
-
-        // Only spawn haulers if there are miners available
-        if (miners.length >= 2 && (haulers.length < 2 || haulers.length < Math.ceil(miners.length / 3))) {
+    
+        // Ensure at least one hauler if there is at least one miner
+        if (miners.length >= 1 && haulers.length < 1) {
             const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { carry: true, move: true });
             const newName = 'Hauler' + Game.time;
             const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'hauler' } });
@@ -69,7 +69,29 @@ const spawnManager = {
                 statsConsole.log("Spawning new hauler: " + newName, 6);
             }
         }
-    },
+    
+        // Ensure at least two haulers if there are at least two miners
+        if (miners.length >= 2 && haulers.length < 2) {
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { carry: true, move: true });
+            const newName = 'Hauler' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'hauler' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new hauler: " + newName, 6);
+            }
+        }
+    
+        // Maintain a ratio of 1 hauler per 3 miners
+        if (miners.length > 2 && haulers.length < Math.ceil(miners.length / 3)) {
+            const bodyParts = this.calculateDynamicBodyParts(energyCapacityAvailable, { carry: true, move: true });
+            const newName = 'Hauler' + Game.time;
+            const result = spawn.spawnCreep(bodyParts, newName, { memory: { role: 'hauler' } });
+            if (result === OK) {
+                statsConsole.log("Spawning new hauler: " + newName, 6);
+            }
+        }
+    }
+    ,
+    
 
     spawnBuilderCreeps: function(spawn) {
         const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');

@@ -29,7 +29,18 @@ global.visual = {
     }
 };
 
+function cleanMemory() {
+    for (let name in Memory.creeps) {
+        if (!Game.creeps[name]) {
+            console.log(`Clearing memory of dead creep: ${name}`);
+            delete Memory.creeps[name];
+        }
+    }
+}
+
 module.exports.loop = function () {
+    cleanMemory(); // Call the clean memory function at the beginning of the loop
+
     let totalCPUUsage = Game.cpu.getUsed();
     let initCPUUsage = 0;
     let CreepManagersCPUUsage = 0;
