@@ -1,5 +1,5 @@
-const roomPlanner = require("roomPlanner");
-const statsConsole = require("statsConsole");
+const roomPlanner = require("planner.room");
+const statsConsole = require("console.console");
 
 const buildingManager = {
     cacheBuildableAreas: function(room) {

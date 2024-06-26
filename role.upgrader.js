@@ -1,4 +1,4 @@
-const statsConsole = require("statsConsole");
+const statsConsole = require("console.console");
 
 const roleUpgrader = {
     run: function(creep) {

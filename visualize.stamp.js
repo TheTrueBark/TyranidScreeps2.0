@@ -1,4 +1,4 @@
-const stampManager = require('stampManager');
+const stampManager = require('manager.stamps');
 
 module.exports.loop = function () {
     const roomName = 'W8N3'; // Replace with your room name

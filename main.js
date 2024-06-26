@@ -1,16 +1,21 @@
-const statsConsole = require("statsConsole");
-const roomManager = require("roomManager");
-const spawnManager = require("spawnManager");
-const buildingManager = require("buildingManager");
-const roomPlanner = require("roomPlanner");
+const statsConsole = require("console.console");
+const roomManager = require("manager.room");
+const spawnManager = require("manager.spawn");
+const buildingManager = require("manager.building");
+const roomPlanner = require("planner.room");
 const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
 const roleHauler = require("role.hauler");
-const distanceTransform = require("distanceTransform");
-const hudManager = require("hudManager");
-const stampManager = require("stampManager");
+const distanceTransform = require("algorithm.distanceTransform");
+const hudManager = require("manager.hud");
+const stampManager = require("manager.stamps");
+const trafficManager = require("manager.traffic");
+const memoryManager = require("manager.memory");
+
+// Initialize the traffic manager
+trafficManager.init()
 
 let myStats = [];
 global.visualizeDT = false;
@@ -29,17 +34,39 @@ global.visual = {
     }
 };
 
-function cleanMemory() {
-    for (let name in Memory.creeps) {
-        if (!Game.creeps[name]) {
-            console.log(`Clearing memory of dead creep: ${name}`);
-            delete Memory.creeps[name];
-        }
-    }
-}
-
 module.exports.loop = function () {
-    cleanMemory(); // Call the clean memory function at the beginning of the loop
+    
+    // Clean up memory
+    for (let name in Memory.creeps) {
+      if (!Game.creeps[name]) {
+          console.log(`Clearing memory of dead creep: ${name}`);
+          delete Memory.creeps[name];
+      }
+  }
+
+    // Initialize Memory Manager, Room Memory, spawnManager
+    for (const roomName in Game.rooms) {
+     const room = Game.rooms[roomName];
+      memoryManager.initializeRoomMemory(room);
+      trafficManager.run(room);
+      spawnManager.run(room);
+      // Other room-related logic...
+  }
+
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.role === 'allPurpose') {
+        roleAllPurpose.run(creep);
+    } else if (creep.memory.role === 'upgrader') {
+        roleUpgrader.run(creep);
+    } else if (creep.memory.role === 'miner') {
+        roleMiner.run(creep);
+    } else if (creep.memory.role === 'builder') {
+        roleBuilder.run(creep);
+    } else if (creep.memory.role === 'hauler') {
+        roleHauler.run(creep);
+    }
+  }
 
     let totalCPUUsage = Game.cpu.getUsed();
     let initCPUUsage = 0;
@@ -91,28 +118,4 @@ module.exports.loop = function () {
 
     }
 
-    for (const spawnName in Game.spawns) {
-        const spawn = Game.spawns[spawnName];
-        spawnManager.spawnAllPurposeCreeps(spawn);
-        spawnManager.spawnMinerCreeps(spawn);
-        spawnManager.spawnHaulerCreeps(spawn);
-        spawnManager.spawnBuilderCreeps(spawn);
-        spawnManager.spawnUpgraderCreeps(spawn);
-        spawnManager.planNextMiner(spawn);
-    }
-
-    for (const name in Game.creeps) {
-        const creep = Game.creeps[name];
-        if (creep.memory.role === 'allPurpose') {
-            roleAllPurpose.run(creep);
-        } else if (creep.memory.role === 'upgrader') {
-            roleUpgrader.run(creep);
-        } else if (creep.memory.role === 'miner') {
-            roleMiner.run(creep);
-        } else if (creep.memory.role === 'builder') {
-            roleBuilder.run(creep);
-        } else if (creep.memory.role === 'hauler') {
-            roleHauler.run(creep);
-        }
-    }
 };
