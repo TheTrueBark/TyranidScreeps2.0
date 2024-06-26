@@ -22,21 +22,23 @@ const spawnManager = {
     spawnMinerCreeps: function(spawn) {
         const sources = spawn.room.find(FIND_SOURCES);
         const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
-
+    
         if (spawn.room.controller.level < 2) {
             return;
         }
-
+    
         for (const source of sources) {
             const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner' && creep.memory.sourceId === source.id);
-            const miningPositions = roomPlanner.findMiningPositions(spawn.room);
-
+            const miningPositions = roomPlanner.findMiningPositions(spawn.room, source);
+            const maxMiners = miningPositions.length;
+    
             const requiredWorkParts = Math.ceil(source.energyCapacity / 300); // 300 energy per tick
             const currentWorkParts = _.sum(miners, (miner) => _.filter(miner.body, { type: WORK }).length);
-
-            if (currentWorkParts < requiredWorkParts) {
+            const minersNeeded = Math.min(maxMiners, Math.ceil(requiredWorkParts / 5)); // Each miner should ideally have 5 WORK parts
+    
+            if (miners.length < minersNeeded) {
                 const bodyParts = this.calculateMinerBodyParts(energyCapacityAvailable, requiredWorkParts - currentWorkParts);
-
+    
                 // Add miner to queue if it isn't already there
                 if (!this.minerQueue.some(q => q.sourceId === source.id && _.isEqual(q.bodyParts, bodyParts))) {
                     this.minerQueue.push({ sourceId: source.id, bodyParts: bodyParts });
@@ -44,7 +46,7 @@ const spawnManager = {
                 }
             }
         }
-
+    
         // Check if we can spawn a miner from the queue
         if (this.minerQueue.length > 0) {
             const minerToSpawn = this.minerQueue[0];
@@ -53,7 +55,8 @@ const spawnManager = {
                 this.minerQueue.shift(); // Remove the miner from the queue
             }
         }
-    },
+    }
+    ,
 
     spawnHaulerCreeps: function(spawn) {
         const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
