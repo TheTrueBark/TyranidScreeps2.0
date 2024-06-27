@@ -12,6 +12,7 @@ const roleAllPurpose = {
             creep.memory.miningPosition = {};
         }
 
+        // Determine if the creep should be working or collecting
         if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
             creep.memory.working = false;
             creep.say('🔄 collect');
@@ -23,29 +24,40 @@ const roleAllPurpose = {
             memoryManager.releaseMiningPosition(creep);
         }
 
+        // Action based on state
         if (creep.memory.working) {
+            // Transferring state
             const extensions = creep.room.find(FIND_STRUCTURES, {
                 filter: structure => structure.structureType === STRUCTURE_EXTENSION && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
 
-            const spawn = creep.room.find(FIND_MY_SPAWNS, {
+            const spawns = creep.room.find(FIND_MY_SPAWNS, {
                 filter: structure => structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-            })[0];
+            });
 
             if (extensions.length > 0) {
                 if (creep.transfer(extensions[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
                     creep.memory.desiredPosition = extensions[0].pos;
                 }
-            } else if (spawn) {
-                if (creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                    creep.memory.desiredPosition = spawn.pos;
+            } else if (spawns.length > 0) {
+                if (creep.transfer(spawns[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.memory.desiredPosition = spawns[0].pos;
                 }
             } else {
-                if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                    creep.memory.desiredPosition = creep.room.controller.pos;
+                const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+                if (constructionSites.length > 0) {
+                    if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
+                        creep.memory.desiredPosition = constructionSites[0].pos;
+                    }
+                } else {
+                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+                        creep.memory.desiredPosition = creep.room.controller.pos;
+                        creep.setWorkingArea(creep.room.controller.pos, 3);
+                    }
                 }
             }
         } else {
+            // Collecting state
             const source = Game.getObjectById(creep.memory.source);
             if (source) {
                 const pos = creep.memory.miningPosition;
