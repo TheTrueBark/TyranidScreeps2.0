@@ -12,6 +12,18 @@ const spawnQueue = {
 
     getQueue() {
         return this.queue;
+    },
+
+    adjustPriorities(room) {
+        // Adjust priorities based on room state
+        for (let i = 0; i < this.queue.length; i++) {
+            const entry = this.queue[i];
+            // Example adjustment: Increase priority for upgraders if controller is below certain level
+            if (entry.role === 'upgrader' && room.controller.ticksToDowngrade < 1000) {
+                entry.priority = 1;
+            }
+        }
+        this.queue.sort((a, b) => a.priority - b.priority);
     }
 };
 

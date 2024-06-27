@@ -13,9 +13,10 @@ const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
 const trafficManager = require("manager.traffic");
 const memoryManager = require("manager.memory");
+const pathfinderManager = require("manager.pathfinder");
 
 // Initialize the traffic manager
-trafficManager.init()
+trafficManager.init();
 
 let myStats = [];
 global.visualizeDT = false;
@@ -35,38 +36,37 @@ global.visual = {
 };
 
 module.exports.loop = function () {
-    
     // Clean up memory
     for (let name in Memory.creeps) {
-      if (!Game.creeps[name]) {
-          console.log(`Clearing memory of dead creep: ${name}`);
-          delete Memory.creeps[name];
-      }
-  }
-
-    // Initialize Memory Manager, Room Memory, spawnManager
-    for (const roomName in Game.rooms) {
-     const room = Game.rooms[roomName];
-      memoryManager.initializeRoomMemory(room);
-      trafficManager.run(room);
-      spawnManager.run(room);
-      // Other room-related logic...
-  }
-
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    if (creep.memory.role === 'allPurpose') {
-        roleAllPurpose.run(creep);
-    } else if (creep.memory.role === 'upgrader') {
-        roleUpgrader.run(creep);
-    } else if (creep.memory.role === 'miner') {
-        roleMiner.run(creep);
-    } else if (creep.memory.role === 'builder') {
-        roleBuilder.run(creep);
-    } else if (creep.memory.role === 'hauler') {
-        roleHauler.run(creep);
+        if (!Game.creeps[name]) {
+            console.log(`Clearing memory of dead creep: ${name}`);
+            delete Memory.creeps[name];
+        }
     }
-  }
+
+    // Initialize early loop management Memory Manager, Room Memory, spawnManager
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        memoryManager.initializeRoomMemory(room);
+        spawnManager.run(room);
+        roomManager.scanRoom(room);
+        // Other room-related logic...
+    }
+
+    for (const name in Game.creeps) {
+        const creep = Game.creeps[name];
+        if (creep.memory.role === 'allPurpose') {
+            roleAllPurpose.run(creep);
+        } else if (creep.memory.role === 'upgrader') {
+            roleUpgrader.run(creep);
+        } else if (creep.memory.role === 'miner') {
+            roleMiner.run(creep);
+        } else if (creep.memory.role === 'builder') {
+            roleBuilder.run(creep);
+        } else if (creep.memory.role === 'hauler') {
+            roleHauler.run(creep);
+        }
+    }
 
     let totalCPUUsage = Game.cpu.getUsed();
     let initCPUUsage = 0;
@@ -104,7 +104,6 @@ module.exports.loop = function () {
 
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
-        roomManager.scanRoom(room);
         buildingManager.buildInfrastructure(room);
 
         // Distance Transform Calculation and Visualization
@@ -116,6 +115,7 @@ module.exports.loop = function () {
         // Create HUD
         hudManager.createHUD(room);
 
+        // Run traffic management
+        trafficManager.run(room);
     }
-
 };
