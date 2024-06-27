@@ -61,14 +61,16 @@ const memoryManager = {
             for (const pos of availablePositions) {
                 const key = `${creep.room.name}_${pos.x},${pos.y}`;
                 if (!Memory.reservedPositions) Memory.reservedPositions = {};
-                if (!Memory.reservedPositions[key]) {
+                if (!Memory.reservedPositions[key] || Memory.reservedPositions[key] === creep.name) {
                     Memory.reservedPositions[key] = creep.name;
-                    creep.memory.miningPosition = { x: pos.x, y: pos.y };
-                    creep.memory.desiredPosition = { x: pos.x, y: pos.y };
-                    break;
+                    creep.memory.miningPosition = { x: pos.x, y: pos.y, roomName: creep.room.name };
+                    creep.memory.desiredPosition = { x: pos.x, y: pos.y, roomName: creep.room.name };
+                    return true; // Successfully assigned a mining position
                 }
             }
         }
+
+        return false; // No available positions
     },
 
     releaseMiningPosition(creep) {

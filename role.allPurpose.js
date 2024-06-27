@@ -1,4 +1,3 @@
-const statsConsole = require("console.console");
 const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
 const debugConfig = require("console.debugLogs");
@@ -11,77 +10,98 @@ const roleAllPurpose = {
         if (!creep.memory.miningPosition) {
             creep.memory.miningPosition = {};
         }
+        if (!creep.memory.sourcePosition) {
+            creep.memory.sourcePosition = {};
+        }
 
         // Determine if the creep should be working or collecting
         if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
             creep.memory.working = false;
             creep.say('🔄 collect');
+            if (debugConfig.roleAllPurpose) {
+                console.log(`Creep ${creep.name} switching to collecting state.`);
+            }
+            memoryManager.releaseMiningPosition(creep);
             memoryManager.assignMiningPosition(creep);
+            this.setSourcePosition(creep);
         }
         if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
             creep.memory.working = true;
             creep.say('⚡ transfer');
+            if (debugConfig.roleAllPurpose) {
+                console.log(`Creep ${creep.name} switching to transferring state.`);
+            }
             memoryManager.releaseMiningPosition(creep);
         }
 
-        // Action based on state
         if (creep.memory.working) {
-            // Transferring state
-            const extensions = creep.room.find(FIND_STRUCTURES, {
-                filter: structure => structure.structureType === STRUCTURE_EXTENSION && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-            });
-
-            const spawns = creep.room.find(FIND_MY_SPAWNS, {
-                filter: structure => structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-            });
-
-            if (extensions.length > 0) {
-                if (creep.transfer(extensions[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                    creep.memory.desiredPosition = extensions[0].pos;
-                }
-            } else if (spawns.length > 0) {
-                if (creep.transfer(spawns[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                    creep.memory.desiredPosition = spawns[0].pos;
-                }
-            } else {
-                const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-                if (constructionSites.length > 0) {
-                    if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
-                        creep.memory.desiredPosition = constructionSites[0].pos;
-                    }
-                } else {
-                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-                        creep.memory.desiredPosition = creep.room.controller.pos;
-                        creep.setWorkingArea(creep.room.controller.pos, 3);
-                    }
-                }
-            }
+            this.performTransfer(creep);
         } else {
-            // Collecting state
-            const source = Game.getObjectById(creep.memory.source);
-            if (source) {
-                const pos = creep.memory.miningPosition;
-                if (creep.harvest(source) === ERR_NOT_IN_RANGE) {
-                    creep.memory.desiredPosition = new RoomPosition(pos.x, pos.y, creep.room.name);
-                }
-            } else {
-                memoryManager.assignMiningPosition(creep);
-            }
-        }
-
-        if (debugConfig.roleAllPurpose) {
-            console.log(`Creep ${creep.name} desired position: ${JSON.stringify(creep.memory.desiredPosition)}`);
+            this.performCollect(creep);
         }
 
         const nextPosition = pathfinderManager.calculateNextPosition(creep, creep.memory.desiredPosition);
         if (nextPosition) {
-            if (debugConfig.roleAllPurpose) {
-                console.log(`Movement ${creep.name} to position (${nextPosition.x}, ${nextPosition.y})`);
-            }
             creep.registerMove(nextPosition);
+        }
+    },
+
+    setSourcePosition: function(creep) {
+        const source = Game.getObjectById(creep.memory.source);
+        if (source) {
+            creep.memory.sourcePosition = {
+                x: source.pos.x,
+                y: source.pos.y,
+                roomName: source.pos.roomName
+            };
+        }
+    },
+
+    performTransfer: function(creep) {
+        const targets = creep.room.find(FIND_STRUCTURES, {
+            filter: structure => (structure.structureType === STRUCTURE_EXTENSION || structure.structureType === STRUCTURE_SPAWN) && 
+                                  structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        });
+
+        if (targets.length > 0) {
+            if (creep.transfer(targets[0], RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                creep.memory.desiredPosition = targets[0].pos;
+            }
         } else {
-            if (debugConfig.roleAllPurpose) {
-                console.log(`Creep ${creep.name} has no valid next position`);
+            const target = creep.room.controller;
+            if (creep.upgradeController(target) === ERR_NOT_IN_RANGE) {
+                creep.memory.desiredPosition = target.pos;
+            }
+        }
+    },
+
+    performCollect: function(creep) {
+        if (!creep.memory.miningPosition.x) {
+            if (!memoryManager.assignMiningPosition(creep)) {
+                return;
+            }
+        }
+
+        const miningPos = creep.memory.miningPosition;
+        if (!creep.pos.isEqualTo(miningPos.x, miningPos.y)) {
+            creep.memory.desiredPosition = new RoomPosition(miningPos.x, miningPos.y, miningPos.roomName);
+            creep.moveTo(miningPos.x, miningPos.y, { visualizePathStyle: { stroke: '#ffaa00' } });
+        } else {
+            const sourcePos = creep.memory.sourcePosition;
+            if (sourcePos && sourcePos.x !== undefined && sourcePos.y !== undefined && sourcePos.roomName) {
+                const source = new RoomPosition(sourcePos.x, sourcePos.y, sourcePos.roomName).findClosestByRange(FIND_SOURCES);
+                const harvestResult = creep.harvest(source);
+                if (harvestResult === OK) {
+                    if (debugConfig.roleAllPurpose) {
+                        console.log(`Creep ${creep.name} harvesting from source at (${source.pos.x}, ${source.pos.y})`);
+                    }
+                } else if (harvestResult !== ERR_NOT_ENOUGH_RESOURCES && harvestResult !== ERR_NOT_IN_RANGE) {
+                    if (debugConfig.roleAllPurpose) {
+                        console.log(`Creep ${creep.name} failed to harvest source with result ${harvestResult}`);
+                    }
+                }
+            } else {
+                this.setSourcePosition(creep);
             }
         }
     },
