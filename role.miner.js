@@ -29,10 +29,32 @@ const roleMiner = {
             return;
         }
 
+        // Ensure the source ID is set
+        if (!creep.memory.sourceId) {
+            const sources = miningPos.findInRange(FIND_SOURCES, 1);
+            if (sources.length > 0) {
+                creep.memory.sourceId = sources[0].id;
+            } else {
+                if (debugConfig.roleMiner) {
+                    console.log(`Miner ${creep.name} could not find a source at the mining position.`);
+                }
+                return;
+            }
+        }
+
         // Mine the assigned source
         const source = Game.getObjectById(creep.memory.sourceId);
         if (source) {
-            creep.harvest(source);
+            const harvestResult = creep.harvest(source);
+            if (harvestResult === OK) {
+                if (debugConfig.roleMiner) {
+                    console.log(`Miner ${creep.name} harvesting from source ${source.id}`);
+                }
+            } else if (harvestResult !== ERR_NOT_ENOUGH_RESOURCES && harvestResult !== ERR_NOT_IN_RANGE) {
+                if (debugConfig.roleMiner) {
+                    console.log(`Miner ${creep.name} failed to harvest source with result ${harvestResult}`);
+                }
+            }
         } else {
             if (debugConfig.roleMiner) {
                 console.log(`Miner ${creep.name} does not have a valid source to mine.`);

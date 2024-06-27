@@ -7,9 +7,6 @@ const roleAllPurpose = {
         if (!creep.memory.desiredPosition) {
             creep.memory.desiredPosition = {};
         }
-        if (!creep.memory.miningPosition) {
-            creep.memory.miningPosition = {};
-        }
         if (!creep.memory.sourcePosition) {
             creep.memory.sourcePosition = {};
         }
@@ -32,6 +29,7 @@ const roleAllPurpose = {
                 console.log(`Creep ${creep.name} switching to transferring state.`);
             }
             memoryManager.releaseMiningPosition(creep);
+            delete creep.memory.miningPosition;
         }
 
         if (creep.memory.working) {
@@ -76,7 +74,7 @@ const roleAllPurpose = {
     },
 
     performCollect: function(creep) {
-        if (!creep.memory.miningPosition.x) {
+        if (!creep.memory.miningPosition || !creep.memory.miningPosition.x) {
             if (!memoryManager.assignMiningPosition(creep)) {
                 return;
             }
