@@ -25,29 +25,45 @@ const spawnManager = {
 
     checkAndAddToQueue(spawn, room) {
         const availableEnergy = spawn.room.energyAvailable;
-        if (debugConfig.spawnManager) console.log(`Available energy in room ${room.name}: ${availableEnergy}`);
-
-        const totalAvailablePositions = Memory.rooms[room.name].totalAvailableMiningPositions;
-        const allPurposeCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'allPurpose' && creep.room.name === room.name).length;
-
-        if (debugConfig.spawnManager) {
-            console.log(`Total available positions: ${totalAvailablePositions}`);
-            console.log(`Current allPurpose creeps: ${allPurposeCreeps}`);
+        const rcl = room.controller.level;
+        const totalCreeps = _.filter(Game.creeps, (creep) => creep.room.name === room.name).length;
+    
+        // Spawn allPurpose creeps when RCL < 2 or as fallback if less than 3 creeps in total
+        if (rcl < 2 || totalCreeps < 3) {
+            const allPurposeCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'allPurpose' && creep.room.name === room.name).length;
+            if (allPurposeCreeps < totalCreeps || totalCreeps < 3) {
+                if (debugConfig.spawnManager) console.log(`Adding allPurpose creep to spawn queue in room ${room.name}`);
+                const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', availableEnergy);
+                spawnQueue.addToQueue(10, 'allPurpose', bodyParts, { role: 'allPurpose' });
+                return;
+            }
         }
-
-        if (allPurposeCreeps < totalAvailablePositions) {
-            if (debugConfig.spawnManager) console.log(`Adding allPurpose creep to spawn queue in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', availableEnergy);
-            spawnQueue.addToQueue(10, 'allPurpose', bodyParts, { role: 'allPurpose' });
-        } else {
-            // Logic for adding other roles to the queue when RCL is 2 or above
-            // Example for adding a miner if less than the number of sources
+    
+        if (rcl >= 2) {
+            // Logic for spawning miners
             const miners = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.room.name === room.name).length;
-            const sources = room.find(FIND_SOURCES).length;
-            if (miners < sources) {
-                if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue in room ${room.name}`);
-                const bodyParts = bodyPartManager.calculateBodyParts('miner', availableEnergy);
-                spawnQueue.addToQueue(20, 'miner', bodyParts, { role: 'miner' });
+            const sources = room.find(FIND_SOURCES);
+    
+            sources.forEach(source => {
+                const availablePositions = Memory.rooms[room.name].miningPositions[source.id].length;
+                const workPartsPerTick = Math.floor(3000 / ENERGY_REGEN_TIME);
+                const maxBodyParts = Math.min(Math.floor(availableEnergy / 100), Math.min(workPartsPerTick, Math.floor(50 / 3)));
+                const minerCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.memory.source === source.id).length;
+    
+                if (minerCreeps < availablePositions) {
+                    if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue in room ${room.name}`);
+                    const bodyParts = bodyPartManager.calculateBodyParts('miner', availableEnergy);
+                    spawnQueue.addToQueue(20, 'miner', bodyParts, { role: 'miner', source: source.id });
+                }
+            });
+    
+            // Logic for spawning haulers
+            const haulers = _.filter(Game.creeps, (creep) => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
+            const targetHaulers = Math.max(2, Math.ceil(miners * 3 / 1.5));
+            if (haulers < targetHaulers) {
+                if (debugConfig.spawnManager) console.log(`Adding hauler creep to spawn queue in room ${room.name}`);
+                const bodyParts = bodyPartManager.calculateBodyParts('hauler', availableEnergy);
+                spawnQueue.addToQueue(30, 'hauler', bodyParts, { role: 'hauler' });
             }
         }
     },
@@ -55,15 +71,16 @@ const spawnManager = {
     processSpawnQueue(spawn) {
         if (debugConfig.spawnManager) console.log(`Processing spawn queue for ${spawn.name}`);
         if (!spawn.spawning) {
-            const nextSpawn = spawnQueue.getNextSpawn();
+            const nextSpawn = spawnQueue.getNextSpawn();  // Ensure this fetches the next spawn in the global queue
             if (nextSpawn) {
                 if (debugConfig.spawnManager) console.log(`Next spawn: ${JSON.stringify(nextSpawn)}`);
                 const { role, bodyParts, memory } = nextSpawn;
                 const newName = role.charAt(0).toUpperCase() + role.slice(1) + Game.time;
-                if (debugConfig.spawnManager) console.log(`Attempting to spawn ${newName} with body parts: ${bodyParts}`);
+                if (debugConfig.spawnManager) console.log(`Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`);
                 const result = spawn.spawnCreep(bodyParts, newName, { memory });
                 if (result === OK) {
                     if (debugConfig.spawnManager) console.log(`Spawning new ${role}: ${newName}`);
+                    spawnQueue.removeSpawnFromQueue();  // Ensure this removes the spawned creep from the global queue
                 } else {
                     if (debugConfig.spawnManager) console.log(`Failed to spawn ${role}: ${result}`);
                 }

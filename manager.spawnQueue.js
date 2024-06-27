@@ -1,26 +1,39 @@
+const debugConfig = require("console.debugLogs");
+
 const spawnQueue = {
     queue: [],
 
     addToQueue(priority, role, bodyParts, memory) {
         this.queue.push({ priority, role, bodyParts, memory });
-        this.queue.sort((a, b) => a.priority - b.priority); // Sort by priority (lower value means higher priority)
+        this.queue.sort((a, b) => a.priority - b.priority);
+        if (debugConfig.spawnQueue) console.log(`Added to spawn queue: role=${role}, priority=${priority}, bodyParts=${bodyParts}`);
     },
 
     getNextSpawn() {
-        return this.queue.shift();
+        if (this.queue.length > 0) {
+            const nextSpawn = this.queue[0];
+            if (debugConfig.spawnQueue) console.log(`Next spawn in queue: ${JSON.stringify(nextSpawn)}`);
+            return nextSpawn;
+        }
+        return null;
     },
 
-    getQueue() {
-        return this.queue;
+    removeSpawnFromQueue() {
+        if (this.queue.length > 0) {
+            const removed = this.queue.shift();
+            if (debugConfig.spawnQueue) console.log(`Removed from spawn queue: ${JSON.stringify(removed)}`);
+            return removed;
+        }
+        return null;
     },
 
     adjustPriorities(room) {
-        // Adjust priorities based on room state
-        for (let i = 0; i < this.queue.length; i++) {
-            const entry = this.queue[i];
-            // Example adjustment: Increase priority for upgraders if controller is below certain level
-            if (entry.role === 'upgrader' && room.controller.ticksToDowngrade < 1000) {
-                entry.priority = 1;
+        // Adjust priorities based on room state, for example, if urgent builders are needed
+        if (debugConfig.spawnQueue) console.log(`Adjusting priorities for room: ${room.name}`);
+        // Example logic to adjust priorities (this would be customized based on specific game logic)
+        for (const spawnRequest of this.queue) {
+            if (spawnRequest.role === 'builder' && room.find(FIND_CONSTRUCTION_SITES).length > 0) {
+                spawnRequest.priority = 5; // Higher priority for builders if construction sites exist
             }
         }
         this.queue.sort((a, b) => a.priority - b.priority);

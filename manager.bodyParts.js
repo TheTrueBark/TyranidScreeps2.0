@@ -28,16 +28,21 @@ const bodyPartManager = {
     },
 
     calculateMinerBodyParts(availableEnergy) {
-        const bodyParts = [];
+        const bodyParts = [MOVE, WORK];
         const workCost = 100;
-        const moveCost = 50;
-        const numWorkParts = Math.floor(availableEnergy / (workCost + moveCost));
+        let remainingEnergy = availableEnergy - 150; // cost of 1 MOVE and 1 WORK
+
+        if (remainingEnergy < 0) {
+            // Not enough energy to spawn even the minimum miner
+            return bodyParts;
+        }
+
+        const numWorkParts = Math.floor(remainingEnergy / workCost);
+
         for (let i = 0; i < numWorkParts; i++) {
             bodyParts.push(WORK);
-            if (i < Math.floor(availableEnergy / moveCost)) {
-                bodyParts.push(MOVE);
-            }
         }
+
         return bodyParts;
     },
 
@@ -46,10 +51,12 @@ const bodyPartManager = {
         const carryCost = 50;
         const moveCost = 50;
         const numParts = Math.floor(availableEnergy / (carryCost + moveCost));
+
         for (let i = 0; i < numParts; i++) {
             bodyParts.push(CARRY);
             bodyParts.push(MOVE);
         }
+        
         return bodyParts;
     },
 
@@ -66,7 +73,7 @@ const bodyPartManager = {
             bodyParts.push(CARRY);
             bodyParts.push(MOVE);
         }
-
+        
         return bodyParts;
     },
 
@@ -83,7 +90,7 @@ const bodyPartManager = {
             bodyParts.push(CARRY);
             bodyParts.push(MOVE);
         }
-
+        
         return bodyParts;
     },
 
@@ -93,16 +100,11 @@ const bodyPartManager = {
         const carryCost = 50;
         const moveCost = 50;
         const partCost = workCost + carryCost + moveCost;
-        const numParts = Math.floor(availableEnergy / partCost);
 
-        for (let i = 0; i < numParts; i++) {
+        if (availableEnergy >= partCost) {
             bodyParts.push(WORK);
             bodyParts.push(CARRY);
             bodyParts.push(MOVE);
-        }
-
-        if (bodyParts.length === 0) {
-            if (debugConfig.bodyPartManager) console.log(`Not enough energy to spawn creep`);
         }
 
         return bodyParts;

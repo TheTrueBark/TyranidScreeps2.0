@@ -1,5 +1,5 @@
 const debugConfig = {
-    spawnManager: false,
+    spawnManager: true,
     bodyPartManager: false,
     memoryManager: true,
     roleAllPurpose: true,
