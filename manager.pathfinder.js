@@ -1,5 +1,7 @@
 const debugConfig = require("console.debugLogs");
 
+const pathCache = {};
+
 const managerPathfinder = {
     calculateNextPosition(creep, targetPos, costs) {
         if (!targetPos || targetPos.x === undefined || targetPos.y === undefined) {
@@ -27,6 +29,13 @@ const managerPathfinder = {
                 console.log(`Creep ${creep.name} is already within range 1 of the target position (${targetPos.x}, ${targetPos.y})`);
             }
             return { x: targetPos.x, y: targetPos.y };
+        }
+
+        const cacheKey = `${creep.pos.x},${creep.pos.y}-${targetPos.x},${targetPos.y}`;
+        if (pathCache[cacheKey]) {
+            const nextPos = pathCache[cacheKey].shift();
+            if (pathCache[cacheKey].length === 0) delete pathCache[cacheKey];
+            return nextPos;
         }
 
         const path = PathFinder.search(
@@ -79,20 +88,23 @@ const managerPathfinder = {
             }
             return null;
         } else {
-            for (let i = 0; i < path.path.length; i++) {
-                const nextPos = path.path[i];
-                const range = creep.pos.getRangeTo(nextPos);
-                if (debugConfig.pathfinder) {
-                    console.log(`Creep ${creep.name} checking position (${nextPos.x}, ${nextPos.y}), range: ${range}`);
-                }
-                if (range === 1) {
-                    return { x: nextPos.x, y: nextPos.y };
-                }
-            }
-            if (debugConfig.pathfinder) {
-                console.log(`No valid next step found in path for creep ${creep.name}`);
-            }
-            return null;
+            pathCache[cacheKey] = path.path;
+            const nextPos = path.path.shift();
+            return nextPos;
+        }
+    },
+
+    updateCache(room) {
+        // Invalidate and recalculate paths for the room
+        for (const key in pathCache) {
+            const [start, end] = key.split('-');
+            const [startX, startY] = start.split(',').map(Number);
+            const [endX, endY] = end.split(',').map(Number);
+            const startPos = new RoomPosition(startX, startY, room.name);
+            const endPos = new RoomPosition(endX, endY, room.name);
+
+            const path = PathFinder.search(startPos, { pos: endPos, range: 1 });
+            pathCache[key] = path.path;
         }
     }
 };

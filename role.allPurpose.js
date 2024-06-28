@@ -74,16 +74,30 @@ const roleAllPurpose = {
     },
 
     performCollect: function(creep) {
+        // Check for dropped energy first
+        const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+            filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount >= 50
+        });
+    
+        if (droppedEnergy) {
+            if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
+                creep.memory.desiredPosition = droppedEnergy.pos;
+                creep.registerMove(droppedEnergy.pos);
+            }
+            return;
+        }
+    
+        // If no dropped energy, move to assigned mining position
         if (!creep.memory.miningPosition || !creep.memory.miningPosition.x) {
             if (!memoryManager.assignMiningPosition(creep)) {
                 return;
             }
         }
-
+    
         const miningPos = creep.memory.miningPosition;
         if (!creep.pos.isEqualTo(miningPos.x, miningPos.y)) {
             creep.memory.desiredPosition = new RoomPosition(miningPos.x, miningPos.y, miningPos.roomName);
-            creep.moveTo(miningPos.x, miningPos.y, { visualizePathStyle: { stroke: '#ffaa00' } });
+            creep.registerMove(miningPos);
         } else {
             const sourcePos = creep.memory.sourcePosition;
             if (sourcePos && sourcePos.x !== undefined && sourcePos.y !== undefined && sourcePos.roomName) {

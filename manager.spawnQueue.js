@@ -6,7 +6,7 @@ const spawnQueue = {
     addToQueue(priority, role, bodyParts, memory) {
         this.queue.push({ priority, role, bodyParts, memory });
         this.queue.sort((a, b) => a.priority - b.priority);
-        if (debugConfig.spawnQueue) console.log(`Added to spawn queue: role=${role}, priority=${priority}, bodyParts=${bodyParts}`);
+        if (debugConfig.spawnQueue) console.log(`Added to spawn queue: role=${role}, priority=${priority}, bodyParts=${JSON.stringify(bodyParts)}`);
     },
 
     getNextSpawn() {
@@ -28,9 +28,7 @@ const spawnQueue = {
     },
 
     adjustPriorities(room) {
-        // Adjust priorities based on room state, for example, if urgent builders are needed
         if (debugConfig.spawnQueue) console.log(`Adjusting priorities for room: ${room.name}`);
-        // Example logic to adjust priorities (this would be customized based on specific game logic)
         for (const spawnRequest of this.queue) {
             if (spawnRequest.role === 'builder' && room.find(FIND_CONSTRUCTION_SITES).length > 0) {
                 spawnRequest.priority = 5; // Higher priority for builders if construction sites exist

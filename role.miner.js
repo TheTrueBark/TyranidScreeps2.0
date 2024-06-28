@@ -1,5 +1,6 @@
 const debugConfig = require("console.debugLogs");
 const memoryManager = require("manager.memory");
+const pathfinder = require("manager.pathfinder");
 
 const roleMiner = {
     run: function(creep) {
@@ -25,7 +26,11 @@ const roleMiner = {
 
         // Move to the mining position if not already there
         if (!creep.pos.isEqualTo(miningPos)) {
-            creep.moveTo(miningPos, { visualizePathStyle: { stroke: '#ffaa00' } });
+            const nextPos = pathfinder.calculateNextPosition(creep, miningPos);
+            if (nextPos) {
+                creep.registerMove(nextPos);
+                creep.moveTo(nextPos.x, nextPos.y, { visualizePathStyle: { stroke: '#ffaa00' } });
+            }
             return;
         }
 

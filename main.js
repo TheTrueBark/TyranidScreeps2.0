@@ -15,6 +15,9 @@ const trafficManager = require("manager.traffic");
 const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
 
+// Import scheduler
+const scheduler = require('scheduler');
+
 // Initialize the traffic manager
 trafficManager.init();
 
@@ -35,39 +38,57 @@ global.visual = {
     }
 };
 
-module.exports.loop = function () {
-    // Clean up memory
+// Add high priority one-time tasks
+scheduler.addTask('initializeRoomMemory', 600, () => {
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        memoryManager.initializeRoomMemory(room);
+    }
+}, true);
+
+scheduler.addTask('clearMemory', 100, () => {
     for (let name in Memory.creeps) {
         if (!Game.creeps[name]) {
             console.log(`Clearing memory of dead creep: ${name}`);
             delete Memory.creeps[name];
         }
     }
+});
 
-    // Initialize early loop management Memory Manager, Room Memory, spawnManager
+scheduler.addTask('updateHUD', 5, () => {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
-        memoryManager.initializeRoomMemory(room);
-        spawnManager.run(room);
-        roomManager.scanRoom(room);
-        // Other room-related logic...
-    }
 
-    for (const name in Game.creeps) {
-        const creep = Game.creeps[name];
-        if (creep.memory.role === 'allPurpose') {
-            roleAllPurpose.run(creep);
-        } else if (creep.memory.role === 'upgrader') {
-            roleUpgrader.run(creep);
-        } else if (creep.memory.role === 'miner') {
-            roleMiner.run(creep);
-        } else if (creep.memory.role === 'builder') {
-            roleBuilder.run(creep);
-        } else if (creep.memory.role === 'hauler') {
-            roleHauler.run(creep);
+        // Create HUD
+        hudManager.createHUD(room);
+
+        // Distance Transform Calculation and Visualization
+        if (visualizeDT) {
+            const dist = distanceTransform.distanceTransform(room);
+            distanceTransform.visualizeDistanceTransform(roomName, dist);
         }
     }
+});
 
+scheduler.addTask('pathfinderCache', 200, () => {
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        pathfinderManager.updateCache(room);
+    }
+});
+
+// Add on-demand building manager task
+scheduler.addTask('buildInfrastructure', 0, () => {
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        buildingManager.buildInfrastructure(room);
+    }
+});
+
+module.exports.loop = function () {
+    scheduler.run();
+
+    // Run stats console
     let totalCPUUsage = Game.cpu.getUsed();
     let initCPUUsage = 0;
     let CreepManagersCPUUsage = 0;
@@ -104,18 +125,37 @@ module.exports.loop = function () {
 
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
-        buildingManager.buildInfrastructure(room);
+        spawnManager.run(room);
 
-        // Distance Transform Calculation and Visualization
-        if (visualizeDT) {
-            const dist = distanceTransform.distanceTransform(room);
-            distanceTransform.visualizeDistanceTransform(roomName, dist);
+        // Other room-related logic...
+    }
+
+    for (const name in Game.creeps) {
+        const creep = Game.creeps[name];
+        if (creep.memory.role === 'allPurpose') {
+            roleAllPurpose.run(creep);
+        } else if (creep.memory.role === 'upgrader') {
+            roleUpgrader.run(creep);
+        } else if (creep.memory.role === 'miner') {
+            roleMiner.run(creep);
+        } else if (creep.memory.role === 'builder') {
+            roleBuilder.run(creep);
+        } else if (creep.memory.role === 'hauler') {
+            roleHauler.run(creep);
         }
+    }
 
-        // Create HUD
-        hudManager.createHUD(room);
+    // Combined room manager
+    if (Game.time % 10 === 0) {
+        for (const roomName in Game.rooms) {
+            const room = Game.rooms[roomName];
+            roomManager.scanRoom(room);
+        }
+    }
 
-        // Run traffic management
+    // Run traffic management
+    for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
         trafficManager.run(room);
     }
 };

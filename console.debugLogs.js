@@ -1,8 +1,8 @@
 const debugConfig = {
     spawnManager: true,
     bodyPartManager: false,
-    memoryManager: true,
-    roleAllPurpose: true,
+    memoryManager: false,
+    roleAllPurpose: false,
     pathfinder: false,
     trafficManager: false,
     roleMiner: false,
