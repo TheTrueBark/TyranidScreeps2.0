@@ -25,6 +25,7 @@ const spawnManager = {
 
     checkAndAddToQueue(spawn, room) {
         const availableEnergy = spawn.room.energyAvailable;
+        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
         const rcl = room.controller.level;
         const totalCreeps = _.filter(Game.creeps, (creep) => creep.room.name === room.name).length;
         const allPurposeCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'allPurpose' && creep.room.name === room.name).length;
@@ -43,86 +44,70 @@ const spawnManager = {
             console.log(`Total Available Mining Positions: ${totalAvailableMiningPositions}`);
         }
 
-        // Spawn allPurpose creeps if RCL < 2 and allPurposeCreeps < totalAvailableMiningPositions
-        if (rcl < 2 && allPurposeCreeps < totalAvailableMiningPositions) {
-            if (debugConfig.spawnManager) console.log(`Adding allPurpose creep to spawn queue in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', availableEnergy);
-            if (debugConfig.spawnManager) {
-                console.log(`Calculated body parts for allPurpose: ${JSON.stringify(bodyParts)}`);
-            }
-            spawnQueue.addToQueue(5, 'allPurpose', bodyParts, { role: 'allPurpose' });
+        // Spawn allPurpose creep if no creeps are present
+        if (totalCreeps === 0 && allPurposeCreeps === 0) {
+            if (debugConfig.spawnManager) console.log(`Adding bootstrap allPurpose creep to spawn queue in room ${room.name}`);
+            const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', energyCapacityAvailable);
+            spawnQueue.addToQueue(1, 'allPurpose', bodyParts, { role: 'allPurpose' });
             return;
         }
 
-        // Spawn allPurpose creeps if totalCreeps < 3 as a fallback
-        if (totalCreeps < 3 && allPurposeCreeps < totalAvailableMiningPositions) {
-            if (debugConfig.spawnManager) console.log(`Adding fallback allPurpose creep to spawn queue in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', availableEnergy);
+        // Logic for spawning miners
+        const sources = room.find(FIND_SOURCES);
+        let totalMinersNeeded = 0;
+
+        sources.forEach(source => {
+            const availablePositions = Memory.rooms[room.name].miningPositions[source.id].length;
+            const minerCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.memory.source === source.id).length;
+
+            // Calculate the best possible miner configuration
+            const bestMinerBodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
+            const workParts = bestMinerBodyParts.filter(part => part === WORK).length;
+            const sourceCapacity = source.energyCapacity;
+            const ticksToRegenerate = ENERGY_REGEN_TIME;
+            const maxMinersForSource = Math.ceil(sourceCapacity / (workParts * HARVEST_POWER * ticksToRegenerate));
+
+            const maxMiners = Math.min(availablePositions, maxMinersForSource);
+            totalMinersNeeded += maxMiners;
+
             if (debugConfig.spawnManager) {
-                console.log(`Calculated body parts for fallback allPurpose: ${JSON.stringify(bodyParts)}`);
+                console.log(`Source ID: ${source.id}`);
+                console.log(`Available Positions: ${availablePositions}`);
+                console.log(`Current Miners: ${minerCreeps}`);
+                console.log(`Best Miner Body Parts: ${JSON.stringify(bestMinerBodyParts)}`);
+                console.log(`Work Parts: ${workParts}`);
+                console.log(`Source Capacity: ${sourceCapacity}`);
+                console.log(`Max Miners for Source: ${maxMinersForSource}`);
+                console.log(`Max Miners: ${maxMiners}`);
+                console.log(`Total Miners Needed: ${totalMinersNeeded}`);
             }
-            spawnQueue.addToQueue(5, 'allPurpose', bodyParts, { role: 'allPurpose' });
-            return;
+
+            if (minerCreeps < maxMiners) {
+                if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue for source ${source.id} in room ${room.name}`);
+                const bodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
+                spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner', source: source.id }); // Adjusted priority for miners
+            }
+        });
+
+        // Ensure total miners do not exceed totalAvailableMiningPositions
+        if (miners < totalAvailableMiningPositions && miners < totalMinersNeeded) {
+            if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue to meet total mining positions in room ${room.name}`);
+            const bodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
+            spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner' }); // Adjusted priority for miners
         }
 
-        if (rcl >= 2) {
-            // Logic for spawning miners
-            const sources = room.find(FIND_SOURCES);
-            let totalMinersNeeded = 0;
-
-            sources.forEach(source => {
-                const availablePositions = Memory.rooms[room.name].miningPositions[source.id].length;
-                const minerCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.memory.source === source.id).length;
-
-                // Calculate the best possible miner configuration
-                const bestMinerBodyParts = bodyPartManager.calculateBodyParts('miner', availableEnergy);
-                const workParts = bestMinerBodyParts.filter(part => part === WORK).length;
-                const sourceCapacity = source.energyCapacity;
-                const ticksToRegenerate = ENERGY_REGEN_TIME;
-                const maxMinersForSource = Math.ceil(sourceCapacity / (workParts * HARVEST_POWER * ticksToRegenerate));
-
-                const maxMiners = Math.min(availablePositions, maxMinersForSource);
-                totalMinersNeeded += maxMiners;
-
-                if (debugConfig.spawnManager) {
-                    console.log(`Source ID: ${source.id}`);
-                    console.log(`Available Positions: ${availablePositions}`);
-                    console.log(`Current Miners: ${minerCreeps}`);
-                    console.log(`Best Miner Body Parts: ${JSON.stringify(bestMinerBodyParts)}`);
-                    console.log(`Work Parts: ${workParts}`);
-                    console.log(`Source Capacity: ${sourceCapacity}`);
-                    console.log(`Max Miners for Source: ${maxMinersForSource}`);
-                    console.log(`Max Miners: ${maxMiners}`);
-                    console.log(`Total Miners Needed: ${totalMinersNeeded}`);
-                }
-
-                if (minerCreeps < maxMiners) {
-                    if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue for source ${source.id} in room ${room.name}`);
-                    const bodyParts = bodyPartManager.calculateBodyParts('miner', availableEnergy);
-                    spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner', source: source.id }); // Adjusted priority for miners
-                }
-            });
-
-            // Ensure total miners do not exceed totalAvailableMiningPositions
-            if (miners < totalAvailableMiningPositions && miners < totalMinersNeeded) {
-                if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue to meet total mining positions in room ${room.name}`);
-                const bodyParts = bodyPartManager.calculateBodyParts('miner', availableEnergy);
-                spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner' }); // Adjusted priority for miners
+        // Logic for spawning haulers
+        const targetHaulers = Math.max(2, Math.ceil(miners * 3 / 1.5));
+        if (haulers < targetHaulers) {
+            if (debugConfig.spawnManager) console.log(`Adding hauler creep to spawn queue in room ${room.name}`);
+            const bodyParts = bodyPartManager.calculateBodyParts('hauler', energyCapacityAvailable);
+            if (debugConfig.spawnManager) {
+                console.log(`Calculated body parts for hauler: ${JSON.stringify(bodyParts)}`);
             }
-
-            // Logic for spawning haulers
-            const targetHaulers = Math.max(2, Math.ceil(miners * 3 / 1.5));
-            if (haulers < targetHaulers) {
-                if (debugConfig.spawnManager) console.log(`Adding hauler creep to spawn queue in room ${room.name}`);
-                const bodyParts = bodyPartManager.calculateBodyParts('hauler', availableEnergy);
-                if (debugConfig.spawnManager) {
-                    console.log(`Calculated body parts for hauler: ${JSON.stringify(bodyParts)}`);
-                }
-                spawnQueue.addToQueue(15, 'hauler', bodyParts, { role: 'hauler' }); // Adjust priority as needed
-            }
-
-            // Add logic for other specialized creeps (upgraders, builders, etc.) as needed
+            spawnQueue.addToQueue(15, 'hauler', bodyParts, { role: 'hauler' }); // Adjust priority as needed
         }
+
+        // Add logic for other specialized creeps (upgraders, builders, etc.) as needed
     },
 
     processSpawnQueue(spawn) {
