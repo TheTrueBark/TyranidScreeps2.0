@@ -1,9 +1,31 @@
 const memoryManager = require("manager.memory");
 const bodyPartManager = require("manager.bodyParts");
 const spawnQueue = require("manager.spawnQueue");
+const demandManager = require("manager.demand");
+const { calculateCollectionTicks } = require("utils.energy");
 const debugConfig = require("console.debugLogs");
 
+// Calculate the effective energy capacity excluding incomplete extensions
+const calculateEffectiveEnergyCapacity = (room) => {
+    let effectiveEnergyCapacity = room.energyCapacityAvailable;
+
+    const constructionSites = room.find(FIND_MY_CONSTRUCTION_SITES, {
+        filter: (site) => site.structureType === STRUCTURE_EXTENSION
+    });
+
+    if (constructionSites.length > 0) {
+        const incompleteExtensions = constructionSites.length * EXTENSION_ENERGY_CAPACITY[room.controller.level];
+        effectiveEnergyCapacity -= incompleteExtensions;
+    }
+
+    return effectiveEnergyCapacity;
+};
+
 const spawnManager = {
+    /**
+     * Main function called each tick to manage spawning in the given room.
+     * @param {Room} room - The room object to manage spawning for.
+     */
     run(room) {
         if (debugConfig.spawnManager) console.log(`Running spawnManager for room: ${room.name}`);
         
@@ -23,109 +45,155 @@ const spawnManager = {
         spawnQueue.adjustPriorities(room);
     },
 
+    /**
+     * Checks the current state of the room and adds appropriate spawn requests to the queue.
+     * @param {StructureSpawn} spawn - The spawn structure to add requests for.
+     * @param {Room} room - The room object to check state for.
+     */
     checkAndAddToQueue(spawn, room) {
         const availableEnergy = spawn.room.energyAvailable;
-        const energyCapacityAvailable = spawn.room.energyCapacityAvailable;
-        const rcl = room.controller.level;
-        const totalCreeps = _.filter(Game.creeps, (creep) => creep.room.name === room.name).length;
-        const allPurposeCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'allPurpose' && creep.room.name === room.name).length;
-        const miners = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.room.name === room.name).length;
-        const haulers = _.filter(Game.creeps, (creep) => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
-        const totalAvailableMiningPositions = Memory.rooms[room.name].totalAvailableMiningPositions;
+        const energyCapacityAvailable = calculateEffectiveEnergyCapacity(spawn.room); // Use the effective energy capacity
 
-        // Logging the initial state
-        if (debugConfig.spawnManager) {
-            console.log(`Room: ${room.name}`);
-            console.log(`RCL: ${rcl}`);
-            console.log(`Total Creeps: ${totalCreeps}`);
-            console.log(`AllPurpose Creeps: ${allPurposeCreeps}`);
-            console.log(`Miners: ${miners}`);
-            console.log(`Haulers: ${haulers}`);
-            console.log(`Total Available Mining Positions: ${totalAvailableMiningPositions}`);
+        // Evaluate room needs
+        demandManager.evaluateRoomNeeds(room);
+        const inDemand = Memory.rooms[room.name].inDemand;
+
+        // Spawn based on demand
+        switch (inDemand) {
+            case 'allPurpose':
+                this.spawnAllPurpose(spawn, room, energyCapacityAvailable);
+                break;
+            case 'miner':
+                this.spawnMiner(spawn, room, energyCapacityAvailable);
+                break;
+            case 'hauler':
+                this.spawnHauler(spawn, room, energyCapacityAvailable);
+                break;
+            case 'default':
+                // Default logic, sort by tickID or other criteria as needed
+                this.spawnDefault(spawn, room, energyCapacityAvailable);
+                break;
+            default:
+                break;
         }
-
-        // Spawn allPurpose creep if no creeps are present
-        if (totalCreeps === 0 && allPurposeCreeps === 0) {
-            if (debugConfig.spawnManager) console.log(`Adding bootstrap allPurpose creep to spawn queue in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', energyCapacityAvailable);
-            spawnQueue.addToQueue(1, 'allPurpose', bodyParts, { role: 'allPurpose' });
-            return;
-        }
-
-        // Logic for spawning miners
-        const sources = room.find(FIND_SOURCES);
-        let totalMinersNeeded = 0;
-
-        sources.forEach(source => {
-            const availablePositions = Memory.rooms[room.name].miningPositions[source.id].length;
-            const minerCreeps = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.memory.source === source.id).length;
-
-            // Calculate the best possible miner configuration
-            const bestMinerBodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
-            const workParts = bestMinerBodyParts.filter(part => part === WORK).length;
-            const sourceCapacity = source.energyCapacity;
-            const ticksToRegenerate = ENERGY_REGEN_TIME;
-            const maxMinersForSource = Math.ceil(sourceCapacity / (workParts * HARVEST_POWER * ticksToRegenerate));
-
-            const maxMiners = Math.min(availablePositions, maxMinersForSource);
-            totalMinersNeeded += maxMiners;
-
-            if (debugConfig.spawnManager) {
-                console.log(`Source ID: ${source.id}`);
-                console.log(`Available Positions: ${availablePositions}`);
-                console.log(`Current Miners: ${minerCreeps}`);
-                console.log(`Best Miner Body Parts: ${JSON.stringify(bestMinerBodyParts)}`);
-                console.log(`Work Parts: ${workParts}`);
-                console.log(`Source Capacity: ${sourceCapacity}`);
-                console.log(`Max Miners for Source: ${maxMinersForSource}`);
-                console.log(`Max Miners: ${maxMiners}`);
-                console.log(`Total Miners Needed: ${totalMinersNeeded}`);
-            }
-
-            if (minerCreeps < maxMiners) {
-                if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue for source ${source.id} in room ${room.name}`);
-                const bodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
-                spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner', source: source.id }); // Adjusted priority for miners
-            }
-        });
-
-        // Ensure total miners do not exceed totalAvailableMiningPositions
-        if (miners < totalAvailableMiningPositions && miners < totalMinersNeeded) {
-            if (debugConfig.spawnManager) console.log(`Adding miner creep to spawn queue to meet total mining positions in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('miner', energyCapacityAvailable);
-            spawnQueue.addToQueue(10, 'miner', bodyParts, { role: 'miner' }); // Adjusted priority for miners
-        }
-
-        // Logic for spawning haulers
-        const targetHaulers = Math.max(2, Math.ceil(miners * 3 / 1.5));
-        if (haulers < targetHaulers) {
-            if (debugConfig.spawnManager) console.log(`Adding hauler creep to spawn queue in room ${room.name}`);
-            const bodyParts = bodyPartManager.calculateBodyParts('hauler', energyCapacityAvailable);
-            if (debugConfig.spawnManager) {
-                console.log(`Calculated body parts for hauler: ${JSON.stringify(bodyParts)}`);
-            }
-            spawnQueue.addToQueue(15, 'hauler', bodyParts, { role: 'hauler' }); // Adjust priority as needed
-        }
-
-        // Add logic for other specialized creeps (upgraders, builders, etc.) as needed
     },
 
+    /**
+     * Spawns an allPurpose creep with the appropriate body parts.
+     * @param {StructureSpawn} spawn - The spawn structure to add requests for.
+     * @param {Room} room - The room object to check state for.
+     * @param {number} energyCapacityAvailable - The available energy capacity.
+     */
+    spawnAllPurpose(spawn, room, energyCapacityAvailable) {
+        if (debugConfig.spawnManager) console.log(`Adding fallback allPurpose creep to spawn queue in room ${room.name}`);
+        const bodyParts = bodyPartManager.calculateBodyParts('allPurpose', energyCapacityAvailable);
+        spawnQueue.addToQueue('allPurpose', room.name, bodyParts, { role: 'allPurpose' }, spawn.id);
+    },
+
+    /**
+     * Spawns a miner with the appropriate body parts based on the available energy.
+     * @param {StructureSpawn} spawn - The spawn structure to add requests for.
+     * @param {Room} room - The room object to check state for.
+     * @param {number} energyCapacityAvailable - The available energy capacity.
+     */
+    spawnMiner(spawn, room, energyCapacityAvailable) {
+        const sources = room.find(FIND_SOURCES);
+        sources.forEach(source => {
+            const availablePositions = Memory.rooms[room.name].miningPositions[source.id].length;
+            const minersAtSource = _.filter(Game.creeps, (creep) => creep.memory.role === 'miner' && creep.memory.source === source.id).length;
+
+            let bodyParts;
+            if (minersAtSource < 3) {
+                bodyParts = [WORK, WORK, MOVE];
+            } else if (minersAtSource < 2) {
+                bodyParts = [WORK, WORK, WORK, MOVE];
+            } else {
+                bodyParts = [WORK, WORK, WORK, WORK, WORK, WORK, MOVE];
+            }
+
+            const miningPositionAssigned = memoryManager.assignMiningPosition({ memory: { source: source.id }, room: room });
+
+            if (miningPositionAssigned) {
+                const distanceToSpawn = spawn.pos.getRangeTo(Game.getObjectById(source.id).pos);
+                const energyProducedPerTick = bodyParts.filter(part => part === WORK).length * HARVEST_POWER;
+                const collectionTicks = calculateCollectionTicks(energyProducedPerTick);
+
+                if (!spawnQueue.queue.some(req => req.memory.source === source.id && JSON.stringify(req.bodyParts) === JSON.stringify(bodyParts))) {
+                    spawnQueue.addToQueue('miner', room.name, bodyParts, {
+                        role: 'miner',
+                        source: source.id,
+                        distanceToSpawn,
+                        energyProducedPerTick,
+                        collectionTicks
+                    }, spawn.id);
+                }
+            }
+        });
+    },
+
+    /**
+     * Spawns a hauler with the appropriate body parts based on the available energy.
+     * @param {StructureSpawn} spawn - The spawn structure to add requests for.
+     * @param {Room} room - The room object to check state for.
+     * @param {number} energyCapacityAvailable - The available energy capacity.
+     */
+    spawnHauler(spawn, room, energyCapacityAvailable) {
+        const currentHaulers = _.filter(Game.creeps, (creep) => creep.memory.role === 'hauler' && creep.room.name === room.name).length;
+        const queuedHaulers = spawnQueue.queue.filter(req => req.memory.role === 'hauler' && req.room === room.name).length;
+
+        if (currentHaulers + queuedHaulers < 6) { // Maximum of 6 haulers
+            const bodyParts = bodyPartManager.calculateBodyParts('hauler', energyCapacityAvailable);
+            spawnQueue.addToQueue('hauler', room.name, bodyParts, { role: 'hauler' }, spawn.id);
+            if (debugConfig.spawnManager) console.log(`Added hauler creep to spawn queue in room ${room.name}`);
+        } else {
+            if (debugConfig.spawnManager) console.log(`Maximum number of haulers reached for room ${room.name}`);
+        }
+    },
+
+    spawnDefault(spawn, room, energyCapacityAvailable) {
+        const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role === 'upgrader' && creep.room.name === room.name).length;
+        if (upgraders < 2) { // Adjust this number as needed
+            const bodyParts = bodyPartManager.calculateBodyParts('upgrader', energyCapacityAvailable);
+            spawnQueue.addToQueue('upgrader', room.name, bodyParts, { role: 'upgrader' }, spawn.id);
+            if (debugConfig.spawnManager) console.log(`Added upgrader creep to spawn queue in room ${room.name}`);
+        }
+    },
+
+    /**
+     * Spawns a creep based on default logic after the initial setup.
+     * @param {StructureSpawn} spawn - The spawn structure to add requests for.
+     * @param {Room} room - The room object to check state for.
+     * @param {number} energyCapacityAvailable - The available energy capacity.
+     */
+    spawnDefault(spawn, room, energyCapacityAvailable) {
+        // Implement your default logic for spawning creeps here
+        // For example, spawn upgraders, builders, etc. based on current room needs
+    },
+
+    /**
+     * Processes the spawn queue for a given spawn structure.
+     * Attempts to spawn the next creep in the queue if enough energy is available.
+     * @param {StructureSpawn} spawn - The spawn structure to process the queue for.
+     */
     processSpawnQueue(spawn) {
         if (debugConfig.spawnManager) console.log(`Processing spawn queue for ${spawn.name}`);
         if (!spawn.spawning) {
-            const nextSpawn = spawnQueue.getNextSpawn();  // Ensure this fetches the next spawn in the global queue
-            if (nextSpawn) {
+            const nextSpawn = spawnQueue.getNextSpawn(spawn.id);  // Ensure this fetches the next spawn in the global queue for this spawn
+            if (nextSpawn && spawn.room.energyAvailable >= nextSpawn.energyRequired) {
                 if (debugConfig.spawnManager) console.log(`Next spawn: ${JSON.stringify(nextSpawn)}`);
-                const { role, bodyParts, memory } = nextSpawn;
-                const newName = role.charAt(0).toUpperCase() + role.slice(1) + Game.time;
+                const { category, bodyParts, memory, requestId } = nextSpawn;
+                const newName = `${category}_${Game.time}`;
                 if (debugConfig.spawnManager) console.log(`Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`);
                 const result = spawn.spawnCreep(bodyParts, newName, { memory });
                 if (result === OK) {
-                    if (debugConfig.spawnManager) console.log(`Spawning new ${role}: ${newName}`);
-                    spawnQueue.removeSpawnFromQueue();  // Ensure this removes the spawned creep from the global queue
+                    if (debugConfig.spawnManager) console.log(`Spawning new ${category}: ${newName}`);
+                    spawnQueue.removeSpawnFromQueue(requestId);
+                    demandManager.evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
                 } else {
-                    if (debugConfig.spawnManager) console.log(`Failed to spawn ${role}: ${result}`);
+                    if (debugConfig.spawnManager) console.log(`Failed to spawn ${category}: ${result}`);
                 }
+            } else {
+                if (debugConfig.spawnManager) console.log(`Not enough energy to spawn: ${JSON.stringify(nextSpawn)}`);
             }
         } else {
             if (debugConfig.spawnManager) console.log(`${spawn.name} is currently spawning a creep`);

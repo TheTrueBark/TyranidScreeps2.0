@@ -52,6 +52,8 @@ const memoryManager = {
             if (sources && sources.length > 0) {
                 const source = sources[0];
                 creep.memory.source = source.id;
+            } else {
+                return false; // No available sources
             }
         }
 

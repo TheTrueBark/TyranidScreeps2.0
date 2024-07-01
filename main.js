@@ -59,9 +59,6 @@ scheduler.addTask('updateHUD', 5, () => {
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
 
-        // Create HUD
-        hudManager.createHUD(room);
-
         // Distance Transform Calculation and Visualization
         if (visualizeDT) {
             const dist = distanceTransform.distanceTransform(room);
@@ -153,9 +150,13 @@ module.exports.loop = function () {
         }
     }
 
-    // Run traffic management
+    // Late tick management
     for (const roomName in Game.rooms) {
         const room = Game.rooms[roomName];
+        // Create HUD
+        hudManager.createHUD(room);
+
+        // Run Traffic Management
         trafficManager.run(room);
     }
 };

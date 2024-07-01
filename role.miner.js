@@ -1,6 +1,7 @@
 const debugConfig = require("console.debugLogs");
 const memoryManager = require("manager.memory");
 const pathfinder = require("manager.pathfinder");
+const { calculateCollectionTicks } = require("utils.energy");
 
 const roleMiner = {
     run: function(creep) {
@@ -65,6 +66,12 @@ const roleMiner = {
                 console.log(`Miner ${creep.name} does not have a valid source to mine.`);
             }
             return;
+        }
+
+        // Calculate distance to spawn once in miner's lifetime
+        if (!creep.memory.distanceToSpawn) {
+            const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
+            creep.memory.distanceToSpawn = creep.pos.getRangeTo(spawn);
         }
 
         // Deposit energy in link or container if available
