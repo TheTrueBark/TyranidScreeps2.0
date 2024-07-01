@@ -19,7 +19,6 @@ const roleAllPurpose = {
                 console.log(`Creep ${creep.name} switching to collecting state.`);
             }
             memoryManager.releaseMiningPosition(creep);
-            memoryManager.assignMiningPosition(creep);
             this.setSourcePosition(creep);
         }
         if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
@@ -89,7 +88,10 @@ const roleAllPurpose = {
     
         // If no dropped energy, move to assigned mining position
         if (!creep.memory.miningPosition || !creep.memory.miningPosition.x) {
-            if (!memoryManager.assignMiningPosition(creep)) {
+            if (!memoryManager.assignMiningPosition(creep.memory, creep.room)) {
+                if (debugConfig.roleAllPurpose) {
+                    console.log(`Creep ${creep.name} could not find an available mining position.`);
+                }
                 return;
             }
         }

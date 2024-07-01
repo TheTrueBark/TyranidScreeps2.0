@@ -1,99 +1,63 @@
 const memoryManager = {
-    initializeRoomMemory(room) {
+    /**
+     * Initializes the room memory with default values.
+     * @param {Room} room - The room object to initialize memory for.
+     */
+    initializeRoomMemory: function(room) {
         if (!Memory.rooms) {
             Memory.rooms = {};
         }
         if (!Memory.rooms[room.name]) {
-            Memory.rooms[room.name] = {};
+            Memory.rooms[room.name] = {
+                miningPositions: {},
+                reservedPositions: {}
+            };
         }
-        const roomMemory = Memory.rooms[room.name];
-
-        const sources = room.find(FIND_SOURCES);
-        roomMemory.sources = sources.map(source => ({
-            id: source.id,
-            pos: source.pos
-        }));
-
-        roomMemory.miningPositions = {};
-
-        let totalAvailablePositions = 0;
-        for (const source of sources) {
-            const availablePositions = this.calculateAvailablePositions(source);
-            roomMemory.miningPositions[source.id] = availablePositions;
-            totalAvailablePositions += availablePositions.length;
-        }
-
-        roomMemory.totalAvailableMiningPositions = totalAvailablePositions;
     },
 
-    calculateAvailablePositions(source) {
-        const positions = [];
-        const terrain = new Room.Terrain(source.room.name);
-
-        for (let x = -1; x <= 1; x++) {
-            for (let y = -1; y <= 1; y++) {
-                if (x === 0 && y === 0) continue;
-
-                const posX = source.pos.x + x;
-                const posY = source.pos.y + y;
-
-                if (terrain.get(posX, posY) !== TERRAIN_MASK_WALL) {
-                    positions.push(new RoomPosition(posX, posY, source.room.name));
+    /**
+     * Cleans up reserved positions in the room memory.
+     */
+    cleanUpReservedPositions: function() {
+        for (const roomName in Memory.rooms) {
+            if (Memory.rooms[roomName].reservedPositions) {
+                for (const pos in Memory.rooms[roomName].reservedPositions) {
+                    if (!Game.creeps[Memory.rooms[roomName].reservedPositions[pos]]) {
+                        delete Memory.rooms[roomName].reservedPositions[pos];
+                    }
                 }
             }
         }
-
-        return positions;
     },
 
-    assignMiningPosition(creep) {
-        if (!creep.memory.source) {
-            const sources = Memory.rooms[creep.room.name].sources;
-            if (sources && sources.length > 0) {
-                const source = sources[0];
-                creep.memory.source = source.id;
-            } else {
-                return false; // No available sources
+    /**
+     * Assigns a mining position to a creep.
+     * @param {Object} creepMemory - The memory object of the creep.
+     * @param {Room} room - The room object where the mining position is assigned.
+     * @returns {boolean} - True if a mining position was assigned, false otherwise.
+     */
+    assignMiningPosition: function(creepMemory, room) {
+        if (!creepMemory || !creepMemory.source) {
+            console.log("Error: Creep memory or source is undefined in assignMiningPosition");
+            return false;
+        }
+
+        const sourceId = creepMemory.source;
+        if (!Memory.rooms[room.name].miningPositions[sourceId]) {
+            return false;
+        }
+
+        const positions = Memory.rooms[room.name].miningPositions[sourceId].positions;
+        for (const key in positions) {
+            const position = positions[key];
+            if (position && !position.reserved) {
+                position.reserved = true;
+                creepMemory.miningPosition = position;
+                return true;
             }
         }
 
-        const source = Game.getObjectById(creep.memory.source);
-        if (source) {
-            const availablePositions = Memory.rooms[creep.room.name].miningPositions[source.id];
-            for (const pos of availablePositions) {
-                const key = `${creep.room.name}_${pos.x},${pos.y}`;
-                if (!Memory.reservedPositions) Memory.reservedPositions = {};
-                if (!Memory.reservedPositions[key] || Memory.reservedPositions[key] === creep.name) {
-                    Memory.reservedPositions[key] = creep.name;
-                    creep.memory.miningPosition = { x: pos.x, y: pos.y, roomName: creep.room.name };
-                    creep.memory.desiredPosition = { x: pos.x, y: pos.y, roomName: creep.room.name };
-                    return true; // Successfully assigned a mining position
-                }
-            }
-        }
-
-        return false; // No available positions
-    },
-
-    releaseMiningPosition(creep) {
-        const pos = creep.memory.miningPosition;
-        if (pos) {
-            const key = `${creep.room.name}_${pos.x},${pos.y}`;
-            if (Memory.reservedPositions[key] === creep.name) {
-                delete Memory.reservedPositions[key];
-            }
-        }
-    },
-
-    cleanUpReservedPositions() {
-        if (!Memory.reservedPositions) return;
-
-        for (const key in Memory.reservedPositions) {
-            const creepName = Memory.reservedPositions[key];
-            if (!Game.creeps[creepName]) {
-                delete Memory.reservedPositions[key];
-            }
-        }
+        return false;
     }
 };
 

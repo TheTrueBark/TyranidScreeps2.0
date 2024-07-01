@@ -41,7 +41,6 @@ const spawnQueue = {
      * @param {string} spawnId - ID of the spawn to fetch the request for.
      * @returns {object|null} - The next spawn request or null if the queue is empty.
      */
-
     getNextSpawn(spawnId) {
         const sortedQueue = this.queue.filter(req => req.spawnId === spawnId).sort((a, b) => a.ticksToSpawn - b.ticksToSpawn);
         if (sortedQueue.length > 0) {
@@ -53,7 +52,6 @@ const spawnQueue = {
         }
         return null;
     },
-    
 
     /**
      * Removes a spawn request from the queue based on its unique identifier.
@@ -65,15 +63,14 @@ const spawnQueue = {
         const index = this.queue.findIndex(req => req.requestId === requestId);
         if (index !== -1) {
             const removed = this.queue.splice(index, 1)[0];
-                console.log(`Memory object for removed spawn: ${JSON.stringify(removed.memory)}`);
+            if (debugConfig.spawnQueue) {
                 console.log(`Removed from spawn queue: ${JSON.stringify(removed)}`);
-                console.log(`Memory object for removed spawn: ${JSON.stringify(removed.memory)}`);
+            }
+            return removed;
         }
-            return null;
+        return null;
     },
 
-    /**
-     * Adjusts the priorities of spawn requests based on room conditions.
     /**
      * Adjusts the priorities of spawn requests based on room conditions.
      * Currently, it increases the priority of builder creeps if construction sites exist in the room.

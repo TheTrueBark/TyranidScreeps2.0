@@ -5,20 +5,18 @@ const { calculateCollectionTicks } = require("utils.energy");
 
 const roleMiner = {
     run: function(creep) {
-        // Ensure mining position is assigned
-        if (!creep.memory.miningPosition) {
-            if (!memoryManager.assignMiningPosition(creep)) {
-                if (debugConfig.roleMiner) {
-                    console.log(`Miner ${creep.name} could not find an available mining position.`);
-                }
-                return; // No available mining position
-            }
-        }
-
         // Check if mining position is correctly assigned
         if (!creep.memory.miningPosition) {
             if (debugConfig.roleMiner) {
                 console.log(`Miner ${creep.name} does not have a mining position assigned.`);
+            }
+            return;
+        }
+
+        // Ensure the mining position has all required properties
+        if (!creep.memory.miningPosition.x || !creep.memory.miningPosition.y || !creep.memory.miningPosition.roomName) {
+            if (debugConfig.roleMiner) {
+                console.log(`Miner ${creep.name} has an incomplete mining position:`, creep.memory.miningPosition);
             }
             return;
         }
