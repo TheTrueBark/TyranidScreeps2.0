@@ -45,7 +45,7 @@ scheduler.addTask(
       const room = Game.rooms[roomName];
       memoryManager.initializeRoomMemory(room);
       // Ensure hierarchical memory structure is prepared
-      memoryManager.initializeHiveMemory(room);
+      memoryManager.initializeHiveMemory(room.name, room.name);
     }
   },
   { highPriority: true, once: true },
