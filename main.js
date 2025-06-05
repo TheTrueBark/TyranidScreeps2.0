@@ -14,7 +14,7 @@ const stampManager = require("manager.stamps");
 const trafficManager = require("manager.traffic");
 const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
-const scheduler = require('scheduler');
+const scheduler = require("scheduler");
 
 // Initialize the traffic manager
 trafficManager.init();
@@ -23,144 +23,161 @@ let myStats = [];
 global.visualizeDT = false;
 
 global.visual = {
-    DT: function(toggle) {
-        if (toggle === 1) {
-            visualizeDT = true;
-            console.log("Distance Transform Visualization: ON");
-        } else if (toggle === 0) {
-            visualizeDT = false;
-            console.log("Distance Transform Visualization: OFF");
-        } else {
-            console.log("Usage: visual.DT(1) to show, visual.DT(0) to hide");
-        }
+  DT: function (toggle) {
+    if (toggle === 1) {
+      visualizeDT = true;
+      console.log("Distance Transform Visualization: ON");
+    } else if (toggle === 0) {
+      visualizeDT = false;
+      console.log("Distance Transform Visualization: OFF");
+    } else {
+      console.log("Usage: visual.DT(1) to show, visual.DT(0) to hide");
     }
+  },
 };
 
 // Add high priority one-time tasks
-scheduler.addTask('initializeRoomMemory', 600, () => {
+scheduler.addTask(
+  "initializeRoomMemory",
+  600,
+  () => {
     for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        memoryManager.initializeRoomMemory(room);
+      const room = Game.rooms[roomName];
+      memoryManager.initializeRoomMemory(room);
+      // Ensure hierarchical memory structure is prepared
+      memoryManager.initializeHiveMemory(room.name, room.name);
     }
-}, true);
+  },
+  { highPriority: true, once: true },
+);
 
-scheduler.addTask('clearMemory', 100, () => {
-    for (let name in Memory.creeps) {
-        if (!Game.creeps[name]) {
-            console.log(`Clearing memory of dead creep: ${name}`);
-            delete Memory.creeps[name];
-        }
+scheduler.addTask("clearMemory", 100, () => {
+  for (let name in Memory.creeps) {
+    if (!Game.creeps[name]) {
+      console.log(`Clearing memory of dead creep: ${name}`);
+      delete Memory.creeps[name];
     }
+  }
 });
 
-scheduler.addTask('updateHUD', 5, () => {
-    for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
+scheduler.addTask("updateHUD", 5, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
 
-        // Distance Transform Calculation and Visualization
-        if (visualizeDT) {
-            const dist = distanceTransform.distanceTransform(room);
-            distanceTransform.visualizeDistanceTransform(roomName, dist);
-        }
+    // Distance Transform Calculation and Visualization
+    if (visualizeDT) {
+      const dist = distanceTransform.distanceTransform(room);
+      distanceTransform.visualizeDistanceTransform(roomName, dist);
     }
+  }
 });
 
-scheduler.addTask('pathfinderCache', 200, () => {
-    for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        pathfinderManager.updateCache(room);
-    }
+scheduler.addTask("pathfinderCache", 200, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    pathfinderManager.updateCache(room);
+  }
 });
 
 // Add on-demand building manager task
-scheduler.addTask('buildInfrastructure', 0, () => {
-    for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        buildingManager.buildInfrastructure(room);
-    }
+scheduler.addTask("buildInfrastructure", 0, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    buildingManager.buildInfrastructure(room);
+  }
 });
 
 module.exports.loop = function () {
-    const startCPU = Game.cpu.getUsed();
+  const startCPU = Game.cpu.getUsed();
 
-    scheduler.run();
+  scheduler.run();
 
-    const initCPUUsage = Game.cpu.getUsed() - startCPU;
-    const totalCPUUsage = initCPUUsage;
+  const initCPUUsage = Game.cpu.getUsed() - startCPU;
+  const totalCPUUsage = initCPUUsage;
 
-    // Initialize CPU usage variables
-    let CreepsCPUUsage = 0;
-    let CreepManagersCPUUsage = 0;
-    let towersCPUUsage = 0;
-    let linksCPUUsage = 0;
-    let SetupRolesCPUUsage = 0;
-    let statsCPUUsage = 0;
+  // Initialize CPU usage variables
+  let CreepsCPUUsage = 0;
+  let CreepManagersCPUUsage = 0;
+  let towersCPUUsage = 0;
+  let linksCPUUsage = 0;
+  let SetupRolesCPUUsage = 0;
+  let statsCPUUsage = 0;
 
-    // Run room managers
-    for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        spawnManager.run(room);
-        roomManager.scanRoom(room);
+  // Run room managers
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    spawnManager.run(room);
+    roomManager.scanRoom(room);
+  }
+
+  const roomManagersCPUUsage = Game.cpu.getUsed() - totalCPUUsage;
+  CreepManagersCPUUsage = roomManagersCPUUsage;
+
+  // Run creep roles
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    const creepStartCPU = Game.cpu.getUsed();
+
+    if (creep.memory.role === "allPurpose") {
+      roleAllPurpose.run(creep);
+    } else if (creep.memory.role === "upgrader") {
+      roleUpgrader.run(creep);
+    } else if (creep.memory.role === "miner") {
+      roleMiner.run(creep);
+    } else if (creep.memory.role === "builder") {
+      roleBuilder.run(creep);
+    } else if (creep.memory.role === "hauler") {
+      roleHauler.run(creep);
     }
 
-    const roomManagersCPUUsage = Game.cpu.getUsed() - totalCPUUsage;
-    CreepManagersCPUUsage = roomManagersCPUUsage;
+    CreepsCPUUsage += Game.cpu.getUsed() - creepStartCPU;
+  }
 
-    // Run creep roles
-    for (const name in Game.creeps) {
-        const creep = Game.creeps[name];
-        const creepStartCPU = Game.cpu.getUsed();
+  // Run late tick management
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    hudManager.createHUD(room);
+    trafficManager.run(room);
+  }
 
-        if (creep.memory.role === 'allPurpose') {
-            roleAllPurpose.run(creep);
-        } else if (creep.memory.role === 'upgrader') {
-            roleUpgrader.run(creep);
-        } else if (creep.memory.role === 'miner') {
-            roleMiner.run(creep);
-        } else if (creep.memory.role === 'builder') {
-            roleBuilder.run(creep);
-        } else if (creep.memory.role === 'hauler') {
-            roleHauler.run(creep);
-        }
+  const lateTickCPUUsage =
+    Game.cpu.getUsed() -
+    (totalCPUUsage + CreepManagersCPUUsage + CreepsCPUUsage);
+  towersCPUUsage = lateTickCPUUsage;
+  linksCPUUsage = lateTickCPUUsage;
+  SetupRolesCPUUsage = lateTickCPUUsage;
+  statsCPUUsage = lateTickCPUUsage;
 
-        CreepsCPUUsage += Game.cpu.getUsed() - creepStartCPU;
-    }
+  myStats = [
+    ["Creep Managers", CreepManagersCPUUsage],
+    ["Towers", towersCPUUsage],
+    ["Links", linksCPUUsage],
+    ["Setup Roles", SetupRolesCPUUsage],
+    ["Creeps", CreepsCPUUsage],
+    ["Init", initCPUUsage],
+    ["Stats", statsCPUUsage],
+    ["Total", totalCPUUsage],
+  ];
 
-    // Run late tick management
-    for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        hudManager.createHUD(room);
-        trafficManager.run(room);
-    }
+  statsConsole.run(myStats);
 
-    const lateTickCPUUsage = Game.cpu.getUsed() - (totalCPUUsage + CreepManagersCPUUsage + CreepsCPUUsage);
-    towersCPUUsage = lateTickCPUUsage;
-    linksCPUUsage = lateTickCPUUsage;
-    SetupRolesCPUUsage = lateTickCPUUsage;
-    statsCPUUsage = lateTickCPUUsage;
+  if (totalCPUUsage > Game.cpu.limit) {
+    statsConsole.log(
+      "Tick: " +
+        Game.time +
+        "  CPU OVERRUN: " +
+        Game.cpu.getUsed().toFixed(2) +
+        "  Bucket:" +
+        Game.cpu.bucket,
+      5,
+    );
+  }
 
-    myStats = [
-        ["Creep Managers", CreepManagersCPUUsage],
-        ["Towers", towersCPUUsage],
-        ["Links", linksCPUUsage],
-        ["Setup Roles", SetupRolesCPUUsage],
-        ["Creeps", CreepsCPUUsage],
-        ["Init", initCPUUsage],
-        ["Stats", statsCPUUsage],
-        ["Total", totalCPUUsage]
-    ];
-
-    statsConsole.run(myStats);
-
-    if (totalCPUUsage > Game.cpu.limit) {
-        statsConsole.log("Tick: " + Game.time + "  CPU OVERRUN: " + Game.cpu.getUsed().toFixed(2) + "  Bucket:" + Game.cpu.bucket, 5);
-    }
-
-    if (Game.time % 5 === 0) {
-        console.log(statsConsole.displayHistogram());
-        console.log(statsConsole.displayStats());
-        console.log(statsConsole.displayLogs());
-        let drawTime = Game.cpu.getUsed() - totalCPUUsage;
-        console.log("Time to Draw: " + drawTime.toFixed(2));
-    }
+  if (Game.time % 5 === 0) {
+    console.log(statsConsole.displayHistogram());
+    console.log(statsConsole.displayStats());
+    console.log(statsConsole.displayLogs());
+    let drawTime = Game.cpu.getUsed() - totalCPUUsage;
+    console.log("Time to Draw: " + drawTime.toFixed(2));
+  }
 };
