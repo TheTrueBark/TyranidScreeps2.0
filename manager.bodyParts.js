@@ -5,20 +5,20 @@
  * @returns {Array} - An array of body parts.
  */
 function calculateBodyParts(role, availableEnergy) {
-    switch (role) {
-        case 'miner':
-            return calculateMinerBodyParts(availableEnergy);
-        case 'hauler':
-            return calculateHaulerBodyParts(availableEnergy);
-        case 'builder':
-            return calculateBuilderBodyParts(availableEnergy);
-        case 'upgrader':
-            return calculateUpgraderBodyParts(availableEnergy);
-        case 'allPurpose':
-            return calculateAllPurposeBodyParts(availableEnergy);
-        default:
-            return [];
-    }
+  switch (role) {
+    case "miner":
+      return calculateMinerBodyParts(availableEnergy);
+    case "hauler":
+      return calculateHaulerBodyParts(availableEnergy);
+    case "builder":
+      return calculateBuilderBodyParts(availableEnergy);
+    case "upgrader":
+      return calculateUpgraderBodyParts(availableEnergy);
+    case "allPurpose":
+      return calculateAllPurposeBodyParts(availableEnergy);
+    default:
+      return [];
+  }
 }
 
 /**
@@ -27,22 +27,22 @@ function calculateBodyParts(role, availableEnergy) {
  * @returns {Array} - An array of body parts for a miner.
  */
 function calculateMinerBodyParts(availableEnergy) {
-    // Define configurations for miners based on energy thresholds
-    const minerConfigurations = [
-        { energy: 300, bodyParts: [WORK, WORK, MOVE] },
-        { energy: 550, bodyParts: [WORK, WORK, WORK, MOVE] },
-        { energy: 800, bodyParts: [WORK, WORK, WORK, WORK, WORK, WORK, MOVE] }
-    ];
+  // Define configurations for miners based on energy thresholds
+  const minerConfigurations = [
+    { energy: 300, bodyParts: [WORK, WORK, MOVE] },
+    { energy: 550, bodyParts: [WORK, WORK, WORK, MOVE] },
+    { energy: 800, bodyParts: [WORK, WORK, WORK, WORK, WORK, WORK, MOVE] },
+  ];
 
-    // Find the best configuration based on the available energy
-    for (let i = minerConfigurations.length - 1; i >= 0; i--) {
-        if (availableEnergy >= minerConfigurations[i].energy) {
-            return minerConfigurations[i].bodyParts;
-        }
+  // Find the best configuration based on the available energy
+  for (let i = minerConfigurations.length - 1; i >= 0; i--) {
+    if (availableEnergy >= minerConfigurations[i].energy) {
+      return minerConfigurations[i].bodyParts;
     }
+  }
 
-    // Default to the smallest configuration if not enough energy
-    return [WORK, WORK, MOVE];
+  // Default to the smallest configuration if not enough energy
+  return [WORK, WORK, MOVE];
 }
 
 /**
@@ -51,15 +51,15 @@ function calculateMinerBodyParts(availableEnergy) {
  * @returns {Array} - An array of body parts for a hauler.
  */
 function calculateHaulerBodyParts(availableEnergy) {
-    const bodyParts = [];
-    const partCost = BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
+  const bodyParts = [];
+  const partCost = BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
 
-    while (availableEnergy >= partCost) {
-        bodyParts.push(CARRY, MOVE);
-        availableEnergy -= partCost;
-    }
+  while (availableEnergy >= partCost) {
+    bodyParts.push(CARRY, MOVE);
+    availableEnergy -= partCost;
+  }
 
-    return bodyParts;
+  return bodyParts;
 }
 
 /**
@@ -68,15 +68,16 @@ function calculateHaulerBodyParts(availableEnergy) {
  * @returns {Array} - An array of body parts for a builder.
  */
 function calculateBuilderBodyParts(availableEnergy) {
-    const bodyParts = [];
-    const partCost = BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
+  const bodyParts = [];
+  const partCost =
+    BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
 
-    while (availableEnergy >= partCost) {
-        bodyParts.push(WORK, CARRY, MOVE);
-        availableEnergy -= partCost;
-    }
+  while (availableEnergy >= partCost) {
+    bodyParts.push(WORK, CARRY, MOVE);
+    availableEnergy -= partCost;
+  }
 
-    return bodyParts;
+  return bodyParts;
 }
 
 /**
@@ -85,15 +86,16 @@ function calculateBuilderBodyParts(availableEnergy) {
  * @returns {Array} - An array of body parts for an upgrader.
  */
 function calculateUpgraderBodyParts(availableEnergy) {
-    const bodyParts = [];
-    const partCost = BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
+  const bodyParts = [];
+  const partCost =
+    BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
 
-    while (availableEnergy >= partCost) {
-        bodyParts.push(WORK, CARRY, MOVE);
-        availableEnergy -= partCost;
-    }
+  while (availableEnergy >= partCost) {
+    bodyParts.push(WORK, CARRY, MOVE);
+    availableEnergy -= partCost;
+  }
 
-    return bodyParts;
+  return bodyParts;
 }
 
 /**
@@ -102,22 +104,23 @@ function calculateUpgraderBodyParts(availableEnergy) {
  * @returns {Array} - An array of body parts for an all-purpose creep.
  */
 function calculateAllPurposeBodyParts(availableEnergy) {
-    const bodyParts = [];
-    const partCost = BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
+  const bodyParts = [];
+  const partCost =
+    BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
 
-    while (availableEnergy >= partCost) {
-        bodyParts.push(WORK, CARRY, MOVE);
-        availableEnergy -= partCost;
-    }
+  while (availableEnergy >= partCost) {
+    bodyParts.push(WORK, CARRY, MOVE);
+    availableEnergy -= partCost;
+  }
 
-    return bodyParts;
+  return bodyParts;
 }
 
 module.exports = {
-    calculateBodyParts,
-    calculateMinerBodyParts,
-    calculateHaulerBodyParts,
-    calculateBuilderBodyParts,
-    calculateUpgraderBodyParts,
-    calculateAllPurposeBodyParts
+  calculateBodyParts,
+  calculateMinerBodyParts,
+  calculateHaulerBodyParts,
+  calculateBuilderBodyParts,
+  calculateUpgraderBodyParts,
+  calculateAllPurposeBodyParts,
 };
