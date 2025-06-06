@@ -17,27 +17,27 @@ const roleUpgrader = {
 
       if (droppedEnergy) {
         if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(droppedEnergy, {
+          creep.travelTo(droppedEnergy, {
             visualizePathStyle: { stroke: "#ffaa00" },
           });
         }
       } else if (container) {
         if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(container, {
+          creep.travelTo(container, {
             visualizePathStyle: { stroke: "#ffaa00" },
           });
         }
       } else {
         const sources = creep.room.find(FIND_SOURCES);
         if (creep.harvest(sources[0]) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(sources[0], {
+          creep.travelTo(sources[0], {
             visualizePathStyle: { stroke: "#ffaa00" },
           });
         }
       }
     } else {
       if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-        creep.moveTo(creep.room.controller, {
+        creep.travelTo(creep.room.controller, {
           visualizePathStyle: { stroke: "#ffffff" },
         });
       }

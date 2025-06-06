@@ -13,7 +13,7 @@ organism in the hive:
 - **HiveMind** – modular decision layer that queues HTM tasks; a subconscious
   triggers modules like the spawn planner on demand
 - **Hive's Gaze** – scans the map for threats and opportunities
-- **Movement System** – pathing via Traveler 2.0
+- **Movement System** – pathing via HiveTravel (Traveler library)
 - **Console Stats** – ASCII dashboard for CPU and room status
 - **DNA Builder** – generates creep bodies based on room energy
 
@@ -52,7 +52,7 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 - [ ] **Hive's Gaze** – Map awareness outside own rooms – Prio 3
 
 ### Bewegung & Wegfindung
-- [ ] **Traveler 2.0 Integration** – Improve pathing (`manager.pathfinder.js`) – Prio 3
+- [x] **HiveTravel Integration** – Improve pathing (`manager.hiveTravel.js`) – Prio 3
 
 ### Überwachung & Visualisierung
 - [x] **Console Stats** – CPU and room dashboard (`console.console.js`) – Prio 3
@@ -68,4 +68,5 @@ Next step: focus on the hierarchical task system so the scheduler can trigger co
 - [HiveMind](./docs/hivemind.md)
 - [Console Stats](./docs/console.md)
 - [Spawn Queue](./docs/spawnQueue.md)
+- [HiveTravel](./docs/hiveTravel.md)
 

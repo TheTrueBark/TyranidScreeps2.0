@@ -89,19 +89,20 @@
 
 ## 🧭 Movement & Pathing
 
-### 🧍 Traveler 2.0 Integration (Prio 3)
-- [ ] Integrate BonzaiFerroni’s Traveler 2.0 (`agent.traveler.js`)
-- [ ] Replace native `moveTo` calls with enhanced wrapper
+### 🧍 HiveTravel Integration (Prio 3)
+- [x] Integrate screepers' Traveler (`manager.hiveTravel.js`)
+- [x] Replace native `moveTo` calls with enhanced wrapper
 - [ ] Add reusable movement options (e.g. `reusePath`, `ignoreCreeps`)
 - [ ] Cross-room pathing support
 - [ ] Logging for movement errors and stuck detection
 - [ ] Movement config per role (scout, hauler, combat)
 
-### ✅ Custom Pathfinder (Prio 4)
+### ✅ Deprecated Pathfinder (Prio 4)
 - [x] Path caching to speed repeated routes
 - [x] Depth-first traffic manager to reduce congestion
 - [x] Supports cost matrix adjustments
 
+- Replaced by HiveTravel library
 ---
 
 ## 🧼 Agent Intelligence – Memory Maintenance

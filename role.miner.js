@@ -1,6 +1,5 @@
 const logger = require("./logger");
 const memoryManager = require("manager.memory");
-const pathfinder = require("manager.pathfinder");
 const { calculateCollectionTicks } = require("utils.energy");
 
 const roleMiner = {
@@ -39,17 +38,9 @@ const roleMiner = {
 
     // Move to the mining position if not already there
     if (!creep.pos.isEqualTo(miningPos)) {
-      const nextPos = pathfinder.calculateNextPosition(creep, miningPos);
-      if (nextPos) {
-        creep.registerMove(nextPos);
-        creep.moveTo(nextPos.x, nextPos.y, {
-          visualizePathStyle: { stroke: "#ffaa00" },
-        });
-      }
+      creep.travelTo(miningPos, { visualizePathStyle: { stroke: "#ffaa00" } });
       return;
     }
-
-    // Ensure the source ID is set
     if (!creep.memory.sourceId) {
       const sources = miningPos.findInRange(FIND_SOURCES, 1);
       if (sources.length > 0) {

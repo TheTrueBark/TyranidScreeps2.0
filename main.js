@@ -11,16 +11,14 @@ const roleHauler = require("role.hauler");
 const distanceTransform = require("algorithm.distanceTransform");
 const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
-const trafficManager = require("manager.traffic");
 const memoryManager = require("manager.memory");
-const pathfinderManager = require("manager.pathfinder");
+const hiveTravel = require("manager.hiveTravel");
 const scheduler = require("scheduler");
 const logger = require("./logger");
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
 
-// Initialize the traffic manager
-trafficManager.init();
+// HiveTravel installs travelTo on creeps
 
 let myStats = [];
 global.visualizeDT = false;
@@ -86,12 +84,6 @@ scheduler.addTask("updateHUD", 5, () => {
   }
 });
 
-scheduler.addTask("pathfinderCache", 200, () => {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    pathfinderManager.updateCache(room);
-  }
-});
 
 // Add on-demand building manager task
 scheduler.addTask("buildInfrastructure", 0, () => {
@@ -161,7 +153,6 @@ module.exports.loop = function () {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     hudManager.createHUD(room);
-    trafficManager.run(room);
   }
 
   const lateTickCPUUsage =

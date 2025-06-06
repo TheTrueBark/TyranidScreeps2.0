@@ -1,5 +1,4 @@
 const memoryManager = require("manager.memory");
-const pathfinderManager = require("manager.pathfinder");
 const logger = require("./logger");
 
 const roleAllPurpose = {
@@ -41,12 +40,11 @@ const roleAllPurpose = {
       this.performCollect(creep);
     }
 
-    const nextPosition = pathfinderManager.calculateNextPosition(
-      creep,
-      creep.memory.desiredPosition,
-    );
-    if (nextPosition) {
-      creep.registerMove(nextPosition);
+    if (creep.memory.desiredPosition && creep.memory.desiredPosition.x !== undefined) {
+      const target = new RoomPosition(creep.memory.desiredPosition.x, creep.memory.desiredPosition.y, creep.memory.desiredPosition.roomName);
+      if (!creep.pos.isEqualTo(target)) {
+        creep.travelTo(target);
+      }
     }
   },
 
@@ -81,6 +79,7 @@ const roleAllPurpose = {
     }
   },
 
+
   performCollect: function (creep) {
     // Check for dropped energy first
     const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
@@ -91,7 +90,6 @@ const roleAllPurpose = {
     if (droppedEnergy) {
       if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
         creep.memory.desiredPosition = droppedEnergy.pos;
-        creep.registerMove(droppedEnergy.pos);
       }
       return;
     }
@@ -115,7 +113,6 @@ const roleAllPurpose = {
         miningPos.y,
         miningPos.roomName,
       );
-      creep.registerMove(miningPos);
     } else {
       const sourcePos = creep.memory.sourcePosition;
       if (
@@ -151,7 +148,6 @@ const roleAllPurpose = {
       }
     }
   },
-
   onDeath: function (creep) {
     memoryManager.releaseMiningPosition(creep);
   },

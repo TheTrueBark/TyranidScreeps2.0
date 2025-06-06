@@ -106,6 +106,23 @@ const spawnModule = {
         logger.log('hivemind.spawn', `Queued ${minersNeeded} miner spawn(s) for ${roomName}`, 2);
       }
     }
+    const liveHaulers = _.filter(Game.creeps, c => c.memory.role === "hauler" && c.room.name === roomName).length;
+    const queuedHaulers = spawnQueue.queue.filter(req => req.memory.role === "hauler" && req.room === roomName).length;
+    const liveMiners = _.filter(Game.creeps, c => c.memory.role === "miner" && c.room.name === roomName).length;
+    let requiredHaulers = 0;
+    if (liveMiners > 0) {
+      requiredHaulers = Math.max(1, Math.ceil(liveMiners / 2));
+    }
+    const haulersNeeded = Math.max(0, requiredHaulers - liveHaulers - queuedHaulers);
+    const haulTask = container && container.tasks ? container.tasks.find(t => t.name === "spawnHauler" && t.manager === "spawnManager") : null;
+    if (haulersNeeded > 0) {
+      if (haulTask) {
+        haulTask.amount = haulersNeeded;
+      } else {
+        htm.addColonyTask(roomName, "spawnHauler", { role: "hauler" }, 1, 20, haulersNeeded, "spawnManager");
+        logger.log('hivemind.spawn', `Queued ${haulersNeeded} hauler spawn(s) for ${roomName}`, 2);
+      }
+    }
 
     // Encourage upgrades when energy is abundant
     if (
