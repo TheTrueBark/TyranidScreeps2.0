@@ -27,6 +27,7 @@
 ### ✅ Memory Manager (Prio 4)
 - [x] Hierarchical memory layout: Hive → Cluster → Colony → Creep
 - [x] Auto-initialization on boot
+- [x] Release mining positions when creeps die
 - [ ] Auto-assimilation of newly seen rooms into structure
 - [ ] Persistent memory for lost-vision rooms
 - [ ] Expiration system for temporary memory entries – *Prio 3*
@@ -131,7 +132,7 @@
 ## 💡 Future Features & Experimental Ideas
 
 ### 🧬 DNA Builder & Creep Templates
-- [ ] Define creep “DNA” profiles (e.g. `[MOVE, WORK, CARRY]`)
+- [x] Basic energy-based DNA builder for miner, hauler, worker roles
 - [ ] Cost-aware scaling by room energy
 - [ ] Templates per role, RCL-dependent
 

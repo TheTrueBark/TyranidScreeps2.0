@@ -13,6 +13,7 @@ organism in the hive:
 - **Hive's Gaze** – scans the map for threats and opportunities
 - **Movement System** – pathing via Traveler 2.0
 - **Console Stats** – ASCII dashboard for CPU and room status
+- **DNA Builder** – generates creep bodies based on room energy
 
 The system is modular, reactive and geared towards expansion.
 

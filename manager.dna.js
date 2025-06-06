@@ -4,7 +4,7 @@ const memoryManager = require("./manager.memory");
  * Determine body parts for basic roles based on room energy.
  * This acts as a simple DNA builder for creeps.
  *
- * @param {string} role - Role name (miner, hauler, allPurpose).
+ * @param {string} role - Role name (miner, hauler, builder, upgrader, allPurpose).
  * @param {Room} room  - Room to base calculations on.
  * @param {boolean} panic - If true, spawn the smallest viable creep.
  * @returns {BodyPartConstant[]} Array of body parts.
@@ -19,7 +19,12 @@ function getBodyParts(role, room, panic = false) {
       return buildMiner(available, panic);
     case "hauler":
       return buildHauler(available, panic);
+    case "builder":
+      return buildWorker(available, panic);
+    case "upgrader":
+      return buildWorker(available, panic);
     case "allPurpose":
+      return buildAllPurpose(available, panic);
     default:
       return buildAllPurpose(available, panic);
   }
@@ -50,7 +55,7 @@ function buildHauler(energy, panic) {
   return body;
 }
 
-function buildAllPurpose(energy, panic) {
+function buildWorker(energy, panic) {
   const body = [];
   const setCost = BODYPART_COST[WORK] + BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
   let sets = panic ? 1 : Math.floor(energy / setCost);
@@ -59,6 +64,10 @@ function buildAllPurpose(energy, panic) {
     body.push(WORK, CARRY, MOVE);
   }
   return body;
+}
+
+function buildAllPurpose(energy, panic) {
+  return buildWorker(energy, panic);
 }
 
 module.exports = {
