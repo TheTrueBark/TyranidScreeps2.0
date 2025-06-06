@@ -17,6 +17,7 @@ const scheduler = require('scheduler');
 
 scheduler.addTask('logCpu', 5, cpuLogger, { highPriority: true });
 scheduler.addTask('newRoom', 0, analyseRoom, { event: 'roomSeen' });
+scheduler.addTask('htmRun', 1, () => htm.run());
 ```
 
 ## Execution Cycle
