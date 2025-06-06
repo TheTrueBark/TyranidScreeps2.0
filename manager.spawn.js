@@ -1,5 +1,5 @@
 const memoryManager = require("manager.memory");
-const bodyPartManager = require("manager.bodyParts");
+const dna = require("./manager.dna");
 const spawnQueue = require("manager.spawnQueue");
 const demandManager = require("manager.demand");
 const { calculateCollectionTicks } = require("utils.energy");
@@ -103,9 +103,17 @@ const spawnManager = {
       `Adding fallback allPurpose creep to spawn queue in room ${room.name}`,
       2,
     );
-    const bodyParts = bodyPartManager.calculateBodyParts(
+    if (
+      spawnQueue.queue.some(
+        (req) => req.memory.role === "allPurpose" && req.room === room.name,
+      )
+    ) {
+      return;
+    }
+    const bodyParts = dna.getBodyParts(
       "allPurpose",
-      energyCapacityAvailable,
+      room,
+      true,
     );
     spawnQueue.addToQueue(
       "allPurpose",
@@ -162,14 +170,7 @@ const spawnManager = {
         return;
       }
 
-      let bodyParts;
-      if (minersAtSource < 3) {
-        bodyParts = [WORK, WORK, MOVE];
-      } else if (minersAtSource < 2) {
-        bodyParts = [WORK, WORK, WORK, MOVE];
-      } else {
-        bodyParts = [WORK, WORK, WORK, WORK, WORK, WORK, MOVE];
-      }
+      const bodyParts = dna.getBodyParts("miner", room);
 
       const creepMemory = { source: source.id };
       const miningPositionAssigned = memoryManager.assignMiningPosition(
@@ -229,10 +230,7 @@ const spawnManager = {
 
     if (currentHaulers + queuedHaulers < 6) {
       // Maximum of 6 haulers
-      const bodyParts = bodyPartManager.calculateBodyParts(
-        "hauler",
-        energyCapacityAvailable,
-      );
+      const bodyParts = dna.getBodyParts("hauler", room);
       spawnQueue.addToQueue(
         "hauler",
         room.name,
@@ -262,10 +260,7 @@ const spawnManager = {
     ).length;
     if (upgraders < 2) {
       // Adjust this number as needed
-      const bodyParts = bodyPartManager.calculateBodyParts(
-        "upgrader",
-        energyCapacityAvailable,
-      );
+      const bodyParts = dna.getBodyParts("upgrader", room);
       spawnQueue.addToQueue(
         "upgrader",
         room.name,
