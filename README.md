@@ -44,7 +44,7 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 - [x] **Logging** – Severity & toggles (`console.console.js`, `logger.js`) – Prio 5
 
 ### Produktion & Einheiten
-- [x] **Spawn Manager** – Queue and planning (`manager.spawn.js`, `manager.spawnQueue.js`) – Prio 4
+- [ ] **Spawn Manager** – Queue and planning (`manager.spawn.js`, `manager.spawnQueue.js`) – Prio 4
 - [ ] **Hierarchical Task Management** – Adaptive tasks across hive – Prio 5
 - [ ] **Hive's Gaze** – Map awareness outside own rooms – Prio 3
 
@@ -56,3 +56,11 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 - [ ] **Agents** – Assimilation, Garbage, Efficiency – Prio 2
 
 Next step: focus on the hierarchical task system so the scheduler can trigger colony and creep level tasks dynamically.
+
+## 📘 Documentation
+- [Roadmap](./ROADMAP.md)
+- [Logger](./docs/logger.md)
+- [Scheduler](./docs/scheduler.md)
+- [HTM](./docs/htm.md)
+- [Console Stats](./docs/console.md)
+
