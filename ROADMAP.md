@@ -49,6 +49,7 @@
 - [x] Basic HiveMind decision module queues tasks
 - [x] Task claiming with cooldown and amount tracking
 - [x] Dynamic miner evaluation based on room energy
+- [x] Modular HiveMind with spawn and subconscious modules
 
 ### ✅ Spawn Manager (Prio 4)
 - [ ] Spawn queue with priority and timing

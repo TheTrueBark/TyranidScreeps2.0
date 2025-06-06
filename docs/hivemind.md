@@ -2,7 +2,8 @@
 
 The HiveMind module serves as the brain of the swarm. It examines the current
 state of each owned room and queues tasks into the Hierarchical Task Management
-(HTM) system.
+(HTM) system. Logic is split into **modules** so each concern can evaluate
+independently.
 
 ## Responsibilities
 
@@ -18,6 +19,12 @@ scheduler.addTask('hivemind', 1, () => hivemind.run());
 ```
 
 This lightweight decision layer can be expanded with more complex strategies
-over time. If a colony has no creeps, the HiveMind queues a `spawnBootstrap`
-task. Miner spawns are determined dynamically based on room energy capacity and
-the number of available mining positions.
+over time. The default `spawn` module handles panic bootstrap and miner
+evaluation. A small “subconscious” checks each tick and only runs a module when
+its queue is empty.
+
+## Modules
+
+- **spawn** – Handles panic bootstrap and miner demand. Converts room state into
+  HTM tasks consumed by the `spawnManager`.
+  Modules can be added later for building, defense or expansion logic.

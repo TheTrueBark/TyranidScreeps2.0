@@ -1,7 +1,6 @@
 const memoryManager = require("manager.memory");
 const dna = require("./manager.dna");
 const spawnQueue = require("manager.spawnQueue");
-const demandManager = require("manager.demand");
 const htm = require("./manager.htm");
 const { DEFAULT_CLAIM_COOLDOWN } = htm;
 const { calculateCollectionTicks } = require("utils.energy");
@@ -48,7 +47,6 @@ const spawnManager = {
 
     const spawns = room.find(FIND_MY_SPAWNS);
     for (const spawn of spawns) {
-      this.checkAndAddToQueue(spawn, room);
       this.processSpawnQueue(spawn);
     }
 
@@ -56,78 +54,6 @@ const spawnManager = {
     spawnQueue.adjustPriorities(room);
   },
 
-  /**
-   * Checks the current state of the room and adds appropriate spawn requests to the queue.
-   * @param {StructureSpawn} spawn - The spawn structure to add requests for.
-   * @param {Room} room - The room object to check state for.
-   */
-  checkAndAddToQueue(spawn, room) {
-    const availableEnergy = spawn.room.energyAvailable;
-    const energyCapacityAvailable = calculateEffectiveEnergyCapacity(
-      spawn.room,
-    ); // Use the effective energy capacity
-
-    // Evaluate room needs
-    demandManager.evaluateRoomNeeds(room);
-    const inDemand = Memory.rooms[room.name].inDemand;
-
-    // Check if there are any creeps in the room
-    const creepsInRoom = room.find(FIND_CREEPS);
-
-    // Spawn based on demand
-    switch (inDemand) {
-      case "allPurpose":
-        if (creepsInRoom.length === 0) {
-          this.spawnAllPurpose(spawn, room, energyCapacityAvailable);
-        }
-        break;
-      case "miner":
-        this.spawnMiner(spawn, room, energyCapacityAvailable);
-        break;
-      case "hauler":
-        this.spawnHauler(spawn, room, energyCapacityAvailable);
-        break;
-      case "default":
-        // Default logic, sort by tickID or other criteria as needed
-        this.spawnDefault(spawn, room, energyCapacityAvailable);
-        break;
-      default:
-        break;
-    }
-  },
-
-  /**
-   * Spawns an allPurpose creep with the appropriate body parts.
-   * @param {StructureSpawn} spawn - The spawn structure to add requests for.
-   * @param {Room} room - The room object to check state for.
-   * @param {number} energyCapacityAvailable - The available energy capacity.
-   */
-  spawnAllPurpose(spawn, room, energyCapacityAvailable) {
-    logger.log(
-      "spawnManager",
-      `Adding fallback allPurpose creep to spawn queue in room ${room.name}`,
-      2,
-    );
-    if (
-      spawnQueue.queue.some(
-        (req) => req.memory.role === "allPurpose" && req.room === room.name,
-      )
-    ) {
-      return;
-    }
-    const bodyParts = dna.getBodyParts(
-      "allPurpose",
-      room,
-      true,
-    );
-    spawnQueue.addToQueue(
-      "allPurpose",
-      room.name,
-      bodyParts,
-      { role: "allPurpose" },
-      spawn.id,
-    );
-  },
 
   /**
    * Spawns a miner with the appropriate body parts based on the available energy.
@@ -265,29 +191,6 @@ const spawnManager = {
     }
   },
 
-  spawnDefault(spawn, room, energyCapacityAvailable) {
-    const upgraders = _.filter(
-      Game.creeps,
-      (creep) =>
-        creep.memory.role === "upgrader" && creep.room.name === room.name,
-    ).length;
-    if (upgraders < 2) {
-      // Adjust this number as needed
-      const bodyParts = dna.getBodyParts("upgrader", room);
-      spawnQueue.addToQueue(
-        "upgrader",
-        room.name,
-        bodyParts,
-        { role: "upgrader" },
-        spawn.id,
-      );
-      logger.log(
-        "spawnManager",
-        `Added upgrader creep to spawn queue in room ${room.name}`,
-        2,
-      );
-    }
-  },
 
   /**
    * Processes the spawn queue for a given spawn structure.
@@ -323,7 +226,6 @@ const spawnManager = {
             2,
           );
           spawnQueue.removeSpawnFromQueue(requestId);
-          demandManager.evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
         } else {
           logger.log(
             "spawnManager",

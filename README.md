@@ -10,7 +10,8 @@ organism in the hive:
 - **Logging** – colorised and severity‑based output drawn by `console.console.js`
 - **Spawn Manager** – plans and queues creeps according to demand
 - **Hierarchical Task Management** – adaptive objectives from hive down to single creep (`manager.htm.js`), supports task quantities and claim cooldowns
-- **HiveMind** – evaluates game state, queues HTM tasks and issues panic spawn orders
+- **HiveMind** – modular decision layer that queues HTM tasks; a subconscious
+  triggers modules like the spawn planner on demand
 - **Hive's Gaze** – scans the map for threats and opportunities
 - **Movement System** – pathing via Traveler 2.0
 - **Console Stats** – ASCII dashboard for CPU and room status
