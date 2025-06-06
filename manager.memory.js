@@ -141,6 +141,38 @@ const memoryManager = {
 
     return false;
   },
+
+  /**
+   * Releases a previously reserved mining position for a creep.
+   *
+   * @param {Creep} creep - The creep whose mining position should be freed.
+   */
+  releaseMiningPosition(creep) {
+    if (
+      !creep ||
+      !creep.memory ||
+      !creep.memory.miningPosition ||
+      !creep.memory.miningPosition.roomName
+    ) {
+      return;
+    }
+
+    const { x, y, roomName } = creep.memory.miningPosition;
+    const roomMemory = Memory.rooms && Memory.rooms[roomName];
+    if (!roomMemory || !roomMemory.miningPositions) return;
+
+    for (const sourceId in roomMemory.miningPositions) {
+      const source = roomMemory.miningPositions[sourceId];
+      for (const key in source.positions) {
+        const pos = source.positions[key];
+        if (pos && pos.x === x && pos.y === y) {
+          source.positions[key].reserved = false;
+        }
+      }
+    }
+
+    delete creep.memory.miningPosition;
+  },
 };
 
 module.exports = memoryManager;
