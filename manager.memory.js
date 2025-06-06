@@ -116,8 +116,11 @@ const memoryManager = {
    */
   assignMiningPosition(creepMemory, room) {
     if (!creepMemory || !creepMemory.source) {
-      console.log(
+      const logger = require("./logger");
+      logger.log(
+        "memoryManager",
         "Error: Creep memory or source is undefined in assignMiningPosition",
+        4,
       );
       return false;
     }

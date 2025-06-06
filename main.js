@@ -15,6 +15,7 @@ const trafficManager = require("manager.traffic");
 const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
 const scheduler = require("scheduler");
+const logger = require("./logger");
 
 // Initialize the traffic manager
 trafficManager.init();
@@ -36,6 +37,17 @@ global.visual = {
   },
 };
 
+global.debug = {
+  toggle(module, state) {
+    if (logger.toggle(module, state)) {
+      console.log(`Debug for ${module} ${state ? "enabled" : "disabled"}`);
+    } else {
+      console.log(`Module ${module} not found in debug configuration`);
+    }
+  },
+  config: logger.getConfig,
+};
+
 // Add high priority one-time tasks
 scheduler.addTask(
   "initializeRoomMemory",
@@ -54,7 +66,7 @@ scheduler.addTask(
 scheduler.addTask("clearMemory", 100, () => {
   for (let name in Memory.creeps) {
     if (!Game.creeps[name]) {
-      console.log(`Clearing memory of dead creep: ${name}`);
+      logger.log("memory", `Clearing memory of dead creep: ${name}`, 2);
       delete Memory.creeps[name];
     }
   }

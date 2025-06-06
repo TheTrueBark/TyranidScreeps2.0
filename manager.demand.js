@@ -1,4 +1,4 @@
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 const demandManager = {
   /**
@@ -45,8 +45,11 @@ const demandManager = {
 
     Memory.rooms[room.name].inDemand = inDemand;
 
-    if (debugConfig.demandManager)
-      console.log(`Updated inDemand for room ${room.name}: ${inDemand}`);
+    logger.log(
+      "demandManager",
+      `Updated inDemand for room ${room.name}: ${inDemand}`,
+      2,
+    );
   },
 };
 

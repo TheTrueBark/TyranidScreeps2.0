@@ -1,4 +1,4 @@
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 const memoryManager = require("manager.memory");
 const pathfinder = require("manager.pathfinder");
 const { calculateCollectionTicks } = require("utils.energy");
@@ -7,11 +7,11 @@ const roleMiner = {
   run: function (creep) {
     // Check if mining position is correctly assigned
     if (!creep.memory.miningPosition) {
-      if (debugConfig.roleMiner) {
-        console.log(
-          `Miner ${creep.name} does not have a mining position assigned.`,
-        );
-      }
+      logger.log(
+        "roleMiner",
+        `Miner ${creep.name} does not have a mining position assigned.`,
+        3,
+      );
       return;
     }
 
@@ -21,12 +21,13 @@ const roleMiner = {
       !creep.memory.miningPosition.y ||
       !creep.memory.miningPosition.roomName
     ) {
-      if (debugConfig.roleMiner) {
-        console.log(
-          `Miner ${creep.name} has an incomplete mining position:`,
+      logger.log(
+        "roleMiner",
+        `Miner ${creep.name} has an incomplete mining position: ${JSON.stringify(
           creep.memory.miningPosition,
-        );
-      }
+        )}`,
+        3,
+      );
       return;
     }
 
@@ -54,11 +55,11 @@ const roleMiner = {
       if (sources.length > 0) {
         creep.memory.sourceId = sources[0].id;
       } else {
-        if (debugConfig.roleMiner) {
-          console.log(
-            `Miner ${creep.name} could not find a source at the mining position.`,
-          );
-        }
+        logger.log(
+          "roleMiner",
+          `Miner ${creep.name} could not find a source at the mining position.`,
+          3,
+        );
         return;
       }
     }
@@ -68,27 +69,27 @@ const roleMiner = {
     if (source) {
       const harvestResult = creep.harvest(source);
       if (harvestResult === OK) {
-        if (debugConfig.roleMiner) {
-          console.log(
-            `Miner ${creep.name} harvesting from source ${source.id}`,
-          );
-        }
+        logger.log(
+          "roleMiner",
+          `Miner ${creep.name} harvesting from source ${source.id}`,
+          2,
+        );
       } else if (
         harvestResult !== ERR_NOT_ENOUGH_RESOURCES &&
         harvestResult !== ERR_NOT_IN_RANGE
       ) {
-        if (debugConfig.roleMiner) {
-          console.log(
-            `Miner ${creep.name} failed to harvest source with result ${harvestResult}`,
-          );
-        }
-      }
-    } else {
-      if (debugConfig.roleMiner) {
-        console.log(
-          `Miner ${creep.name} does not have a valid source to mine.`,
+        logger.log(
+          "roleMiner",
+          `Miner ${creep.name} failed to harvest source with result ${harvestResult}`,
+          3,
         );
       }
+    } else {
+      logger.log(
+        "roleMiner",
+        `Miner ${creep.name} does not have a valid source to mine.`,
+        3,
+      );
       return;
     }
 
@@ -116,11 +117,11 @@ const roleMiner = {
       creep.drop(RESOURCE_ENERGY);
     }
 
-    if (debugConfig.roleMiner) {
-      console.log(
-        `Miner ${creep.name} at position (${creep.pos.x}, ${creep.pos.y}) mining source ${source.id} and managing energy`,
-      );
-    }
+    logger.log(
+      "roleMiner",
+      `Miner ${creep.name} at position (${creep.pos.x}, ${creep.pos.y}) mining source ${source.id} and managing energy`,
+      2,
+    );
   },
 
   onDeath: function (creep) {

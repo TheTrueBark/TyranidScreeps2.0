@@ -391,13 +391,29 @@ var statsConsole = {
     return output;
   },
 
+  /**
+   * Record a log message with a severity level.
+   *
+   * Messages are counted and their severity escalates when repeated.
+   *
+   * @param {string} message  The message to log.
+   * @param {number} [severity=3] Severity level 0-5.
+   */
   log: function (message, severity = 3) {
-    Memory.stats.logs.push([Game.time + ": " + message, severity]);
+    if (!Memory.stats.logCounts) Memory.stats.logCounts = {};
+    const count = (Memory.stats.logCounts[message] || 0) + 1;
+    Memory.stats.logCounts[message] = count;
+
+    // Increase severity when a message is repeated many times
+    const escalatedSeverity = Math.min(5, severity + Math.floor(count / 10));
+
+    Memory.stats.logs.push([Game.time + ": " + message, escalatedSeverity]);
   },
 
   displayLogs: function (logs = Memory.stats.logs, opts = {}) {
     let totalWidth = opts.width || 100;
     let title = opts.title || " Logs ";
+    const minSeverity = opts.minSeverity || 0;
     let leftTopCorner = opts.leftTopCorner || "+";
     let rightTopCorner = opts.rightTopCorner || "+";
     let leftBottomCorner = opts.leftBottomCorner || "+";
@@ -406,7 +422,8 @@ var statsConsole = {
     let vbar = opts.vBar || "|";
     let spacing = opts.spacing || " ";
 
-    let boxHeight = logs.length - 1;
+    const filteredLogs = logs.filter((l) => l[1] >= minSeverity);
+    let boxHeight = filteredLogs.length - 1;
     let boxWidth = totalWidth - 3; // Inside of the box
     let borderWidth = 5;
 
@@ -432,8 +449,8 @@ var statsConsole = {
       rightTopCorner +
       "\n";
     for (let i = 0; i < boxHeight; i++) {
-      let severity = logs[i][(0, 1)];
-      let message = logs[i][(0, 0)];
+      let severity = filteredLogs[i][(0, 1)];
+      let message = filteredLogs[i][(0, 0)];
 
       let htmlFontStart =
         '<log severity="' +

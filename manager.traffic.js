@@ -1,4 +1,4 @@
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 let movementMap;
 let visitedCreeps;
@@ -21,11 +21,11 @@ const trafficManager = {
       const packedCoord = packCoordinates(targetPosition);
       this._intendedPackedCoord = packedCoord;
 
-      if (debugConfig.trafficManager) {
-        console.log(
-          `Creep ${this.name} registered move to (${targetPosition.x}, ${targetPosition.y}) with packedCoord ${packedCoord}`,
-        );
-      }
+      logger.log(
+        "trafficManager",
+        `Creep ${this.name} registered move to (${targetPosition.x}, ${targetPosition.y}) with packedCoord ${packedCoord}`,
+        2,
+      );
     };
 
     Creep.prototype.setWorkingArea = function (pos, range) {
@@ -48,11 +48,11 @@ const trafficManager = {
 
     for (const creep of creepsWithMovementIntent) {
       if (creep._matchedPackedCoord === creep._intendedPackedCoord) {
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} already at intended position (${unpackCoordinates(creep._matchedPackedCoord).x}, ${unpackCoordinates(creep._matchedPackedCoord).y})`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} already at intended position (${unpackCoordinates(creep._matchedPackedCoord).x}, ${unpackCoordinates(creep._matchedPackedCoord).y})`,
+          2,
+        );
         continue;
       }
 
@@ -62,9 +62,7 @@ const trafficManager = {
       creep._matchedPackedCoord = undefined;
 
       if (depthFirstSearch(creep, 0, costs, threshold) > 0) {
-        if (debugConfig.trafficManager) {
-          console.log(`Creep ${creep.name} successfully found a path`);
-        }
+        logger.log("trafficManager", `Creep ${creep.name} successfully found a path`, 2);
         continue;
       }
 
@@ -75,11 +73,11 @@ const trafficManager = {
       const matchedPosition = unpackCoordinates(creep._matchedPackedCoord);
 
       if (creep.pos.isEqualTo(matchedPosition.x, matchedPosition.y)) {
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} is already at position (${matchedPosition.x}, ${matchedPosition.y})`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} is already at position (${matchedPosition.x}, ${matchedPosition.y})`,
+          2,
+        );
         continue;
       }
 
@@ -88,30 +86,32 @@ const trafficManager = {
         matchedPosition.y,
       );
 
-      if (debugConfig.trafficManager) {
-        console.log(
-          `Creep ${creep.name} moving from (${creep.pos.x}, ${creep.pos.y}) to (${matchedPosition.x}, ${matchedPosition.y}) in direction ${direction}`,
-        );
-      }
+      logger.log(
+        "trafficManager",
+        `Creep ${creep.name} moving from (${creep.pos.x}, ${creep.pos.y}) to (${matchedPosition.x}, ${matchedPosition.y}) in direction ${direction}`,
+        2,
+      );
 
       const moveResult = creep.move(direction);
 
-      if (debugConfig.trafficManager) {
-        console.log(`Creep ${creep.name} move result: ${moveResult}`);
-      }
+      logger.log(
+        "trafficManager",
+        `Creep ${creep.name} move result: ${moveResult}`,
+        2,
+      );
 
       if (moveResult !== OK) {
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} failed to move in direction ${direction} with error ${moveResult}`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} failed to move in direction ${direction} with error ${moveResult}`,
+          3,
+        );
       } else {
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} successfully moved to direction ${direction}`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} successfully moved to direction ${direction}`,
+          2,
+        );
       }
     }
   },
@@ -148,11 +148,11 @@ function depthFirstSearch(creep, currentScore = 0, costs, threshold) {
     if (!occupyingCreep) {
       if (score > 0) {
         assignCreepToCoordinate(creep, coord);
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} assigned to new position (${coord.x}, ${coord.y})`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} assigned to new position (${coord.x}, ${coord.y})`,
+          2,
+        );
       }
       return score;
     }
@@ -166,11 +166,11 @@ function depthFirstSearch(creep, currentScore = 0, costs, threshold) {
 
       if (result > 0) {
         assignCreepToCoordinate(creep, coord);
-        if (debugConfig.trafficManager) {
-          console.log(
-            `Creep ${creep.name} re-assigned to position (${coord.x}, ${coord.y}) after DFS`,
-          );
-        }
+        logger.log(
+          "trafficManager",
+          `Creep ${creep.name} re-assigned to position (${coord.x}, ${coord.y}) after DFS`,
+          2,
+        );
         return result;
       }
     }
@@ -181,9 +181,11 @@ function depthFirstSearch(creep, currentScore = 0, costs, threshold) {
 
 function getPossibleMoves(creep, costs, threshold = 255) {
   if (creep.fatigue > 0) {
-    if (debugConfig.trafficManager) {
-      console.log(`Creep ${creep.name} cannot move due to fatigue`);
-    }
+    logger.log(
+      "trafficManager",
+      `Creep ${creep.name} cannot move due to fatigue`,
+      3,
+    );
     return [];
   }
 
