@@ -16,6 +16,8 @@ const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
 const scheduler = require("scheduler");
 const logger = require("./logger");
+const htm = require("manager.htm");
+const hivemind = require("manager.hivemind");
 
 // Initialize the traffic manager
 trafficManager.init();
@@ -97,6 +99,16 @@ scheduler.addTask("buildInfrastructure", 0, () => {
     const room = Game.rooms[roomName];
     buildingManager.buildInfrastructure(room);
   }
+});
+
+// Decision making layer feeding tasks into HTM
+scheduler.addTask("hivemind", 1, () => {
+  hivemind.run();
+});
+
+// Core HTM execution task
+scheduler.addTask("htmRun", 1, () => {
+  htm.run();
 });
 
 module.exports.loop = function () {

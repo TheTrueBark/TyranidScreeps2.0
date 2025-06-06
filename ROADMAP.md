@@ -41,17 +41,19 @@
 - [ ] **Cluster-level**: coordinate HQ and remotes
 - [ ] **Colony-level**: energy balance, building, defense
 - [ ] **Creep-level**: role control, dynamic reassignment
-- [ ] Task priority aging / decay system
-- [ ] Scheduler integration: tasks executed on time
+- [x] Task priority aging / decay system
+- [x] Scheduler integration: tasks executed on time
 - [ ] Log differences between planned/active tasks
-- [ ] Task cache: “what was already attempted?” – *Prio 3*
+- [x] Task cache: “what was already attempted?” – *Prio 3*
+- [x] Basic skeleton with scheduler hook
+- [x] Basic HiveMind decision module queues tasks
 
 ### ✅ Spawn Manager (Prio 4)
 - [ ] Spawn queue with priority and timing
 - [ ] Scheduled pre-spawn logic (e.g. “Miner in 80 ticks”)
-- [ ] Integrated with HTM task requests
+- [x] Integrated with HTM task requests
 - [ ] Multi-room spawn and remote queue support
-- [ ] Panic mode: minimum creep fallback during total loss – *Prio 5*
+- [x] Panic mode: minimum creep fallback during total loss – *Prio 5*
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*
 
 ### ✅ Building Manager (Prio 3)

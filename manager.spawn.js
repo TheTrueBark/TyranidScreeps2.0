@@ -2,6 +2,7 @@ const memoryManager = require("manager.memory");
 const dna = require("./manager.dna");
 const spawnQueue = require("manager.spawnQueue");
 const demandManager = require("manager.demand");
+const htm = require("./manager.htm");
 const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
 
@@ -30,6 +31,9 @@ const spawnManager = {
    */
   run(room) {
     logger.log("spawnManager", `Running spawnManager for room: ${room.name}`, 2);
+
+    // Process HTM tasks directed to the spawn manager before normal checks
+    this.processHTMTasks(room);
 
     if (Game.cpu.bucket === 10000) {
       logger.log(
@@ -331,6 +335,46 @@ const spawnManager = {
         `${spawn.name} is currently spawning a creep`,
         2,
       );
+    }
+  },
+
+  /**
+   * Read colony level tasks from HTM directed to the spawn manager and
+   * convert them into spawn queue requests. Each claim sets a short cooldown
+   * to prevent the HiveMind from reissuing immediately.
+   */
+  processHTMTasks(room) {
+    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    if (!container || !container.tasks) return;
+
+    const spawns = room.find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) return;
+    const spawn = spawns[0];
+    const energyCapacityAvailable = calculateEffectiveEnergyCapacity(room);
+
+    for (const task of container.tasks) {
+      if (task.manager !== 'spawnManager' || Game.time < task.claimedUntil) {
+        continue;
+      }
+
+      switch (task.name) {
+        case 'spawnMiner':
+          this.spawnMiner(spawn, room, energyCapacityAvailable);
+          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+          break;
+        case 'spawnHauler':
+          this.spawnHauler(spawn, room, energyCapacityAvailable);
+          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+          break;
+        case 'spawnBootstrap':
+          const role = task.data.role || 'allPurpose';
+          const body = dna.getBodyParts(role, room, task.data.panic);
+          spawnQueue.addToQueue(role, room.name, body, { role }, spawn.id);
+          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+          break;
+        default:
+          break;
+      }
     }
   },
 };

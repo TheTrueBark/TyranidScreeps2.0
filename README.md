@@ -9,7 +9,8 @@ organism in the hive:
 - **Hierarchical Memory** – data storage structured as Hive → Cluster → Colony → Creep
 - **Logging** – colorised and severity‑based output drawn by `console.console.js`
 - **Spawn Manager** – plans and queues creeps according to demand
-- **Task Management** – adaptive objectives from hive down to single creep
+- **Hierarchical Task Management** – adaptive objectives from hive down to single creep (`manager.htm.js`)
+- **HiveMind** – evaluates game state, queues HTM tasks and issues panic spawn orders
 - **Hive's Gaze** – scans the map for threats and opportunities
 - **Movement System** – pathing via Traveler 2.0
 - **Console Stats** – ASCII dashboard for CPU and room status
@@ -63,5 +64,6 @@ Next step: focus on the hierarchical task system so the scheduler can trigger co
 - [Logger](./docs/logger.md)
 - [Scheduler](./docs/scheduler.md)
 - [HTM](./docs/htm.md)
+- [HiveMind](./docs/hivemind.md)
 - [Console Stats](./docs/console.md)
 

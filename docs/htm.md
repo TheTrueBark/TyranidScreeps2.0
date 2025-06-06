@@ -16,4 +16,44 @@ The HTM system breaks down objectives from the top level hive to individual cree
 - Logging of planned vs active tasks for easier debugging.
 - Cache of attempted tasks to avoid redundant orders.
 
-The system is designed to be adaptive: creeps can be reassigned on the fly and colonies react to new threats detected by Hive's Gaze.
+## Implementation
+
+`manager.htm.js` keeps a memory structure under `Memory.htm` with tasks for each level. Tasks are plain objects:
+
+```javascript
+{
+  name: 'taskName',
+  data: {},
+  priority: 1,
+  ttl: 100,
+  age: 0,
+  amount: 1,
+  manager: null,
+  claimedUntil: 0,
+}
+```
+
+Handlers can be registered via `htm.registerHandler(level, name, fn)` and are executed when `htm.run()` is called by the scheduler. Expired tasks are removed automatically.
+
+Tasks are typically queued by the `HiveMind` module which inspects the current game state and decides which objectives should be tackled.
+
+Example of adding a colony task:
+
+```javascript
+const htm = require('manager.htm');
+htm.addColonyTask('W1N1', 'buildExtensions', { amount: 5 }, 2);
+```
+
+### Claiming tasks
+
+Managers use `claimTask` once they pick up an order. The `amount` value is
+decreased and the task is removed when it reaches zero.
+
+```javascript
+htm.claimTask(htm.LEVELS.COLONY, 'W1N1', 'spawnMiner', 'spawnManager', 10);
+```
+
+`claimedUntil` blocks the HiveMind from requeueing the same task for a few
+ticks, preventing duplicate orders.
+
+This flexible core allows modules to schedule work without direct coupling and provides the backbone of the hive mind.
