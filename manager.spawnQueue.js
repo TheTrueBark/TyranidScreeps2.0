@@ -1,4 +1,4 @@
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 if (!Memory.spawnQueue) {
   Memory.spawnQueue = [];
@@ -39,11 +39,11 @@ const spawnQueue = {
       ticksToSpawn,
       energyRequired,
     });
-    if (debugConfig.spawnQueue) {
-      console.log(
-        `Added to spawn queue: category=${category}, room=${room}, bodyParts=${JSON.stringify(bodyParts)}, memory=${JSON.stringify(memory)}, spawnId=${spawnId}, ticksToSpawn=${ticksToSpawn}, energyRequired=${energyRequired}`,
-      );
-    }
+    logger.log(
+      "spawnQueue",
+      `Added to spawn queue: category=${category}, room=${room}, bodyParts=${JSON.stringify(bodyParts)}, memory=${JSON.stringify(memory)}, spawnId=${spawnId}, ticksToSpawn=${ticksToSpawn}, energyRequired=${energyRequired}`,
+      2,
+    );
   },
 
   /**
@@ -59,8 +59,10 @@ const spawnQueue = {
     if (sortedQueue.length > 0) {
       const nextSpawn = sortedQueue[0];
       if (!nextSpawn.memory) {
-        console.log(
+        logger.log(
+          "spawnQueue",
           `Warning: Memory object missing for spawn request: ${JSON.stringify(nextSpawn)}`,
+          4,
         );
       }
       return nextSpawn;
@@ -78,9 +80,11 @@ const spawnQueue = {
     const index = this.queue.findIndex((req) => req.requestId === requestId);
     if (index !== -1) {
       const removed = this.queue.splice(index, 1)[0];
-      if (debugConfig.spawnQueue) {
-        console.log(`Removed from spawn queue: ${JSON.stringify(removed)}`);
-      }
+      logger.log(
+        "spawnQueue",
+        `Removed from spawn queue: ${JSON.stringify(removed)}`,
+        2,
+      );
       return removed;
     }
     return null;
@@ -93,8 +97,11 @@ const spawnQueue = {
    * @param {Room} room - The room to adjust priorities for.
    */
   adjustPriorities(room) {
-    if (debugConfig.spawnQueue)
-      console.log(`Adjusting priorities for room: ${room.name}`);
+    logger.log(
+      "spawnQueue",
+      `Adjusting priorities for room: ${room.name}`,
+      2,
+    );
     for (const spawnRequest of this.queue) {
       if (
         spawnRequest.room === room.name &&
@@ -119,19 +126,18 @@ const spawnQueue = {
       if (nextSpawn && spawn.room.energyAvailable >= nextSpawn.energyRequired) {
         const { category, bodyParts, memory, requestId } = nextSpawn;
         const newName = `${category}_${Game.time}`;
-        if (debugConfig.spawnQueue)
-          console.log(
-            `Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`,
-          );
+        logger.log(
+          "spawnQueue",
+          `Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`,
+          3,
+        );
         const result = spawn.spawnCreep(bodyParts, newName, { memory });
         if (result === OK) {
-          if (debugConfig.spawnQueue)
-            console.log(`Spawning new ${category}: ${newName}`);
+          logger.log("spawnQueue", `Spawning new ${category}: ${newName}`, 3);
           this.removeSpawnFromQueue(requestId);
           require("manager.demand").evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
         } else {
-          if (debugConfig.spawnQueue)
-            console.log(`Failed to spawn ${category}: ${result}`);
+          logger.log("spawnQueue", `Failed to spawn ${category}: ${result}` , 4);
         }
       }
     }

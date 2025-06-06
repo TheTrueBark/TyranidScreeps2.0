@@ -3,7 +3,7 @@ const bodyPartManager = require("manager.bodyParts");
 const spawnQueue = require("manager.spawnQueue");
 const demandManager = require("manager.demand");
 const { calculateCollectionTicks } = require("utils.energy");
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 // Calculate the effective energy capacity excluding incomplete extensions
 const calculateEffectiveEnergyCapacity = (room) => {
@@ -29,14 +29,14 @@ const spawnManager = {
    * @param {Room} room - The room object to manage spawning for.
    */
   run(room) {
-    if (debugConfig.spawnManager)
-      console.log(`Running spawnManager for room: ${room.name}`);
+    logger.log("spawnManager", `Running spawnManager for room: ${room.name}`, 2);
 
     if (Game.cpu.bucket === 10000) {
-      if (debugConfig.spawnManager)
-        console.log(
-          `CPU bucket is full, initializing room memory for ${room.name}`,
-        );
+      logger.log(
+        "spawnManager",
+        `CPU bucket is full, initializing room memory for ${room.name}`,
+        3,
+      );
       memoryManager.initializeRoomMemory(room);
       memoryManager.cleanUpReservedPositions();
     }
@@ -98,10 +98,11 @@ const spawnManager = {
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
   spawnAllPurpose(spawn, room, energyCapacityAvailable) {
-    if (debugConfig.spawnManager)
-      console.log(
-        `Adding fallback allPurpose creep to spawn queue in room ${room.name}`,
-      );
+    logger.log(
+      "spawnManager",
+      `Adding fallback allPurpose creep to spawn queue in room ${room.name}`,
+      2,
+    );
     const bodyParts = bodyPartManager.calculateBodyParts(
       "allPurpose",
       energyCapacityAvailable,
@@ -124,7 +125,7 @@ const spawnManager = {
   spawnMiner(spawn, room, energyCapacityAvailable) {
     const sources = room.find(FIND_SOURCES);
     if (!Array.isArray(sources)) {
-      console.log(`No sources found in room ${room.name}`);
+      logger.log("spawnManager", `No sources found in room ${room.name}`, 3);
       return;
     }
 
@@ -135,8 +136,10 @@ const spawnManager = {
         !Memory.rooms[room.name].miningPositions ||
         !Memory.rooms[room.name].miningPositions[source.id]
       ) {
-        console.log(
+        logger.log(
+          "spawnManager",
           `Missing mining positions data for room ${room.name} and source ${source.id}`,
+          3,
         );
         return;
       }
@@ -151,8 +154,10 @@ const spawnManager = {
       ).length;
 
       if (minersAtSource >= availablePositions) {
-        console.log(
+        logger.log(
+          "spawnManager",
           `No available mining positions for source ${source.id} in room ${room.name}`,
+          3,
         );
         return;
       }
@@ -235,11 +240,17 @@ const spawnManager = {
         { role: "hauler" },
         spawn.id,
       );
-      if (debugConfig.spawnManager)
-        console.log(`Added hauler creep to spawn queue in room ${room.name}`);
+      logger.log(
+        "spawnManager",
+        `Added hauler creep to spawn queue in room ${room.name}`,
+        2,
+      );
     } else {
-      if (debugConfig.spawnManager)
-        console.log(`Maximum number of haulers reached for room ${room.name}`);
+      logger.log(
+        "spawnManager",
+        `Maximum number of haulers reached for room ${room.name}`,
+        2,
+      );
     }
   },
 
@@ -262,8 +273,11 @@ const spawnManager = {
         { role: "upgrader" },
         spawn.id,
       );
-      if (debugConfig.spawnManager)
-        console.log(`Added upgrader creep to spawn queue in room ${room.name}`);
+      logger.log(
+        "spawnManager",
+        `Added upgrader creep to spawn queue in room ${room.name}`,
+        2,
+      );
     }
   },
 
@@ -273,38 +287,55 @@ const spawnManager = {
    * @param {StructureSpawn} spawn - The spawn structure to process the queue for.
    */
   processSpawnQueue(spawn) {
-    if (debugConfig.spawnManager)
-      console.log(`Processing spawn queue for ${spawn.name}`);
+    logger.log(
+      "spawnManager",
+      `Processing spawn queue for ${spawn.name}`,
+      2,
+    );
     if (!spawn.spawning) {
       const nextSpawn = spawnQueue.getNextSpawn(spawn.id); // Ensure this fetches the next spawn in the global queue for this spawn
       if (nextSpawn && spawn.room.energyAvailable >= nextSpawn.energyRequired) {
-        if (debugConfig.spawnManager)
-          console.log(`Next spawn: ${JSON.stringify(nextSpawn)}`);
+        logger.log(
+          "spawnManager",
+          `Next spawn: ${JSON.stringify(nextSpawn)}`,
+          3,
+        );
         const { category, bodyParts, memory, requestId } = nextSpawn;
         const newName = `${category}_${Game.time}`;
-        if (debugConfig.spawnManager)
-          console.log(
-            `Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`,
-          );
+        logger.log(
+          "spawnManager",
+          `Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`,
+          3,
+        );
         const result = spawn.spawnCreep(bodyParts, newName, { memory });
         if (result === OK) {
-          if (debugConfig.spawnManager)
-            console.log(`Spawning new ${category}: ${newName}`);
+          logger.log(
+            "spawnManager",
+            `Spawning new ${category}: ${newName}`,
+            2,
+          );
           spawnQueue.removeSpawnFromQueue(requestId);
           demandManager.evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
         } else {
-          if (debugConfig.spawnManager)
-            console.log(`Failed to spawn ${category}: ${result}`);
+          logger.log(
+            "spawnManager",
+            `Failed to spawn ${category}: ${result}`,
+            4,
+          );
         }
       } else {
-        if (debugConfig.spawnManager)
-          console.log(
-            `Not enough energy to spawn: ${JSON.stringify(nextSpawn)}`,
-          );
+        logger.log(
+          "spawnManager",
+          `Not enough energy to spawn: ${JSON.stringify(nextSpawn)}`,
+          3,
+        );
       }
     } else {
-      if (debugConfig.spawnManager)
-        console.log(`${spawn.name} is currently spawning a creep`);
+      logger.log(
+        "spawnManager",
+        `${spawn.name} is currently spawning a creep`,
+        2,
+      );
     }
   },
 };

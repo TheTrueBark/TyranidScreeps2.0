@@ -1,39 +1,37 @@
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 const pathCache = {};
 
 const managerPathfinder = {
   calculateNextPosition(creep, targetPos, costs) {
     if (!targetPos || targetPos.x === undefined || targetPos.y === undefined) {
-      if (debugConfig.pathfinder) {
-        console.log(
-          `Invalid targetPos for creep ${creep.name}: ${JSON.stringify(targetPos)}`,
-        );
-      }
+      logger.log(
+        "pathfinder",
+        `Invalid targetPos for creep ${creep.name}: ${JSON.stringify(targetPos)}`,
+        3,
+      );
       return null;
     }
 
-    if (debugConfig.pathfinder) {
-      console.log(
-        `Creep ${creep.name} pathfinding from (${creep.pos.x}, ${creep.pos.y}) in room ${creep.room.name} to (${targetPos.x}, ${targetPos.y}) in room ${targetPos.roomName}`,
-      );
-    }
+    logger.log(
+      "pathfinder",
+      `Creep ${creep.name} pathfinding from (${creep.pos.x}, ${creep.pos.y}) in room ${creep.room.name} to (${targetPos.x}, ${targetPos.y}) in room ${targetPos.roomName}`,
+      2,
+    );
 
     // Validate room name
     if (!Game.rooms[targetPos.roomName]) {
-      if (debugConfig.pathfinder) {
-        console.log(`Invalid room name: ${targetPos.roomName}`);
-      }
+      logger.log("pathfinder", `Invalid room name: ${targetPos.roomName}`, 3);
       return null;
     }
 
     const rangeToTarget = creep.pos.getRangeTo(targetPos);
     if (rangeToTarget === 1) {
-      if (debugConfig.pathfinder) {
-        console.log(
-          `Creep ${creep.name} is already within range 1 of the target position (${targetPos.x}, ${targetPos.y})`,
-        );
-      }
+      logger.log(
+        "pathfinder",
+        `Creep ${creep.name} is already within range 1 of the target position (${targetPos.x}, ${targetPos.y})`,
+        2,
+      );
       return { x: targetPos.x, y: targetPos.y };
     }
 
@@ -94,11 +92,11 @@ const managerPathfinder = {
     );
 
     if (path.incomplete) {
-      if (debugConfig.pathfinder) {
-        console.log(
-          `Path incomplete for creep ${creep.name}, path: ${JSON.stringify(path.path)}`,
-        );
-      }
+      logger.log(
+        "pathfinder",
+        `Path incomplete for creep ${creep.name}, path: ${JSON.stringify(path.path)}`,
+        3,
+      );
       return null;
     } else {
       pathCache[cacheKey] = path.path;
