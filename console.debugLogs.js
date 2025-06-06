@@ -1,11 +1,13 @@
 const debugConfig = {
-  spawnManager: true,
+  spawnManager: false,
   bodyPartManager: false,
   memoryManager: false,
   roleAllPurpose: false,
   pathfinder: false,
   trafficManager: false,
   roleMiner: false,
+  demandManager: false,
+  spawnQueue: false,
 
   // Add other modules as needed
 };

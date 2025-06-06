@@ -1,6 +1,6 @@
 const memoryManager = require("manager.memory");
 const pathfinderManager = require("manager.pathfinder");
-const debugConfig = require("console.debugLogs");
+const logger = require("./logger");
 
 const roleAllPurpose = {
   run: function (creep) {
@@ -15,18 +15,22 @@ const roleAllPurpose = {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
       creep.say("🔄 collect");
-      if (debugConfig.roleAllPurpose) {
-        console.log(`Creep ${creep.name} switching to collecting state.`);
-      }
+      logger.log(
+        "roleAllPurpose",
+        `Creep ${creep.name} switching to collecting state.`,
+        2,
+      );
       memoryManager.releaseMiningPosition(creep);
       this.setSourcePosition(creep);
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
       creep.say("⚡ transfer");
-      if (debugConfig.roleAllPurpose) {
-        console.log(`Creep ${creep.name} switching to transferring state.`);
-      }
+      logger.log(
+        "roleAllPurpose",
+        `Creep ${creep.name} switching to transferring state.`,
+        2,
+      );
       memoryManager.releaseMiningPosition(creep);
       delete creep.memory.miningPosition;
     }
@@ -95,11 +99,11 @@ const roleAllPurpose = {
     // If no dropped energy, move to assigned mining position
     if (!creep.memory.miningPosition || !creep.memory.miningPosition.x) {
       if (!memoryManager.assignMiningPosition(creep.memory, creep.room)) {
-        if (debugConfig.roleAllPurpose) {
-          console.log(
-            `Creep ${creep.name} could not find an available mining position.`,
-          );
-        }
+        logger.log(
+          "roleAllPurpose",
+          `Creep ${creep.name} could not find an available mining position.`,
+          3,
+        );
         return;
       }
     }
@@ -127,20 +131,20 @@ const roleAllPurpose = {
         ).findClosestByRange(FIND_SOURCES);
         const harvestResult = creep.harvest(source);
         if (harvestResult === OK) {
-          if (debugConfig.roleAllPurpose) {
-            console.log(
-              `Creep ${creep.name} harvesting from source at (${source.pos.x}, ${source.pos.y})`,
-            );
-          }
+          logger.log(
+            "roleAllPurpose",
+            `Creep ${creep.name} harvesting from source at (${source.pos.x}, ${source.pos.y})`,
+            2,
+          );
         } else if (
           harvestResult !== ERR_NOT_ENOUGH_RESOURCES &&
           harvestResult !== ERR_NOT_IN_RANGE
         ) {
-          if (debugConfig.roleAllPurpose) {
-            console.log(
-              `Creep ${creep.name} failed to harvest source with result ${harvestResult}`,
-            );
-          }
+          logger.log(
+            "roleAllPurpose",
+            `Creep ${creep.name} failed to harvest source with result ${harvestResult}`,
+            3,
+          );
         }
       } else {
         this.setSourcePosition(creep);
