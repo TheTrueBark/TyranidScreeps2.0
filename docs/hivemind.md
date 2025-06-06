@@ -18,6 +18,6 @@ scheduler.addTask('hivemind', 1, () => hivemind.run());
 ```
 
 This lightweight decision layer can be expanded with more complex strategies
-over time. It currently also performs a basic spawn evaluation: if a colony
-has no creeps the HiveMind queues a `spawnBootstrap` task. It will also request
-enough miner creeps for each energy source in the room.
+over time. If a colony has no creeps, the HiveMind queues a `spawnBootstrap`
+task. Miner spawns are determined dynamically based on room energy capacity and
+the number of available mining positions.

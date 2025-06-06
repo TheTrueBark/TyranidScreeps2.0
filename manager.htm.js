@@ -1,9 +1,9 @@
 const logger = require('./logger');
 
 const DEFAULT_TASK_TTL = 100;
-// Default cooldown ticks after a task is claimed. HiveMind will not requeue the
-// same task until this expires.
-const DEFAULT_CLAIM_COOLDOWN = 5;
+// Default cooldown ticks after a task is claimed. HiveMind waits this many
+// ticks plus the manager provided estimate before re-queuing the same task.
+const DEFAULT_CLAIM_COOLDOWN = 15;
 
 const HTM_LEVELS = {
   HIVE: 'hive',
@@ -148,9 +148,18 @@ const htm = {
    * @param {string} id - Identifier for the container.
    * @param {string} name - Task name to claim.
    * @param {string|null} manager - Manager claiming the task.
-   * @param {number} cooldown - Ticks until the task can be queued again.
+   * @param {number} cooldown - Base cooldown before HiveMind may requeue.
+   * @param {number} expectedTicks - Additional ticks estimated by the manager
+   *   before the task can be attempted again (e.g. spawn time).
    */
-  claimTask(level, id, name, manager = null, cooldown = DEFAULT_CLAIM_COOLDOWN) {
+  claimTask(
+    level,
+    id,
+    name,
+    manager = null,
+    cooldown = DEFAULT_CLAIM_COOLDOWN,
+    expectedTicks = 0,
+  ) {
     const container = this._getContainer(level, id);
     if (!container) return;
     const task = container.tasks.find(
@@ -158,7 +167,7 @@ const htm = {
     );
     if (!task) return;
     task.amount -= 1;
-    task.claimedUntil = Game.time + cooldown;
+    task.claimedUntil = Game.time + cooldown + expectedTicks;
     if (task.amount <= 0) {
       const idx = container.tasks.indexOf(task);
       if (idx !== -1) container.tasks.splice(idx, 1);
@@ -257,5 +266,6 @@ const htm = {
 
 // expose constants for external modules
 htm.LEVELS = HTM_LEVELS;
+htm.DEFAULT_CLAIM_COOLDOWN = DEFAULT_CLAIM_COOLDOWN;
 
 module.exports = htm;

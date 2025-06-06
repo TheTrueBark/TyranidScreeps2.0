@@ -3,6 +3,7 @@ const dna = require("./manager.dna");
 const spawnQueue = require("manager.spawnQueue");
 const demandManager = require("manager.demand");
 const htm = require("./manager.htm");
+const { DEFAULT_CLAIM_COOLDOWN } = htm;
 const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
 
@@ -134,14 +135,16 @@ const spawnManager = {
    * @param {Room} room - The room object to check state for.
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
+  // Spawn a single miner if any source lacks the required workforce.
+  // Returns body size or 0 when nothing was queued.
   spawnMiner(spawn, room, energyCapacityAvailable) {
     const sources = room.find(FIND_SOURCES);
     if (!Array.isArray(sources)) {
       logger.log("spawnManager", `No sources found in room ${room.name}`, 3);
-      return;
+      return 0;
     }
 
-    sources.forEach((source) => {
+    for (const source of sources) {
       if (
         !Memory.rooms ||
         !Memory.rooms[room.name] ||
@@ -153,7 +156,7 @@ const spawnManager = {
           `Missing mining positions data for room ${room.name} and source ${source.id}`,
           3,
         );
-        return;
+        continue;
       }
 
       const availablePositions = Object.keys(
@@ -164,17 +167,22 @@ const spawnManager = {
         (creep) =>
           creep.memory.role === "miner" && creep.memory.source === source.id,
       ).length;
-
-      if (minersAtSource >= availablePositions) {
-        logger.log(
-          "spawnManager",
-          `No available mining positions for source ${source.id} in room ${room.name}`,
-          3,
-        );
-        return;
-      }
+      const queuedMiners = spawnQueue.queue.filter(
+        (req) =>
+          req.memory.role === "miner" && req.memory.source === source.id && req.room === room.name,
+      ).length;
 
       const bodyParts = dna.getBodyParts("miner", room);
+      const energyPerTick =
+        bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
+      const requiredMiners = Math.min(
+        availablePositions,
+        Math.ceil(10 / energyPerTick),
+      );
+
+      if (minersAtSource + queuedMiners >= requiredMiners) {
+        continue;
+      }
 
       const creepMemory = { source: source.id };
       const miningPositionAssigned = memoryManager.assignMiningPosition(
@@ -186,8 +194,7 @@ const spawnManager = {
         const distanceToSpawn = spawn.pos.getRangeTo(
           Game.getObjectById(source.id).pos,
         );
-        const energyProducedPerTick =
-          bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
+        const energyProducedPerTick = energyPerTick;
         const collectionTicks = calculateCollectionTicks(energyProducedPerTick);
 
         if (
@@ -211,9 +218,11 @@ const spawnManager = {
             },
             spawn.id,
           );
+          return bodyParts.length;
         }
       }
-    });
+    }
+    return 0;
   },
 
   /**
@@ -358,19 +367,43 @@ const spawnManager = {
       }
 
       switch (task.name) {
-        case 'spawnMiner':
-          this.spawnMiner(spawn, room, energyCapacityAvailable);
-          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+        case 'spawnMiner': {
+          const size = this.spawnMiner(spawn, room, energyCapacityAvailable);
+          if (size > 0) {
+            htm.claimTask(
+              htm.LEVELS.COLONY,
+              room.name,
+              task.name,
+              'spawnManager',
+              DEFAULT_CLAIM_COOLDOWN,
+              size * CREEP_SPAWN_TIME,
+            );
+          }
           break;
+        }
         case 'spawnHauler':
           this.spawnHauler(spawn, room, energyCapacityAvailable);
-          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+          htm.claimTask(
+            htm.LEVELS.COLONY,
+            room.name,
+            task.name,
+            'spawnManager',
+            DEFAULT_CLAIM_COOLDOWN,
+            dna.getBodyParts('hauler', room).length * CREEP_SPAWN_TIME,
+          );
           break;
         case 'spawnBootstrap':
           const role = task.data.role || 'allPurpose';
           const body = dna.getBodyParts(role, room, task.data.panic);
           spawnQueue.addToQueue(role, room.name, body, { role }, spawn.id);
-          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'spawnManager');
+          htm.claimTask(
+            htm.LEVELS.COLONY,
+            room.name,
+            task.name,
+            'spawnManager',
+            DEFAULT_CLAIM_COOLDOWN,
+            body.length * CREEP_SPAWN_TIME,
+          );
           break;
         default:
           break;

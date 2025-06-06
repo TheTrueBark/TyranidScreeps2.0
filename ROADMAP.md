@@ -47,11 +47,14 @@
 - [x] Task cache: “what was already attempted?” – *Prio 3*
 - [x] Basic skeleton with scheduler hook
 - [x] Basic HiveMind decision module queues tasks
+- [x] Task claiming with cooldown and amount tracking
+- [x] Dynamic miner evaluation based on room energy
 
 ### ✅ Spawn Manager (Prio 4)
 - [ ] Spawn queue with priority and timing
 - [ ] Scheduled pre-spawn logic (e.g. “Miner in 80 ticks”)
 - [x] Integrated with HTM task requests
+- [x] Processes HTM spawn tasks with cooldown estimates
 - [ ] Multi-room spawn and remote queue support
 - [x] Panic mode: minimum creep fallback during total loss – *Prio 5*
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*

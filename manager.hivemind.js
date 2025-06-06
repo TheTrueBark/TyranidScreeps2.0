@@ -1,5 +1,7 @@
 const htm = require('./manager.htm');
 const logger = require('./logger');
+const spawnQueue = require('./manager.spawnQueue');
+const dna = require('./manager.dna');
 
 const hivemind = {
   /**
@@ -61,27 +63,55 @@ const hivemind = {
         logger.log('hivemind', `Queued bootstrap spawn for ${roomName}`, 2);
       }
 
-      // Request miners equal to the number of sources
+      // Request miners based on available energy and mining spots
       const sources = room.find(FIND_SOURCES);
-      const miners = _.filter(
-        Game.creeps,
-        (c) => c.memory.role === 'miner' && c.room.name === roomName,
-      ).length;
-      const minersNeeded = sources.length - miners;
-      if (
-        minersNeeded > 0 &&
-        !this._taskExists(htm.LEVELS.COLONY, roomName, 'spawnMiner', 'spawnManager')
-      ) {
-        htm.addColonyTask(
-          roomName,
-          'spawnMiner',
-          { role: 'miner' },
-          1,
-          30,
-          minersNeeded,
-          'spawnManager',
+      let minersNeeded = 0;
+      const minerBody = dna.getBodyParts('miner', room);
+      const workParts = minerBody.filter((p) => p === WORK).length;
+      const harvestPerTick = workParts * HARVEST_POWER;
+
+      for (const source of sources) {
+        const positions =
+          Memory.rooms[roomName]?.miningPositions?.[source.id]?.positions;
+        if (!positions) continue;
+        const maxMiners = Math.min(
+          Object.keys(positions).length,
+          Math.ceil(10 / harvestPerTick),
         );
-        logger.log('hivemind', `Queued ${minersNeeded} miner spawn(s) for ${roomName}`, 2);
+        const live = _.filter(
+          Game.creeps,
+          (c) => c.memory.role === 'miner' && c.memory.source === source.id,
+        ).length;
+        const queued = spawnQueue.queue.filter(
+          (req) =>
+            req.memory.role === 'miner' &&
+            req.memory.source === source.id &&
+            req.room === roomName,
+        ).length;
+        minersNeeded += Math.max(0, maxMiners - live - queued);
+      }
+
+      const existing = htm._getContainer(htm.LEVELS.COLONY, roomName)?.tasks.find(
+        (t) => t.name === 'spawnMiner' && t.manager === 'spawnManager',
+      );
+      if (minersNeeded > 0) {
+        if (existing) {
+          if (existing.amount < minersNeeded) {
+            existing.amount = minersNeeded;
+            logger.log('hivemind', `Updated miner task amount to ${minersNeeded} for ${roomName}`, 2);
+          }
+        } else {
+          htm.addColonyTask(
+            roomName,
+            'spawnMiner',
+            { role: 'miner' },
+            1,
+            30,
+            minersNeeded,
+            'spawnManager',
+          );
+          logger.log('hivemind', `Queued ${minersNeeded} miner spawn(s) for ${roomName}`, 2);
+        }
       }
 
       // Encourage upgrading when energy is abundant

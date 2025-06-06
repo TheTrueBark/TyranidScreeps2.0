@@ -47,10 +47,13 @@ htm.addColonyTask('W1N1', 'buildExtensions', { amount: 5 }, 2);
 ### Claiming tasks
 
 Managers use `claimTask` once they pick up an order. The `amount` value is
-decreased and the task is removed when it reaches zero.
+decreased and the task is removed when it reaches zero. The call accepts an
+additional `expectedTicks` parameter so the HiveMind can wait for long running
+actions (like spawning) before re-issuing the task.
 
 ```javascript
-htm.claimTask(htm.LEVELS.COLONY, 'W1N1', 'spawnMiner', 'spawnManager', 10);
+// parameters: level, id, name, manager, baseCooldown, expectedTicks
+htm.claimTask(htm.LEVELS.COLONY, 'W1N1', 'spawnMiner', 'spawnManager', 15, 150);
 ```
 
 `claimedUntil` blocks the HiveMind from requeueing the same task for a few
