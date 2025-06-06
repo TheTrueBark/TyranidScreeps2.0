@@ -55,7 +55,14 @@ const spawnModule = {
     const harvestPerTick = workParts * HARVEST_POWER;
 
     for (const source of sources) {
-      const positions = Memory.rooms[roomName]?.miningPositions?.[source.id]?.positions;
+      let positions = null;
+      if (
+        Memory.rooms[roomName] &&
+        Memory.rooms[roomName].miningPositions &&
+        Memory.rooms[roomName].miningPositions[source.id]
+      ) {
+        positions = Memory.rooms[roomName].miningPositions[source.id].positions;
+      }
       if (!positions) continue;
       const maxMiners = Math.min(
         Object.keys(positions).length,
@@ -74,10 +81,12 @@ const spawnModule = {
       minersNeeded += Math.max(0, maxMiners - live - queued);
     }
 
-    const existing = htm
-      ._getContainer(htm.LEVELS.COLONY, roomName)?.tasks.find(
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
+    const existing = container && container.tasks
+      ? container.tasks.find(
         (t) => t.name === 'spawnMiner' && t.manager === 'spawnManager',
-      );
+      )
+      : null;
     if (minersNeeded > 0) {
       if (existing) {
         if (existing.amount < minersNeeded) {

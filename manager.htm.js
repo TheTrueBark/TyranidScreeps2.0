@@ -234,7 +234,10 @@ const htm = {
     // Execute tasks that are not claimed
     for (const task of container.tasks) {
       if (Game.time < task.claimedUntil) continue;
-      const handler = this.handlers?.[level]?.[task.name];
+      let handler = null;
+      if (this.handlers && this.handlers[level]) {
+        handler = this.handlers[level][task.name];
+      }
       if (typeof handler === 'function') {
         try {
           handler(task.data);
