@@ -126,7 +126,10 @@ const buildingManager = {
         filter: (structure) => structure.structureType === STRUCTURE_EXTENSION,
       });
 
-      if (extensions.length + extensionSites.length < 5) {
+      // Determine how many extensions this RCL allows
+      const maxExtensions =
+        CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][room.controller.level] || 0;
+      if (extensions.length + extensionSites.length < maxExtensions) {
         const positions = [
           { x: -2, y: -2 },
           { x: -2, y: 2 },
