@@ -3,6 +3,10 @@ const logger = require("./logger");
 if (!Memory.spawnQueue) {
   Memory.spawnQueue = [];
 }
+// Counter to ensure unique spawn request IDs across ticks
+if (Memory.nextSpawnRequestId === undefined) {
+  Memory.nextSpawnRequestId = 0;
+}
 
 const spawnQueue = {
   get queue() {
@@ -27,7 +31,8 @@ const spawnQueue = {
    * @param {number} ticksToSpawn - Number of ticks to delay the spawn (default is 0).
    */
   addToQueue(category, room, bodyParts, memory, spawnId, ticksToSpawn = 0) {
-    const requestId = Game.time; // Using Game.time as a unique identifier
+    // Combine current tick with an incrementing counter to avoid collisions
+    const requestId = `${Game.time}-${Memory.nextSpawnRequestId++}`;
     const energyRequired = _.sum(bodyParts, (part) => BODYPART_COST[part]);
     this.queue.push({
       requestId,
@@ -91,27 +96,19 @@ const spawnQueue = {
   },
 
   /**
-   * Adjusts the priorities of spawn requests based on room conditions.
-   * Currently, it increases the priority of builder creeps if construction sites exist in the room.
+   * Sorts the queue based on `ticksToSpawn` so earlier requests run first.
+   * Future implementations may modify `ticksToSpawn` to reprioritize.
    *
-   * @param {Room} room - The room to adjust priorities for.
+   * @param {Room} room - The room whose queue is being sorted.
    */
   adjustPriorities(room) {
     logger.log(
       "spawnQueue",
-      `Adjusting priorities for room: ${room.name}`,
+      `Sorting queue for room ${room.name} by ticksToSpawn`,
       2,
     );
-    for (const spawnRequest of this.queue) {
-      if (
-        spawnRequest.room === room.name &&
-        spawnRequest.category === "builder" &&
-        room.find(FIND_CONSTRUCTION_SITES).length > 0
-      ) {
-        spawnRequest.priority = 5; // Higher priority for builders if construction sites exist
-      }
-    }
-    this.queue.sort((a, b) => a.priority - b.priority);
+    // Future logic could adjust ticksToSpawn here
+    this.queue.sort((a, b) => a.ticksToSpawn - b.ticksToSpawn);
   },
 
   /**

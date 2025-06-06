@@ -50,10 +50,10 @@ global.debug = {
   config: logger.getConfig,
 };
 
-// Add high priority one-time tasks
+// High priority initialization tasks - run once at start of tick 0
 scheduler.addTask(
   "initializeRoomMemory",
-  600,
+  0,
   () => {
     for (const roomName in Game.rooms) {
       const room = Game.rooms[roomName];

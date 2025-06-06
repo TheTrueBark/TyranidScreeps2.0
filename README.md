@@ -67,4 +67,5 @@ Next step: focus on the hierarchical task system so the scheduler can trigger co
 - [HTM](./docs/htm.md)
 - [HiveMind](./docs/hivemind.md)
 - [Console Stats](./docs/console.md)
+- [Spawn Queue](./docs/spawnQueue.md)
 
