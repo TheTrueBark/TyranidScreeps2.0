@@ -71,10 +71,14 @@ describe('hivemind spawn module', function () {
     htm.init();
   });
 
-  it('queues miner and builder tasks', function () {
+  it('queues initial spawn order before builders', function () {
     spawnModule.run(Game.rooms['W1N1']);
-    const tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
+    let tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
+    expect(tasks).to.deep.equal(['spawnBootstrap']);
+
+    spawnModule.run(Game.rooms['W1N1']);
+    tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
     expect(tasks).to.include('spawnMiner');
-    expect(tasks).to.include('spawnBuilder');
+    expect(tasks).to.not.include('spawnBuilder');
   });
 });

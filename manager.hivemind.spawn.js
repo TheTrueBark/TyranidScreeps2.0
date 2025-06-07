@@ -31,6 +31,7 @@ const spawnModule = {
 
     // Panic: no creeps present
     const myCreeps = _.filter(Game.creeps, (c) => c.my && c.room.name === roomName);
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
     if (myCreeps.length === 0) {
       // Emergency: purge existing queue and force a bootstrap creep
       const removed = spawnQueue.clearRoom(roomName);
@@ -61,30 +62,49 @@ const spawnModule = {
       { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
     ];
 
-    const alive = myCreeps.length;
-    const queuedTotal = spawnQueue.queue.filter((q) => q.room === roomName).length;
-    const totalPlanned = alive + queuedTotal;
+    const initialRoles = [
+      'allPurpose',
+      'miner',
+      'hauler',
+      'miner',
+      'hauler',
+      'upgrader',
+    ];
 
-    if (
-      room.controller.level === 1 &&
-      totalPlanned < initialOrder.length &&
-      !taskExists(roomName, initialOrder[totalPlanned].task, 'spawnManager')
-    ) {
-      const entry = initialOrder[totalPlanned];
-      htm.addColonyTask(
-        roomName,
-        entry.task,
-        entry.data,
-        entry.priority,
-        20,
-        1,
-        'spawnManager',
-      );
-      logger.log(
-        'hivemind.spawn',
-        `Queued initial ${entry.data.role} for ${roomName}`,
-        2,
-      );
+    const queuedInitial = spawnQueue.queue.filter(
+      (q) => q.room === roomName && initialRoles.includes(q.memory.role),
+    ).length;
+    const tasksInitial =
+      container && container.tasks
+        ? container.tasks.filter(
+            (t) =>
+              t.manager === 'spawnManager' &&
+              initialOrder.some((o) => o.task === t.name),
+          ).length
+        : 0;
+
+    const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
+    const totalPlanned = aliveInitial + queuedInitial + tasksInitial;
+
+    if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
+      const nextEntry = initialOrder[totalPlanned];
+      if (!taskExists(roomName, nextEntry.task, 'spawnManager')) {
+        htm.addColonyTask(
+          roomName,
+          nextEntry.task,
+          nextEntry.data,
+          nextEntry.priority,
+          20,
+          1,
+          'spawnManager',
+        );
+        logger.log(
+          'hivemind.spawn',
+          `Queued initial ${nextEntry.data.role} for ${roomName}`,
+          2,
+        );
+      }
+      // Do not queue other roles until initial order is complete
       return;
     }
 
@@ -129,7 +149,6 @@ const spawnModule = {
       minersNeeded += Math.max(0, maxMiners - live - queued);
     }
 
-    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
     const existing = container && container.tasks
       ? container.tasks.find(
         (t) => t.name === 'spawnMiner' && t.manager === 'spawnManager',

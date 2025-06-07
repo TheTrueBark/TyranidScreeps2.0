@@ -91,9 +91,25 @@ scheduler.addTask(
 );
 
 scheduler.addTask("clearMemory", 100, () => {
-  for (let name in Memory.creeps) {
+  const roleMap = {
+    allPurpose: roleAllPurpose,
+    upgrader: roleUpgrader,
+    miner: roleMiner,
+    builder: roleBuilder,
+    hauler: roleHauler,
+  };
+  for (const name in Memory.creeps) {
     if (!Game.creeps[name]) {
-      logger.log("memory", `Clearing memory of dead creep: ${name}`, 2);
+      const mem = Memory.creeps[name];
+      const mod = roleMap[mem.role];
+      if (mod && typeof mod.onDeath === 'function') {
+        try {
+          mod.onDeath({ name, memory: mem });
+        } catch (e) {
+          logger.log('memory', `onDeath error for ${name}: ${e}`, 4);
+        }
+      }
+      logger.log('memory', `Clearing memory of dead creep: ${name}`, 2);
       delete Memory.creeps[name];
     }
   }
