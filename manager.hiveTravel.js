@@ -581,7 +581,12 @@ const STATE_CPU = 3;
 const STATE_DEST_X = 4;
 const STATE_DEST_Y = 5;
 const STATE_DEST_ROOMNAME = 6;
-// assigns a function to Creep.prototype: creep.travelTo(destination)
-Creep.prototype.travelTo = function (destination, options) {
-    return Traveler.travelTo(this, destination, options);
-};
+
+// expose travelTo only when Creep exists (e.g. in the Screeps runtime)
+if (typeof Creep !== "undefined" && Creep.prototype) {
+    Creep.prototype.travelTo = function (destination, options) {
+        return Traveler.travelTo(this, destination, options);
+    };
+}
+
+module.exports = Traveler;

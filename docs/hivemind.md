@@ -25,6 +25,7 @@ its queue is empty.
 
 ## Modules
 
-- **spawn** – Handles panic bootstrap and miner demand. Converts room state into
-  HTM tasks consumed by the `spawnManager`.
+- **spawn** – Handles panic bootstrap and miner demand. Queues miner and
+  hauler tasks so hauler count automatically scales with available miners.
+  Converts room state into HTM tasks consumed by the `spawnManager`.
   Modules can be added later for building, defense or expansion logic.
