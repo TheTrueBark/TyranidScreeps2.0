@@ -1,0 +1,12 @@
+{
+  "name": "tyranid-screeps-2.0",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "NODE_PATH=./ mocha"
+  },
+  "devDependencies": {
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0"
+  }
+}
