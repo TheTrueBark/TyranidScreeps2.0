@@ -33,24 +33,27 @@ global.visual = {
   DT: function (toggle) {
     if (toggle === 1) {
       visualizeDT = true;
-      console.log("Distance Transform Visualization: ON");
+      statsConsole.log("Distance Transform Visualization: ON", 2);
     } else if (toggle === 0) {
       visualizeDT = false;
-      console.log("Distance Transform Visualization: OFF");
+      statsConsole.log("Distance Transform Visualization: OFF", 2);
     } else {
-      console.log("Usage: visual.DT(1) to show, visual.DT(0) to hide");
+      statsConsole.log("Usage: visual.DT(1) to show, visual.DT(0) to hide", 3);
     }
   },
   overlay: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
       Memory.settings.enableVisuals = true;
-      console.log("HUD visuals: ON");
+      statsConsole.log("HUD visuals: ON", 2);
     } else if (toggle === 0) {
       Memory.settings.enableVisuals = false;
-      console.log("HUD visuals: OFF");
+      statsConsole.log("HUD visuals: OFF", 2);
     } else {
-      console.log("Usage: visual.overlay(1) to show, visual.overlay(0) to hide");
+      statsConsole.log(
+        "Usage: visual.overlay(1) to show, visual.overlay(0) to hide",
+        3,
+      );
     }
   },
 };
@@ -58,9 +61,12 @@ global.visual = {
 global.debug = {
   toggle(module, state) {
     if (logger.toggle(module, state)) {
-      console.log(`Debug for ${module} ${state ? "enabled" : "disabled"}`);
+      statsConsole.log(
+        `Debug for ${module} ${state ? "enabled" : "disabled"}`,
+        2,
+      );
     } else {
-      console.log(`Module ${module} not found in debug configuration`);
+      statsConsole.log(`Module ${module} not found in debug configuration`, 3);
     }
   },
   config: logger.getConfig,
