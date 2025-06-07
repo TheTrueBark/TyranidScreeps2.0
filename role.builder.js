@@ -84,22 +84,21 @@ const roleBuilder = {
       if (!creep.memory.buildTarget) {
         const queue = creep.room.memory.buildingQueue || [];
         if (queue.length > 0) {
-          for (const entry of queue) {
-            const assigned =
-              (roomMemory.siteAssignments &&
-                roomMemory.siteAssignments[entry.id]) ||
-              0;
-            if (assigned >= 4) continue;
+          const entry = queue[0];
+          const assigned =
+            (roomMemory.siteAssignments && roomMemory.siteAssignments[entry.id]) ||
+            0;
+          if (assigned < 4) {
             const site = Game.getObjectById(entry.id);
-            if (!site) continue;
-            creep.memory.buildTarget = entry.id;
-            if (!roomMemory.siteAssignments)
-              roomMemory.siteAssignments = {};
-            roomMemory.siteAssignments[entry.id] = assigned + 1;
-            if (creep.build(site) === ERR_NOT_IN_RANGE) {
-              creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
+            if (site) {
+              creep.memory.buildTarget = entry.id;
+              if (!roomMemory.siteAssignments) roomMemory.siteAssignments = {};
+              roomMemory.siteAssignments[entry.id] = assigned + 1;
+              if (creep.build(site) === ERR_NOT_IN_RANGE) {
+                creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
+              }
+              return;
             }
-            return;
           }
         }
       }

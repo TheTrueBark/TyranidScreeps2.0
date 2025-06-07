@@ -5,6 +5,7 @@ const htm = require("./manager.htm");
 const { DEFAULT_CLAIM_COOLDOWN } = htm;
 const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
+const energyRequests = require("./manager.energyRequests");
 
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
@@ -108,6 +109,9 @@ const spawnManager = {
     for (const spawn of spawns) {
       this.processSpawnQueue(spawn);
     }
+
+    // Issue energy delivery requests for spawns and extensions
+    energyRequests.run(room);
 
     // Adjust priorities dynamically
     spawnQueue.adjustPriorities(room);
