@@ -25,8 +25,10 @@ its queue is empty.
 
 ## Modules
 
-- **spawn** – Handles panic bootstrap and miner demand. Queues miner and
-  hauler tasks so hauler count automatically scales with available miners. When
-  no creeps remain the module clears the spawn queue and schedules a bootstrap
-  worker so the colony can recover.
+- **spawn** – Maintains the workforce. Miners are requested based on available
+  mining spots and work parts (typically three per source at RCL1). Haulers are
+  queued once miners exist and scale back as the room develops. A baseline
+  upgrader is always ensured and builders are spawned when construction projects
+  are detected. When no creeps remain the queue is purged and a bootstrap worker
+  is scheduled so the colony can recover.
   Modules can be added later for building, defense or expansion logic.

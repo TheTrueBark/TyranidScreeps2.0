@@ -118,12 +118,26 @@ const spawnModule = {
         logger.log('hivemind.spawn', `Queued ${minersNeeded} miner spawn(s) for ${roomName}`, 2);
       }
     }
-    const liveHaulers = _.filter(Game.creeps, c => c.memory.role === "hauler" && c.room.name === roomName).length;
-    const queuedHaulers = spawnQueue.queue.filter(req => req.memory.role === "hauler" && req.room === roomName).length;
-    const liveMiners = _.filter(Game.creeps, c => c.memory.role === "miner" && c.room.name === roomName).length;
+    const liveHaulers = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'hauler' && c.room.name === roomName,
+    ).length;
+    const queuedHaulers = spawnQueue.queue.filter(
+      req => req.memory.role === 'hauler' && req.room === roomName,
+    ).length;
+    const liveMiners = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'miner' && c.room.name === roomName,
+    ).length;
     let requiredHaulers = 0;
     if (liveMiners > 0) {
-      requiredHaulers = Math.max(1, Math.ceil(liveMiners / 2));
+      if (room.controller.level <= 1) {
+        requiredHaulers = Math.max(2, liveMiners * 2);
+      } else if (room.controller.level === 2) {
+        requiredHaulers = Math.max(1, Math.ceil(liveMiners * 1.5));
+      } else {
+        requiredHaulers = Math.max(1, liveMiners);
+      }
     }
     const haulersNeeded = Math.max(0, requiredHaulers - liveHaulers - queuedHaulers);
     const haulTask = container && container.tasks ? container.tasks.find(t => t.name === "spawnHauler" && t.manager === "spawnManager") : null;
@@ -139,7 +153,10 @@ const spawnModule = {
 
     const liveUpgraders = _.filter(Game.creeps, c => c.memory.role === 'upgrader' && c.room.name === roomName).length;
     const queuedUpgraders = spawnQueue.queue.filter(req => req.memory.role === 'upgrader' && req.room === roomName).length;
-    const desiredUpgraders = Math.max(1, Math.ceil(room.controller.level / 2));
+    const desiredUpgraders = Math.min(
+      8,
+      Math.max(1, Math.ceil(room.controller.level / 2)),
+    );
     const upgradersNeeded = Math.max(0, desiredUpgraders - liveUpgraders - queuedUpgraders);
     const upgraderTask = container && container.tasks ? container.tasks.find(t => t.name === 'spawnUpgrader' && t.manager === 'spawnManager') : null;
     if (upgradersNeeded > 0) {
@@ -149,6 +166,48 @@ const spawnModule = {
         // Upgraders are lower priority than miners and haulers during bootstrap
         htm.addColonyTask(roomName, 'spawnUpgrader', { role: 'upgrader' }, 3, 20, upgradersNeeded, 'spawnManager');
         logger.log('hivemind.spawn', `Queued ${upgradersNeeded} upgrader spawn(s) for ${roomName}`, 2);
+      }
+    }
+
+    const liveBuilders = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'builder' && c.room.name === roomName,
+    ).length;
+    const queuedBuilders = spawnQueue.queue.filter(
+      req => req.memory.role === 'builder' && req.room === roomName,
+    ).length;
+    const buildQueue = room.memory.buildingQueue || [];
+    let desiredBuilders = 0;
+    if (buildQueue.length > 0) {
+      desiredBuilders = Math.min(2, Math.ceil(buildQueue.length / 5));
+    }
+    const buildersNeeded = Math.max(
+      0,
+      desiredBuilders - liveBuilders - queuedBuilders,
+    );
+    const builderTask = container && container.tasks
+      ? container.tasks.find(
+          t => t.name === 'spawnBuilder' && t.manager === 'spawnManager',
+        )
+      : null;
+    if (buildersNeeded > 0) {
+      if (builderTask) {
+        builderTask.amount = buildersNeeded;
+      } else {
+        htm.addColonyTask(
+          roomName,
+          'spawnBuilder',
+          { role: 'builder' },
+          4,
+          20,
+          buildersNeeded,
+          'spawnManager',
+        );
+        logger.log(
+          'hivemind.spawn',
+          `Queued ${buildersNeeded} builder spawn(s) for ${roomName}`,
+          2,
+        );
       }
     }
 

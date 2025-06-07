@@ -255,6 +255,27 @@ const spawnManager = {
   },
 
   /**
+   * Spawns a builder with the appropriate body parts based on energy.
+   * @param {StructureSpawn} spawn - Spawn structure to use.
+   * @param {Room} room - Room context for calculations.
+   */
+  spawnBuilder(spawn, room) {
+    const bodyParts = dna.getBodyParts("builder", room);
+    spawnQueue.addToQueue(
+      "builder",
+      room.name,
+      bodyParts,
+      { role: "builder" },
+      spawn.id,
+    );
+    logger.log(
+      "spawnManager",
+      `Added builder creep to spawn queue in room ${room.name}`,
+      2,
+    );
+  },
+
+  /**
    * Spawn an allPurpose worker and pre-assign a mining position if possible.
    * @param {StructureSpawn} spawn - The spawn to create the request for.
    * @param {Room} room - The room context.
@@ -514,6 +535,17 @@ const spawnManager = {
             'spawnManager',
             DEFAULT_CLAIM_COOLDOWN,
             dna.getBodyParts('upgrader', room).length * CREEP_SPAWN_TIME,
+          );
+          break;
+        case 'spawnBuilder':
+          this.spawnBuilder(spawn, room);
+          htm.claimTask(
+            htm.LEVELS.COLONY,
+            room.name,
+            task.name,
+            'spawnManager',
+            DEFAULT_CLAIM_COOLDOWN,
+            dna.getBodyParts('builder', room).length * CREEP_SPAWN_TIME,
           );
           break;
         case 'spawnBootstrap':
