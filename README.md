@@ -2,6 +2,10 @@
 
 ## Overview
 
+This project targets the Screeps runtime which implements **ECMAScript 5.1**. Modern
+ES6+ features such as arrow functions or object spread are not available in-game.
+All code should remain compatible with ES5.1.
+
 Tyranid Screeps mimics a hierarchical swarm. Each module acts like a different
 organism in the hive:
 
@@ -70,4 +74,5 @@ Next step: focus on the hierarchical task system so the scheduler can trigger co
 - [Console Stats](./docs/console.md)
 - [Spawn Queue](./docs/spawnQueue.md)
 - [HiveTravel](./docs/hiveTravel.md)
+- [Runtime Environment](./docs/runtime.md)
 

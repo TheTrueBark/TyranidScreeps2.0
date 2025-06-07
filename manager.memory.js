@@ -79,14 +79,17 @@ const memoryManager = {
 
     if (!Memory.hive.clusters[clusterId]) {
       Memory.hive.clusters[clusterId] = {
-        ...DEFAULT_CLUSTER_MEMORY,
         colonies: {},
+        meta: {},
       };
     }
 
     if (!Memory.hive.clusters[clusterId].colonies[colonyId]) {
       Memory.hive.clusters[clusterId].colonies[colonyId] = {
-        ...DEFAULT_COLONY_MEMORY,
+        creeps: {},
+        structures: {},
+        tasks: {},
+        meta: {},
       };
     }
   },
@@ -135,7 +138,12 @@ const memoryManager = {
       if (position && !position.reserved) {
         position.reserved = true;
         // Ensure roomName is available for later release and Position usage
-        creepMemory.miningPosition = { ...position, roomName: room.name };
+        creepMemory.miningPosition = {
+          x: position.x,
+          y: position.y,
+          roomName: room.name,
+          reserved: position.reserved,
+        };
         return true;
       }
     }
