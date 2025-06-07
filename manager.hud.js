@@ -1,13 +1,36 @@
 // hudManager.js
+const visualizer = require("manager.visualizer");
 
 module.exports = {
   createHUD: function (room) {
-    const visual = new RoomVisual(room.name);
+    if (!visualizer.enabled) return;
 
-    // Distance Transform Status
-    const dtStatus = room.memory.distanceTransform ? "✓" : "X";
-    visual.text(`DT: ${dtStatus}`, 1, 1, { color: "white", font: 1 });
+    // Controller level near controller
+    if (room.controller) {
+      visualizer.showInfo([`RCL: ${room.controller.level}`], {
+        room: room,
+        pos: room.controller.pos,
+      });
+    }
 
-    // Add more statuses as needed
+    // Mark energy sources
+    const sources = room.find(FIND_SOURCES);
+    for (const source of sources) {
+      visualizer.circle(source.pos, "yellow");
+    }
+
+    // Task summary for this colony
+    const tasks =
+      (Memory.htm &&
+        Memory.htm.colonies &&
+        Memory.htm.colonies[room.name] &&
+        Memory.htm.colonies[room.name].tasks) || [];
+    const taskLines = tasks.map((t) => `${t.name} (${t.amount})`);
+    if (taskLines.length > 0) {
+      visualizer.showInfo(taskLines, {
+        room: room,
+        pos: new RoomPosition(1, 1, room.name),
+      });
+    }
   },
 };
