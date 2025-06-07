@@ -3,6 +3,23 @@ const logger = require("./logger");
 
 const roleAllPurpose = {
   run: function (creep) {
+    // Ensure creep knows its energy source
+    if (!creep.memory.source) {
+      const source = creep.pos.findClosestByRange(FIND_SOURCES);
+      if (source) {
+        creep.memory.source = source.id;
+        creep.memory.sourcePosition = {
+          x: source.pos.x,
+          y: source.pos.y,
+          roomName: source.pos.roomName,
+        };
+      }
+    }
+
+    if (creep.memory.working === undefined) {
+      creep.memory.working = false;
+    }
+
     if (!creep.memory.desiredPosition) {
       creep.memory.desiredPosition = {};
     }
