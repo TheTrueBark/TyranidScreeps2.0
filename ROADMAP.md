@@ -49,6 +49,7 @@
 - [x] Basic HiveMind decision module queues tasks
 - [x] Task claiming with cooldown and amount tracking
 - [x] Creep energy request tasks claimed by haulers
+- [x] Builders check nearby energy before requesting haulers
 - [x] Dynamic miner evaluation based on room energy
 - [x] Modular HiveMind with spawn and subconscious modules
 
@@ -65,7 +66,7 @@
 
 ### ✅ Building Manager (Prio 3)
 - [x] Queues container and extension construction
-- [x] Places containers near controller and spawn for early storage
+- [x] Places controller containers at upgrade range and spawn buffer containers
 - [x] Recalculates buildable areas on controller level change
 - [x] Prioritizes build sites via weighted queue
 

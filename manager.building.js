@@ -146,14 +146,17 @@ const buildingManager = {
 
     // Controller containers
     if (room.controller) {
-      const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 1, {
+      const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
         filter: s => s.structureType === STRUCTURE_CONTAINER,
       });
-      const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
+      const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 3, {
         filter: s => s.structureType === STRUCTURE_CONTAINER,
       });
       if (controllerContainers.length + controllerSites.length < 2) {
-        const spots = getOpenSpots(room.controller.pos, 1);
+        // Prefer placing containers at the maximum upgrade range
+        const spots = getOpenSpots(room.controller.pos, 3).filter(p =>
+          new RoomPosition(p.x, p.y, room.name).getRangeTo(room.controller) === 3,
+        );
         for (const spot of spots) {
           if (controllerContainers.length + controllerSites.length >= 2) break;
           const pos = new RoomPosition(spot.x, spot.y, room.name);

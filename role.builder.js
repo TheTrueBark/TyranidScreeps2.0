@@ -18,6 +18,28 @@ function requestEnergy(creep) {
   );
 }
 
+/**
+ * Look for nearby energy that the builder can collect on its own.
+ * Returns an object describing the pickup/withdraw action or null if none.
+ */
+function findNearbyEnergy(creep) {
+  // Prefer dropped resources adjacent to the creep
+  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 2, {
+    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+  })[0];
+  if (dropped) return { type: 'pickup', target: dropped };
+
+  // Check nearby containers with available energy
+  const container = creep.pos.findInRange(FIND_STRUCTURES, 2, {
+    filter: s =>
+      s.structureType === STRUCTURE_CONTAINER &&
+      s.store[RESOURCE_ENERGY] > 0,
+  })[0];
+  if (container) return { type: 'withdraw', target: container };
+
+  return null;
+}
+
 const roleBuilder = {
   run: function (creep) {
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
@@ -62,7 +84,18 @@ const roleBuilder = {
       }
     } else {
       if (creep.store[RESOURCE_ENERGY] === 0) {
-        requestEnergy(creep);
+        const source = findNearbyEnergy(creep);
+        if (source) {
+          if (source.type === 'pickup') {
+            if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            }
+          } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+          }
+        } else {
+          requestEnergy(creep);
+        }
       }
     }
   },

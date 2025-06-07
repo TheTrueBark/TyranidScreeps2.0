@@ -3,6 +3,65 @@
 const htm = require('manager.htm');
 const logger = require('./logger');
 
+function findEnergySource(creep) {
+  const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (needed === 0) return null;
+  const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
+    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount >= needed,
+  });
+  if (dropped) return { type: 'pickup', target: dropped };
+
+  const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+    filter: s =>
+      s.structureType === STRUCTURE_CONTAINER &&
+      s.store[RESOURCE_ENERGY] >= needed,
+  });
+  if (container) return { type: 'withdraw', target: container };
+
+  if (creep.room.storage && creep.room.storage.store[RESOURCE_ENERGY] >= needed) {
+    return { type: 'withdraw', target: creep.room.storage };
+  }
+  return null;
+}
+
+function deliverEnergy(creep) {
+  const structure = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+    filter: s =>
+      (s.structureType === STRUCTURE_EXTENSION ||
+        s.structureType === STRUCTURE_SPAWN) &&
+      s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+  });
+  if (structure) {
+    if (creep.transfer(structure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
+    }
+    return true;
+  }
+
+  const ctrlContainer =
+    creep.room.controller &&
+    creep.room.controller.pos
+      .findInRange(FIND_STRUCTURES, 3, {
+        filter: s =>
+          s.structureType === STRUCTURE_CONTAINER &&
+          s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+      })[0];
+  if (ctrlContainer) {
+    if (creep.transfer(ctrlContainer, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
+    }
+    return true;
+  }
+
+  if (creep.room.storage && creep.room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+    if (creep.transfer(creep.room.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
+    }
+    return true;
+  }
+  return false;
+}
+
 module.exports = {
   run: function (creep) {
     const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
@@ -42,14 +101,14 @@ module.exports = {
         }
         return;
       } else {
-        const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-          filter: (structure) =>
-            structure.structureType === STRUCTURE_CONTAINER &&
-            structure.store[RESOURCE_ENERGY] > 0,
-        });
-        if (container) {
-          if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(container, { visualizePathStyle: { stroke: '#ffaa00' } });
+        const source = findEnergySource(creep);
+        if (source) {
+          if (source.type === 'pickup') {
+            if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            }
+          } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
           }
         }
         return;
@@ -76,65 +135,18 @@ module.exports = {
       break;
     }
 
-    // Check if creep is carrying energy and is not already transferring energy
     if (creep.store[RESOURCE_ENERGY] > 0) {
-      // Prioritize filling extensions first, then the spawn
-      const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-        filter: (structure) => {
-          return (
-            (structure.structureType === STRUCTURE_EXTENSION ||
-              structure.structureType === STRUCTURE_SPAWN) &&
-            structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-          );
-        },
-      });
-      if (target) {
-        if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
-        }
-        return;
-      }
+      if (deliverEnergy(creep)) return;
+    }
 
-      // If no valid target, deposit energy in storage
-      const storage = creep.room.storage;
-      if (storage && storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-        if (creep.transfer(storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(storage, { visualizePathStyle: { stroke: "#ffffff" } });
+    const source = findEnergySource(creep);
+    if (source) {
+      if (source.type === 'pickup') {
+        if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+          creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
         }
-        return;
-      }
-    } else {
-      // Otherwise, find dropped energy or energy in containers
-      const droppedEnergy = creep.pos.findClosestByPath(
-        FIND_DROPPED_RESOURCES,
-        {
-          filter: (resource) => resource.resourceType === RESOURCE_ENERGY,
-        },
-      );
-      if (droppedEnergy) {
-        if (creep.pickup(droppedEnergy) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(droppedEnergy, {
-            visualizePathStyle: { stroke: "#ffaa00" },
-          });
-        }
-        return;
-      }
-
-      const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-        filter: (structure) => {
-          return (
-            structure.structureType === STRUCTURE_CONTAINER &&
-            structure.store[RESOURCE_ENERGY] > 0
-          );
-        },
-      });
-      if (container) {
-        if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(container, {
-            visualizePathStyle: { stroke: "#ffaa00" },
-          });
-        }
-        return;
+      } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
       }
     }
   },
