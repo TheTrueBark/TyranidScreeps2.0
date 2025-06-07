@@ -45,6 +45,16 @@ const roleBuilder = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+      if (creep.memory.buildTarget) {
+        const roomMemory = Memory.rooms[creep.room.name];
+        if (roomMemory && roomMemory.siteAssignments) {
+          roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
+            0,
+            (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
+          );
+        }
+        delete creep.memory.buildTarget;
+      }
       creep.memory.working = false;
       creep.say("🔄 collect");
     }
@@ -54,14 +64,47 @@ const roleBuilder = {
     }
 
     if (creep.memory.working) {
-      const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-      if (constructionSites.length > 0) {
-        if (creep.build(constructionSites[0]) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(constructionSites[0], {
-            visualizePathStyle: { stroke: "#ffffff" },
-          });
+      const roomMemory = Memory.rooms[creep.room.name];
+      if (creep.memory.buildTarget) {
+        const site = Game.getObjectById(creep.memory.buildTarget);
+        if (!site) {
+          if (roomMemory && roomMemory.siteAssignments) {
+            roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
+              0,
+              (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
+            );
+          }
+          delete creep.memory.buildTarget;
+        } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
+          creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
+          return;
         }
-      } else {
+      }
+
+      if (!creep.memory.buildTarget) {
+        const queue = creep.room.memory.buildingQueue || [];
+        if (queue.length > 0) {
+          for (const entry of queue) {
+            const assigned =
+              (roomMemory.siteAssignments &&
+                roomMemory.siteAssignments[entry.id]) ||
+              0;
+            if (assigned >= 4) continue;
+            const site = Game.getObjectById(entry.id);
+            if (!site) continue;
+            creep.memory.buildTarget = entry.id;
+            if (!roomMemory.siteAssignments)
+              roomMemory.siteAssignments = {};
+            roomMemory.siteAssignments[entry.id] = assigned + 1;
+            if (creep.build(site) === ERR_NOT_IN_RANGE) {
+              creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
+            }
+            return;
+          }
+        }
+      }
+
+      if (!creep.memory.buildTarget) {
         const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
           filter: (object) => object.hits < object.hitsMax,
         });
@@ -98,6 +141,17 @@ const roleBuilder = {
         } else {
           requestEnergy(creep);
         }
+      }
+    }
+  },
+  onDeath: function (creep) {
+    if (creep.memory.buildTarget) {
+      const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
+      if (roomMemory && roomMemory.siteAssignments) {
+        roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
+          0,
+          (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
+        );
       }
     }
   },

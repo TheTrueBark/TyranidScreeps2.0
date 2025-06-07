@@ -7,6 +7,16 @@ const movementUtils = {
     if (!creep.pos || !creep.pos.findClosestByRange) return;
     const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
     if (!spawn) return;
+
+    const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
+    if (roomMemory && roomMemory.restrictedArea) {
+      for (const p of roomMemory.restrictedArea) {
+        if (creep.pos.x === p.x && creep.pos.y === p.y) {
+          creep.travelTo(spawn, { range: 2 });
+          return;
+        }
+      }
+    }
     if (creep.pos.isNearTo(spawn)) {
       const demandNearby = spawn.pos
         .findInRange(FIND_STRUCTURES, 1, {

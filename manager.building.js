@@ -86,11 +86,16 @@ const buildingManager = {
     this.manageBuildingQueue(room);
 
     if (room.controller.level >= 1) {
-      this.buildContainers(room);
+      this.buildSourceContainers(room);
     }
 
     if (room.controller.level >= 2) {
       this.buildExtensions(room);
+    }
+
+    if (room.controller.level >= 1) {
+      this.buildControllerContainers(room);
+      this.buildBufferContainer(room);
     }
   },
 
@@ -120,7 +125,7 @@ const buildingManager = {
     return weight;
   },
 
-  buildContainers: function (room) {
+  buildSourceContainers: function (room) {
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
       const sourceMem =
@@ -146,7 +151,10 @@ const buildingManager = {
         }
       }
     }
+  },
 
+  buildControllerContainers: function (room) {
+    if (!room.controller) return;
     // Controller containers
     if (room.controller) {
       const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
@@ -179,23 +187,23 @@ const buildingManager = {
         }
       }
     }
+  },
 
-    // Spawn buffer container
+  buildBufferContainer: function (room) {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
-    if (spawn) {
-      const nearbyContainers = spawn.pos.findInRange(FIND_STRUCTURES, 2, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER,
-      });
-      const nearbySites = spawn.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER,
-      });
-      if (nearbyContainers.length + nearbySites.length === 0) {
-        const spots = getOpenSpots(spawn.pos, 2);
-        if (spots.length > 0) {
-          const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
-          room.createConstructionSite(pos, STRUCTURE_CONTAINER);
-          statsConsole.log(`Queued spawn buffer container at ${pos}`, 6);
-        }
+    if (!spawn) return;
+    const nearbyContainers = spawn.pos.findInRange(FIND_STRUCTURES, 2, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER,
+    });
+    const nearbySites = spawn.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER,
+    });
+    if (nearbyContainers.length + nearbySites.length === 0) {
+      const spots = getOpenSpots(spawn.pos, 2);
+      if (spots.length > 0) {
+        const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
+        room.createConstructionSite(pos, STRUCTURE_CONTAINER);
+        statsConsole.log(`Queued spawn buffer container at ${pos}`, 6);
       }
     }
   },

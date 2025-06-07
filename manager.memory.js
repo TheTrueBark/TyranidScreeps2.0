@@ -53,6 +53,7 @@ const memoryManager = {
       Memory.rooms[room.name] = {
         miningPositions: {},
         reservedPositions: {},
+        restrictedArea: [],
       };
     }
 

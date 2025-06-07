@@ -35,6 +35,10 @@ its queue is empty.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).
   - Extensions begin construction when the controller reaches RCL2.
+  - Source containers are prioritized before extensions, followed by controller
+    and buffer containers.
   - Mining positions are freed when miners approach expiry so replacements
     can claim the same spot. Any leftover reservations are cleared when
     miners or allPurpose creeps die.
+  - Restricted tiles around the spawn are stored in room memory so creeps avoid
+    blocking it.
