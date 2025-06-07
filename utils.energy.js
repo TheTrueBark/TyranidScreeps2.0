@@ -1,3 +1,12 @@
+/**
+ * Estimate the number of ticks required to collect specific amounts of energy.
+ *
+ * The calculation factors in a small decay component so results roughly match
+ * in-game drop behaviour.
+ *
+ * @param {number} energyProducedPerTick - Energy created each tick by miners.
+ * @returns {Object} Lookup tables for decay and container collection times.
+ */
 const calculateCollectionTicks = (energyProducedPerTick) => {
   const decayRate = 0.1; // Example decay rate
   return {

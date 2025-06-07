@@ -4,6 +4,7 @@
  *   const hiveTravel = require("manager.hiveTravel");
  */
 "use strict";
+const statsConsole = require("console.console");
 Object.defineProperty(exports, "__esModule", { value: true });
 class Traveler {
     /**
@@ -95,7 +96,10 @@ class Traveler {
             state.cpu = _.round(cpuUsed + state.cpu);
             if (state.cpu > REPORT_CPU_THRESHOLD) {
                 // see note at end of file for more info on this
-                console.log(`TRAVELER: heavy cpu use: ${creep.name}, cpu: ${state.cpu} origin: ${creep.pos}, dest: ${destination}`);
+                statsConsole.log(
+                    `TRAVELER: heavy cpu use: ${creep.name}, cpu: ${state.cpu} origin: ${creep.pos}, dest: ${destination}`,
+                    4,
+                );
             }
             let color = "orange";
             if (ret.incomplete) {
@@ -293,11 +297,17 @@ class Traveler {
                 // can happen for situations where the creep would have to take an uncommonly indirect path
                 // options.allowedRooms and options.routeCallback can also be used to handle this situation
                 if (roomDistance <= 2) {
-                    console.log(`TRAVELER: path failed without findroute, trying with options.useFindRoute = true`);
-                    console.log(`from: ${origin}, destination: ${destination}`);
+                    statsConsole.log(
+                        `TRAVELER: path failed without findroute, trying with options.useFindRoute = true`,
+                        3,
+                    );
+                    statsConsole.log(`from: ${origin}, destination: ${destination}`, 3);
                     options.useFindRoute = true;
                     ret = this.findTravelPath(origin, destination, options);
-                    console.log(`TRAVELER: second attempt was ${ret.incomplete ? "not " : ""}successful`);
+                    statsConsole.log(
+                        `TRAVELER: second attempt was ${ret.incomplete ? "not " : ""}successful`,
+                        3,
+                    );
                     return ret;
                 }
                 // TODO: handle case where a wall or some other obstacle is blocking the exit assumed by findRoute
@@ -368,7 +378,7 @@ class Traveler {
             },
         });
         if (!_.isArray(ret)) {
-            console.log(`couldn't findRoute to ${destination}`);
+            statsConsole.log(`couldn't findRoute to ${destination}`, 3);
             return;
         }
         for (let value of ret) {
@@ -531,7 +541,10 @@ class Traveler {
         if (cleanup) {
             delete Memory.empire.hostileRooms;
         }
-        console.log(`TRAVELER: room avoidance data patched for ${count} rooms`);
+        statsConsole.log(
+            `TRAVELER: room avoidance data patched for ${count} rooms`,
+            2,
+        );
     }
     static deserializeState(travelData, destination) {
         let state = {};
