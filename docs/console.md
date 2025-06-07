@@ -8,5 +8,7 @@ The console module renders an ASCII dashboard inside the Screeps client. It comb
 - **Stat Box** – shows GCL progress, room energy and controller status.
 - **Logging Panel** – latest messages from the logger sorted by severity.
 - Customisable characters for borders, bars and spacing.
+- **Console draw time** – CPU cost for rendering the dashboard, shown under the
+  "Total" CPU line.
 
 The scheduler feeds data into the console module every tick. Use `statsConsole.displayStats()` to print the dashboard from the game console when needed.

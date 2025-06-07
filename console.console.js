@@ -111,6 +111,12 @@ var statsConsole = {
       lineStat.push(stat);
     }
 
+    // Display console drawing time after the Total entry when available
+    if (Memory.stats.consoleDrawTime !== undefined) {
+      lineName.push("Console draw time");
+      lineStat.push(Memory.stats.consoleDrawTime.toFixed(2));
+    }
+
     let cpuStats =
       leftTopCorner +
       _.repeat(

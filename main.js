@@ -140,7 +140,9 @@ scheduler.addTask(
     console.log(statsConsole.displayStats());
     console.log(statsConsole.displayLogs());
     const drawTime = Game.cpu.getUsed() - start;
-    statsConsole.log("Time to Draw: " + drawTime.toFixed(2), 2);
+    // Store draw time for displayStats instead of logging each tick
+    if (!Memory.stats) Memory.stats = {};
+    Memory.stats.consoleDrawTime = drawTime;
   },
   { minBucket: 1000 },
 );
