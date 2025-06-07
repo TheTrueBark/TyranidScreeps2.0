@@ -2,6 +2,7 @@ const htm = require('./manager.htm');
 const logger = require('./logger');
 const spawnQueue = require('./manager.spawnQueue');
 const dna = require('./manager.dna');
+const memoryManager = require('./manager.memory');
 
 const taskExists = (roomName, name, manager = null) => {
   const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
@@ -14,8 +15,11 @@ const taskExists = (roomName, name, manager = null) => {
 const spawnModule = {
   /** Check if this module should run this tick for the given room */
   shouldRun(room) {
-    const count = spawnQueue.queue.filter((q) => q.room === room.name).length;
-    return count === 0;
+    // Always evaluate spawn state each tick to maintain the correct
+    // initial sequence and adapt quickly to changes. The previous
+    // behaviour skipped analysis while the queue had entries which
+    // delayed follow-up spawns.
+    return true;
   },
 
   /** Analyse room state and queue spawn related tasks in HTM */
@@ -133,13 +137,19 @@ const spawnModule = {
       );
       const travel = spawn ? spawn.pos.getRangeTo(source.pos) : 0;
       const replaceThreshold = spawnTime + travel;
-      const live = _.filter(
+      const miners = _.filter(
         Game.creeps,
-        (c) =>
-          c.memory.role === 'miner' &&
-          c.memory.source === source.id &&
-          (!c.ticksToLive || c.ticksToLive > replaceThreshold),
-      ).length;
+        (c) => c.memory.role === 'miner' && c.memory.source === source.id,
+      );
+      let live = 0;
+      for (const miner of miners) {
+        if (miner.ticksToLive && miner.ticksToLive <= replaceThreshold) {
+          // Free the position in memory so a replacement can claim it
+          memoryManager.freeMiningPosition(miner.memory.miningPosition);
+        } else {
+          live++;
+        }
+      }
       const queued = spawnQueue.queue.filter(
         (req) =>
           req.memory.role === 'miner' &&

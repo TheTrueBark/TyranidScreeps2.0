@@ -85,8 +85,11 @@ const buildingManager = {
 
     this.manageBuildingQueue(room);
 
-    if (room.controller.level >= 2) {
+    if (room.controller.level >= 1) {
       this.buildContainers(room);
+    }
+
+    if (room.controller.level >= 2) {
       this.buildExtensions(room);
     }
   },

@@ -163,6 +163,8 @@ const roleAllPurpose = {
   },
   onDeath: function (creep) {
     memoryManager.releaseMiningPosition(creep);
+    // Clear orphaned reservations left by generic workers
+    memoryManager.cleanUpReservedPositions();
   },
 };
 

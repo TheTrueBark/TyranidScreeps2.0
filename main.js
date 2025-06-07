@@ -115,6 +115,7 @@ scheduler.addTask("clearMemory", 100, () => {
   }
 });
 
+
 scheduler.addTask("updateHUD", 5, () => {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];

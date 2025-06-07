@@ -182,6 +182,31 @@ const memoryManager = {
 
     delete creep.memory.miningPosition;
   },
+
+  /**
+   * Frees a mining position without modifying creep memory.
+   * Useful when preparing a replacement miner before the current
+   * occupant expires.
+   *
+   * @param {object} pos - {x, y, roomName} position to free.
+   */
+  freeMiningPosition(pos) {
+    if (!pos || pos.x === undefined || pos.y === undefined || !pos.roomName) {
+      return;
+    }
+    const roomMemory = Memory.rooms && Memory.rooms[pos.roomName];
+    if (!roomMemory || !roomMemory.miningPositions) return;
+
+    for (const sourceId in roomMemory.miningPositions) {
+      const source = roomMemory.miningPositions[sourceId];
+      for (const key in source.positions) {
+        const p = source.positions[key];
+        if (p && p.x === pos.x && p.y === pos.y) {
+          source.positions[key].reserved = false;
+        }
+      }
+    }
+  },
 };
 
 module.exports = memoryManager;

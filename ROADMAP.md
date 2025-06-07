@@ -63,6 +63,7 @@
 - [x] Spawn request validation for positional roomName
 - [x] Direction-aware spawning to keep spawn exits clear
 - [x] Builder spawn logic driven by HiveMind
+- [x] Deterministic bootstrap order: allPurpose → miner → hauler → miner → hauler → upgrader
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*
 
 ### ✅ Building Manager (Prio 3)
@@ -70,11 +71,14 @@
 - [x] Places controller containers at upgrade range and spawn buffer containers
 - [x] Recalculates buildable areas on controller level change
 - [x] Prioritizes build sites via weighted queue
+- [x] Containers requested at RCL1, extensions start at RCL2
 
 ### ✅ Demand & Room Manager (Prio 3)
 - [x] Scans rooms for sources and structures
 - [x] Evaluates spawn demand per role
 - [x] Reserves mining positions for miners
+- [x] Replacement miners requested before predecessors expire
+- [x] Reserved positions cleared on miner/allPurpose death
 
 ---
 

@@ -32,3 +32,9 @@ its queue is empty.
   are detected. When no creeps remain the queue is purged and a bootstrap worker
   is scheduled so the colony can recover.
   Modules can be added later for building, defense or expansion logic.
+  The HiveMind also orders basic infrastructure:
+  - Containers are planned as soon as the room is claimed (RCL1).
+  - Extensions begin construction when the controller reaches RCL2.
+  - Mining positions are freed when miners approach expiry so replacements
+    can claim the same spot. Any leftover reservations are cleared when
+    miners or allPurpose creeps die.
