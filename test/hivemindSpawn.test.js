@@ -72,13 +72,26 @@ describe('hivemind spawn module', function () {
   });
 
   it('queues initial spawn order before builders', function () {
-    spawnModule.run(Game.rooms['W1N1']);
-    let tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
-    expect(tasks).to.deep.equal(['spawnBootstrap']);
-
-    spawnModule.run(Game.rooms['W1N1']);
-    tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
-    expect(tasks).to.include('spawnMiner');
-    expect(tasks).to.not.include('spawnBuilder');
+    const order = [
+      'spawnBootstrap',
+      'spawnMiner',
+      'spawnMiner',
+      'spawnHauler',
+      'spawnHauler',
+      'spawnUpgrader',
+    ];
+    for (let i = 0; i < order.length; i++) {
+      spawnModule.run(Game.rooms['W1N1']);
+    }
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const counts = {};
+    for (const t of tasks) counts[t.name] = t.amount;
+    expect(counts).to.deep.equal({
+      spawnBootstrap: 1,
+      spawnMiner: 2,
+      spawnHauler: 2,
+      spawnUpgrader: 1,
+    });
+    expect(Object.keys(counts)).to.not.include('spawnBuilder');
   });
 });

@@ -72,42 +72,57 @@ const spawnModule = {
     }
 
     // Initial spawn sequence at RCL1
-    const initialOrder = [
-      { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
-      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-      { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
-    ];
+  const initialOrder = [
+    { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
+    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+    { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
+  ];
 
-    const initialRoles = [
-      'allPurpose',
-      'miner',
-      'hauler',
-      'miner',
-      'hauler',
-      'upgrader',
-    ];
+  const initialRoles = [
+    'allPurpose',
+    'miner',
+    'miner',
+    'hauler',
+    'hauler',
+    'upgrader',
+  ];
 
-    const queuedInitial = spawnQueue.queue.filter(
-      (q) => q.room === roomName && initialRoles.includes(q.memory.role),
-    ).length;
-    const tasksInitial =
-      container && container.tasks
-        ? container.tasks.filter(
+  const queuedInitial = spawnQueue.queue.filter(
+    (q) => q.room === roomName && initialRoles.includes(q.memory.role),
+  ).length;
+  const tasksInitial =
+    container && container.tasks
+      ? container.tasks
+          .filter(
             (t) =>
               t.manager === 'spawnManager' &&
               initialOrder.some((o) => o.task === t.name),
-          ).length
-        : 0;
+          )
+          .reduce((sum, t) => sum + (t.amount || 1), 0)
+      : 0;
 
     const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
     const totalPlanned = aliveInitial + queuedInitial + tasksInitial;
 
     if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
       const nextEntry = initialOrder[totalPlanned];
-      if (!taskExists(roomName, nextEntry.task, 'spawnManager')) {
+      const existing =
+        container && container.tasks
+          ? container.tasks.find(
+              t => t.name === nextEntry.task && t.manager === 'spawnManager',
+            )
+          : null;
+      if (existing) {
+        existing.amount += 1;
+        logger.log(
+          'hivemind.spawn',
+          `Increased initial ${nextEntry.data.role} amount for ${roomName}`,
+          2,
+        );
+      } else {
         htm.addColonyTask(
           roomName,
           nextEntry.task,
