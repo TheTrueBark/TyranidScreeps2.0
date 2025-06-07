@@ -23,34 +23,32 @@ describe('logger', function () {
     logger.log('spawnManager', 'test message', 4);
 
     expect(Memory.stats.logs).to.have.length(1);
-    expect(Memory.stats.logs[0][0]).to.equal('0: [spawnManager] test message');
-    expect(Memory.stats.logs[0][1]).to.equal(4);
+    expect(Memory.stats.logs[0].message).to.equal('[spawnManager] test message');
+    expect(Memory.stats.logs[0].severity).to.equal(4);
   });
 
-  it('increments count and escalates severity for repeated messages', function () {
+  it('aggregates repeated messages into a single entry', function () {
     for (let i = 0; i < 11; i++) {
       logger.log('spawnManager', 'repeat', 2);
     }
 
     expect(Memory.stats.logCounts['[spawnManager] repeat']).to.equal(11);
-    expect(Memory.stats.logs[10][1]).to.equal(3); // escalated severity
+    expect(Memory.stats.logs).to.have.length(1);
+    expect(Memory.stats.logs[0].severity).to.equal(3); // escalated severity
   });
 
-  it('expires old logs when the display limit is reached', function () {
-    for (let t = 0; t < 5; t++) {
-      logger.log('spawnManager', `msg${t}`, 1);
-      statsConsole.run([], true, { display: 3 });
-      Game.time++;
-    }
+  it('expires old logs after a duration', function () {
+    logger.log('spawnManager', 'old', 1);
+    Game.time += 31;
+    logger.log('spawnManager', 'new', 1);
 
-    expect(Memory.stats.logs.length).to.equal(2);
-    expect(Memory.stats.logs[0][0]).to.match(/^3:/);
-    expect(Memory.stats.logs[1][0]).to.match(/^4:/);
+    expect(Memory.stats.logs).to.have.length(1);
+    expect(Memory.stats.logs[0].message).to.equal('[spawnManager] new');
   });
 
   it('accepts an optional roomName argument', function () {
     logger.log('spawnManager', 'with room', 3, 'W1N1');
 
-    expect(Memory.stats.logs[0][0]).to.equal('0: [spawnManager] with room');
+    expect(Memory.stats.logs[0].message).to.equal('[spawnManager] with room');
   });
 });

@@ -23,7 +23,8 @@ The system is modular, reactive and geared towards expansion.
 
 Logs are handled through `console.console.js` and should be written using the
 `logger` module. Messages are color coded and accept a severity level from 0–5.
-Repeated messages automatically escalate in severity.
+Repeated messages are aggregated into a single entry which escalates in severity
+and expires automatically after roughly 30 ticks.
 
 ### Usage
 ```javascript
