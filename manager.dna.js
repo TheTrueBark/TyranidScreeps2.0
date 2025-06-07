@@ -32,15 +32,17 @@ function getBodyParts(role, room, panic = false) {
 
 function buildMiner(energy, panic) {
   const body = [];
-  let workParts = panic ? 1 : Math.min(5, Math.floor(energy / BODYPART_COST[WORK]));
+  // Always allocate exactly one MOVE to keep miners cheap and stationary
+  const moveCost = BODYPART_COST[MOVE];
+  let availableEnergy = energy - moveCost;
+  if (availableEnergy < 0) availableEnergy = 0;
+  let workParts = panic
+    ? 1
+    : Math.min(5, Math.floor(availableEnergy / BODYPART_COST[WORK]));
   if (workParts < 1) workParts = 1;
-  // Reserve energy for move parts
-  const moveParts = Math.max(1, Math.ceil(workParts / 2));
-  while (workParts > 0 && energy < workParts * BODYPART_COST[WORK] + moveParts * BODYPART_COST[MOVE]) {
-    workParts--;
-  }
+
   for (let i = 0; i < workParts; i++) body.push(WORK);
-  for (let i = 0; i < moveParts; i++) body.push(MOVE);
+  body.push(MOVE);
   return body;
 }
 

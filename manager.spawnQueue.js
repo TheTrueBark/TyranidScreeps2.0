@@ -96,6 +96,27 @@ const spawnQueue = {
   },
 
   /**
+   * Remove all queued spawns for a specific room.
+   * Used in panic situations when the colony needs to bootstrap.
+   *
+   * @param {string} roomName - Room to purge from the queue.
+   * @returns {number} Amount of removed requests.
+   */
+  clearRoom(roomName) {
+    const before = this.queue.length;
+    this.queue = this.queue.filter((req) => req.room !== roomName);
+    const removed = before - this.queue.length;
+    if (removed > 0) {
+      logger.log(
+        "spawnQueue",
+        `Cleared ${removed} queued spawn(s) for room ${roomName}`,
+        2,
+      );
+    }
+    return removed;
+  },
+
+  /**
    * Sorts the queue based on `ticksToSpawn` so earlier requests run first.
    * Future implementations may modify `ticksToSpawn` to reprioritize.
    *

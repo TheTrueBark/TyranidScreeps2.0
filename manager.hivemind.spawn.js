@@ -31,20 +31,24 @@ const spawnModule = {
 
     // Panic: no creeps present
     const myCreeps = _.filter(Game.creeps, (c) => c.my && c.room.name === roomName);
-    if (
-      myCreeps.length === 0 &&
-      !taskExists(roomName, 'spawnBootstrap', 'spawnManager')
-    ) {
-      htm.addColonyTask(
-        roomName,
-        'spawnBootstrap',
-        { role: 'allPurpose', panic: true },
-        0,
-        20,
-        1,
-        'spawnManager',
-      );
-      logger.log('hivemind.spawn', `Queued bootstrap spawn for ${roomName}`, 2);
+    if (myCreeps.length === 0) {
+      // Emergency: purge existing queue and force a bootstrap creep
+      const removed = spawnQueue.clearRoom(roomName);
+      if (!taskExists(roomName, 'spawnBootstrap', 'spawnManager')) {
+        htm.addColonyTask(
+          roomName,
+          'spawnBootstrap',
+          { role: 'allPurpose', panic: true },
+          0,
+          20,
+          1,
+          'spawnManager',
+        );
+        logger.log('hivemind.spawn', `Queued bootstrap spawn for ${roomName}`, 2);
+      }
+      if (removed > 0) {
+        logger.log('hivemind.spawn', `Cleared ${removed} queued spawns due to panic in ${roomName}` , 3);
+      }
     }
 
     // Determine miner demand based on mining positions and energy

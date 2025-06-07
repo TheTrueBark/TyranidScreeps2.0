@@ -26,6 +26,7 @@ its queue is empty.
 ## Modules
 
 - **spawn** – Handles panic bootstrap and miner demand. Queues miner and
-  hauler tasks so hauler count automatically scales with available miners.
-  Converts room state into HTM tasks consumed by the `spawnManager`.
+  hauler tasks so hauler count automatically scales with available miners. When
+  no creeps remain the module clears the spawn queue and schedules a bootstrap
+  worker so the colony can recover.
   Modules can be added later for building, defense or expansion logic.
