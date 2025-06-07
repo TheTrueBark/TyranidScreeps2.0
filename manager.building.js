@@ -12,14 +12,43 @@ const constructionWeights = {
   default: 50,
 };
 
+function getOpenSpots(pos, range) {
+  const spots = [];
+  const room = Game.rooms[pos.roomName];
+  const terrain = room.getTerrain();
+  for (let dx = -range; dx <= range; dx++) {
+    for (let dy = -range; dy <= range; dy++) {
+      const x = pos.x + dx;
+      const y = pos.y + dy;
+      if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      const structures = room.lookForAt(LOOK_STRUCTURES, x, y);
+      const sites = room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y);
+      if (structures.length === 0 && sites.length === 0) {
+        spots.push({ x, y });
+      }
+    }
+  }
+  return spots;
+}
+
 const buildingManager = {
   cacheBuildableAreas: function (room) {
     const sources = room.find(FIND_SOURCES);
     const buildableAreas = {};
 
     for (const source of sources) {
-      const positions = roomPlanner.findMiningPositions(room)[source.id];
-      buildableAreas[source.id] = positions;
+      const sourceMem =
+        Memory.rooms[room.name] && Memory.rooms[room.name].miningPositions
+          ? Memory.rooms[room.name].miningPositions[source.id]
+          : null;
+      if (sourceMem && sourceMem.positions) {
+        const { best1, best2, best3 } = sourceMem.positions;
+        buildableAreas[source.id] = [best1, best2, best3].filter(Boolean);
+      } else {
+        const positions = roomPlanner.findMiningPositions(room)[source.id];
+        buildableAreas[source.id] = positions;
+      }
     }
 
     room.memory.buildableAreas = buildableAreas;
@@ -91,13 +120,14 @@ const buildingManager = {
   buildContainers: function (room) {
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
-      const positions = room.memory.buildableAreas[source.id];
-      if (positions.length > 0) {
-        const containerPos = new RoomPosition(
-          positions[0].x,
-          positions[0].y,
-          room.name,
-        ); // Ensure it's a RoomPosition object
+      const sourceMem =
+        Memory.rooms[room.name] && Memory.rooms[room.name].miningPositions
+          ? Memory.rooms[room.name].miningPositions[source.id]
+          : null;
+      const best = sourceMem && sourceMem.positions && sourceMem.positions.best1;
+      const posData = best || (room.memory.buildableAreas[source.id] || [])[0];
+      if (posData) {
+        const containerPos = new RoomPosition(posData.x, posData.y, room.name);
         const containerSite = containerPos
           .lookFor(LOOK_CONSTRUCTION_SITES)
           .filter((site) => site.structureType === STRUCTURE_CONTAINER);
@@ -110,6 +140,49 @@ const buildingManager = {
             `Queued container construction at ${containerPos}`,
             6,
           );
+        }
+      }
+    }
+
+    // Controller containers
+    if (room.controller) {
+      const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      if (controllerContainers.length + controllerSites.length < 2) {
+        const spots = getOpenSpots(room.controller.pos, 1);
+        for (const spot of spots) {
+          if (controllerContainers.length + controllerSites.length >= 2) break;
+          const pos = new RoomPosition(spot.x, spot.y, room.name);
+          const site = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType === STRUCTURE_CONTAINER);
+          const struct = pos.lookFor(LOOK_STRUCTURES).filter(s => s.structureType === STRUCTURE_CONTAINER);
+          if (site.length === 0 && struct.length === 0) {
+            room.createConstructionSite(pos, STRUCTURE_CONTAINER);
+            controllerSites.push({});
+            statsConsole.log(`Queued controller container at ${pos}`, 6);
+          }
+        }
+      }
+    }
+
+    // Spawn buffer container
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (spawn) {
+      const nearbyContainers = spawn.pos.findInRange(FIND_STRUCTURES, 2, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      const nearbySites = spawn.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      if (nearbyContainers.length + nearbySites.length === 0) {
+        const spots = getOpenSpots(spawn.pos, 2);
+        if (spots.length > 0) {
+          const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
+          room.createConstructionSite(pos, STRUCTURE_CONTAINER);
+          statsConsole.log(`Queued spawn buffer container at ${pos}`, 6);
         }
       }
     }
