@@ -34,6 +34,35 @@ const spawnQueue = {
     // Combine current tick with an incrementing counter to avoid collisions
     const requestId = `${Game.time}-${Memory.nextSpawnRequestId++}`;
     const energyRequired = _.sum(bodyParts, (part) => BODYPART_COST[part]);
+
+    // Validate positional data includes roomName to avoid undefined errors later
+    if (
+      memory &&
+      memory.miningPosition &&
+      memory.miningPosition.x !== undefined &&
+      !memory.miningPosition.roomName
+    ) {
+      logger.log(
+        "spawnQueue",
+        `Rejected spawn request ${requestId}: miningPosition missing roomName`,
+        4,
+      );
+      return;
+    }
+    if (
+      memory &&
+      memory.sourcePosition &&
+      memory.sourcePosition.x !== undefined &&
+      !memory.sourcePosition.roomName
+    ) {
+      logger.log(
+        "spawnQueue",
+        `Rejected spawn request ${requestId}: sourcePosition missing roomName`,
+        4,
+      );
+      return;
+    }
+
     this.queue.push({
       requestId,
       category,

@@ -25,3 +25,22 @@ describe('spawnQueue.clearRoom', function() {
     expect(spawnQueue.queue[0].room).to.equal('W2N2');
   });
 });
+
+describe('spawnQueue.addToQueue validation', function() {
+  beforeEach(function() {
+    globals.resetGame();
+    globals.resetMemory();
+    spawnQueue.queue = [];
+  });
+
+  it('rejects requests missing roomName in miningPosition', function() {
+    spawnQueue.addToQueue(
+      'miner',
+      'W1N1',
+      [WORK],
+      { role: 'miner', miningPosition: { x: 1, y: 1 } },
+      's1',
+    );
+    expect(spawnQueue.queue.length).to.equal(0);
+  });
+});

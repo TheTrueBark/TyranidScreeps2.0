@@ -31,6 +31,13 @@ spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id);
 
 Requests can include a `ticksToSpawn` delay, allowing future scheduling.
 
+### Positional memory requirements
+
+If a request includes `memory.miningPosition` or `memory.sourcePosition`, the
+object **must** contain a `roomName` field. Requests missing the room name are
+rejected by `spawnQueue.addToQueue` to avoid undefined behavior during spawn
+processing.
+
 ## Clearing a room queue
 
 In panic situations the HiveMind may purge all pending requests for a room. Use
