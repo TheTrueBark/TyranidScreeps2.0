@@ -1,8 +1,10 @@
 const memoryManager = require("manager.memory");
 const logger = require("./logger");
+const movementUtils = require("./utils.movement");
 
 const roleAllPurpose = {
   run: function (creep) {
+    movementUtils.avoidSpawnArea(creep);
     // Ensure creep knows its energy source
     if (!creep.memory.source) {
       const source = creep.pos.findClosestByRange(FIND_SOURCES);

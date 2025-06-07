@@ -1,5 +1,6 @@
 const statsConsole = require("console.console");
 const htm = require("./manager.htm");
+const movementUtils = require("./utils.movement");
 
 function requestEnergy(creep) {
   if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
@@ -21,6 +22,7 @@ function requestEnergy(creep) {
 
 const roleUpgrader = {
   run: function (creep) {
+    movementUtils.avoidSpawnArea(creep);
     if (creep.store[RESOURCE_ENERGY] === 0) {
       requestEnergy(creep);
       return;
