@@ -128,6 +128,20 @@ const spawnModule = {
       }
     }
 
+    const liveUpgraders = _.filter(Game.creeps, c => c.memory.role === 'upgrader' && c.room.name === roomName).length;
+    const queuedUpgraders = spawnQueue.queue.filter(req => req.memory.role === 'upgrader' && req.room === roomName).length;
+    const desiredUpgraders = Math.max(1, Math.ceil(room.controller.level / 2));
+    const upgradersNeeded = Math.max(0, desiredUpgraders - liveUpgraders - queuedUpgraders);
+    const upgraderTask = container && container.tasks ? container.tasks.find(t => t.name === 'spawnUpgrader' && t.manager === 'spawnManager') : null;
+    if (upgradersNeeded > 0) {
+      if (upgraderTask) {
+        upgraderTask.amount = upgradersNeeded;
+      } else {
+        htm.addColonyTask(roomName, 'spawnUpgrader', { role: 'upgrader' }, 1, 20, upgradersNeeded, 'spawnManager');
+        logger.log('hivemind.spawn', `Queued ${upgradersNeeded} upgrader spawn(s) for ${roomName}`, 2);
+      }
+    }
+
     // Encourage upgrades when energy is abundant
     if (
       room.energyAvailable > room.energyCapacityAvailable * 0.8 &&

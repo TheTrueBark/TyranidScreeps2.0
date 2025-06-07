@@ -20,6 +20,7 @@ describe('memoryManager.assignMiningPosition', function() {
           source1: {
             positions: {
               best1: { x: 10, y: 20, roomName: 'W1N1', reserved: false },
+              best2: { x: 11, y: 20, roomName: 'W1N1', reserved: false },
             },
           },
         },
@@ -54,6 +55,21 @@ describe('memoryManager.assignMiningPosition', function() {
       Memory.rooms.W1N1.miningPositions.source1.positions.best1.reserved
     ).to.be.false;
     expect(creep.memory.miningPosition).to.be.undefined;
+  });
+
+  it('assigns unique positions for multiple creeps', function() {
+    const room = Game.rooms['W1N1'];
+    const creep1 = { memory: { source: 'source1' } };
+    const creep2 = { memory: { source: 'source1' } };
+    memoryManager.assignMiningPosition(creep1.memory, room);
+    memoryManager.assignMiningPosition(creep2.memory, room);
+
+    expect(creep1.memory.miningPosition).to.not.deep.equal(creep2.memory.miningPosition);
+    const pos1 = creep1.memory.miningPosition;
+    const pos2 = creep2.memory.miningPosition;
+    expect(Memory.rooms.W1N1.miningPositions.source1.positions.best1.reserved || Memory.rooms.W1N1.miningPositions.source1.positions.best2.reserved).to.be.true;
+    expect(pos1).to.have.property('roomName', 'W1N1');
+    expect(pos2).to.have.property('roomName', 'W1N1');
   });
 });
 
