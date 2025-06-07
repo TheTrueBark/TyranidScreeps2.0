@@ -26,6 +26,21 @@ const spawnModule = {
   run(room) {
     const roomName = room.name;
 
+    const spawnStruct = room.find(FIND_MY_SPAWNS)[0];
+    if (spawnStruct) {
+      const area = [];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const x = spawnStruct.pos.x + dx;
+          const y = spawnStruct.pos.y + dy;
+          if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+          area.push({ x, y });
+        }
+      }
+      if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+      Memory.rooms[roomName].restrictedArea = area;
+    }
+
     // Defense task on hostiles
     const hostileCount = room.find(FIND_HOSTILE_CREEPS).length;
     if (hostileCount > 0 && !taskExists(roomName, 'defendRoom')) {

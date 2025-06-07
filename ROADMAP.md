@@ -157,6 +157,7 @@
 - [ ] Analyze room structures by RCL
 - [ ] Auto-place extensions, roads, containers, towers
 - [ ] Plan paths from sources to controller/spawns/storage
+- [x] Declare spawn restricted area in memory for movement logic
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
