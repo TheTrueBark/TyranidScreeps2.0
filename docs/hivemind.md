@@ -42,3 +42,11 @@ its queue is empty.
     miners or allPurpose creeps die.
   - Restricted tiles around the spawn are stored in room memory so creeps avoid
     blocking it.
+
+## Failsafe Memory Initialization
+
+After a respawn or unexpected memory wipe the HiveMind may lack the data needed
+to plan tasks. When required sections such as `rooms` or `hive` are missing it
+logs a severity 5 message and schedules a one-time high priority task to
+recreate the baseline memory. The room is rescanned and HiveMind evaluations
+resume on the following tick.
