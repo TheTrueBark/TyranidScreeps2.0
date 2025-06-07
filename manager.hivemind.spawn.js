@@ -31,6 +31,7 @@ const spawnModule = {
 
     // Panic: no creeps present
     const myCreeps = _.filter(Game.creeps, (c) => c.my && c.room.name === roomName);
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
     if (myCreeps.length === 0) {
       // Emergency: purge existing queue and force a bootstrap creep
       const removed = spawnQueue.clearRoom(roomName);
@@ -49,6 +50,62 @@ const spawnModule = {
       if (removed > 0) {
         logger.log('hivemind.spawn', `Cleared ${removed} queued spawns due to panic in ${roomName}` , 3);
       }
+    }
+
+    // Initial spawn sequence at RCL1
+    const initialOrder = [
+      { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
+      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+      { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
+    ];
+
+    const initialRoles = [
+      'allPurpose',
+      'miner',
+      'hauler',
+      'miner',
+      'hauler',
+      'upgrader',
+    ];
+
+    const queuedInitial = spawnQueue.queue.filter(
+      (q) => q.room === roomName && initialRoles.includes(q.memory.role),
+    ).length;
+    const tasksInitial =
+      container && container.tasks
+        ? container.tasks.filter(
+            (t) =>
+              t.manager === 'spawnManager' &&
+              initialOrder.some((o) => o.task === t.name),
+          ).length
+        : 0;
+
+    const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
+    const totalPlanned = aliveInitial + queuedInitial + tasksInitial;
+
+    if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
+      const nextEntry = initialOrder[totalPlanned];
+      if (!taskExists(roomName, nextEntry.task, 'spawnManager')) {
+        htm.addColonyTask(
+          roomName,
+          nextEntry.task,
+          nextEntry.data,
+          nextEntry.priority,
+          20,
+          1,
+          'spawnManager',
+        );
+        logger.log(
+          'hivemind.spawn',
+          `Queued initial ${nextEntry.data.role} for ${roomName}`,
+          2,
+        );
+      }
+      // Do not queue other roles until initial order is complete
+      return;
     }
 
     // Determine miner demand based on mining positions and energy
@@ -92,7 +149,6 @@ const spawnModule = {
       minersNeeded += Math.max(0, maxMiners - live - queued);
     }
 
-    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
     const existing = container && container.tasks
       ? container.tasks.find(
         (t) => t.name === 'spawnMiner' && t.manager === 'spawnManager',
@@ -129,14 +185,18 @@ const spawnModule = {
       Game.creeps,
       c => c.memory.role === 'miner' && c.room.name === roomName,
     ).length;
+    const queuedMiners = spawnQueue.queue.filter(
+      req => req.memory.role === 'miner' && req.room === roomName,
+    ).length;
     let requiredHaulers = 0;
-    if (liveMiners > 0) {
+    const totalMiners = liveMiners + queuedMiners;
+    if (totalMiners > 0) {
       if (room.controller.level <= 1) {
-        requiredHaulers = Math.max(2, liveMiners * 2);
+        requiredHaulers = Math.max(2, totalMiners * 2);
       } else if (room.controller.level === 2) {
-        requiredHaulers = Math.max(1, Math.ceil(liveMiners * 1.5));
+        requiredHaulers = Math.max(1, Math.ceil(totalMiners * 1.5));
       } else {
-        requiredHaulers = Math.max(1, liveMiners);
+        requiredHaulers = Math.max(1, totalMiners);
       }
     }
     const haulersNeeded = Math.max(0, requiredHaulers - liveHaulers - queuedHaulers);
@@ -177,9 +237,12 @@ const spawnModule = {
       req => req.memory.role === 'builder' && req.room === roomName,
     ).length;
     const buildQueue = room.memory.buildingQueue || [];
-    let desiredBuilders = 0;
+    let desiredBuilders = 1; // always keep at least one builder for repairs
     if (buildQueue.length > 0) {
-      desiredBuilders = Math.min(2, Math.ceil(buildQueue.length / 5));
+      desiredBuilders = Math.max(
+        desiredBuilders,
+        Math.min(2, Math.ceil(buildQueue.length / 5)),
+      );
     }
     const buildersNeeded = Math.max(
       0,
