@@ -51,6 +51,43 @@ const spawnModule = {
       }
     }
 
+    // Initial spawn sequence at RCL1
+    const initialOrder = [
+      { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
+      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+      { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
+    ];
+
+    const alive = myCreeps.length;
+    const queuedTotal = spawnQueue.queue.filter((q) => q.room === roomName).length;
+    const totalPlanned = alive + queuedTotal;
+
+    if (
+      room.controller.level === 1 &&
+      totalPlanned < initialOrder.length &&
+      !taskExists(roomName, initialOrder[totalPlanned].task, 'spawnManager')
+    ) {
+      const entry = initialOrder[totalPlanned];
+      htm.addColonyTask(
+        roomName,
+        entry.task,
+        entry.data,
+        entry.priority,
+        20,
+        1,
+        'spawnManager',
+      );
+      logger.log(
+        'hivemind.spawn',
+        `Queued initial ${entry.data.role} for ${roomName}`,
+        2,
+      );
+      return;
+    }
+
     // Determine miner demand based on mining positions and energy
     const sources = room.find(FIND_SOURCES);
     let minersNeeded = 0;
@@ -129,14 +166,18 @@ const spawnModule = {
       Game.creeps,
       c => c.memory.role === 'miner' && c.room.name === roomName,
     ).length;
+    const queuedMiners = spawnQueue.queue.filter(
+      req => req.memory.role === 'miner' && req.room === roomName,
+    ).length;
     let requiredHaulers = 0;
-    if (liveMiners > 0) {
+    const totalMiners = liveMiners + queuedMiners;
+    if (totalMiners > 0) {
       if (room.controller.level <= 1) {
-        requiredHaulers = Math.max(2, liveMiners * 2);
+        requiredHaulers = Math.max(2, totalMiners * 2);
       } else if (room.controller.level === 2) {
-        requiredHaulers = Math.max(1, Math.ceil(liveMiners * 1.5));
+        requiredHaulers = Math.max(1, Math.ceil(totalMiners * 1.5));
       } else {
-        requiredHaulers = Math.max(1, liveMiners);
+        requiredHaulers = Math.max(1, totalMiners);
       }
     }
     const haulersNeeded = Math.max(0, requiredHaulers - liveHaulers - queuedHaulers);
@@ -177,9 +218,12 @@ const spawnModule = {
       req => req.memory.role === 'builder' && req.room === roomName,
     ).length;
     const buildQueue = room.memory.buildingQueue || [];
-    let desiredBuilders = 0;
+    let desiredBuilders = 1; // always keep at least one builder for repairs
     if (buildQueue.length > 0) {
-      desiredBuilders = Math.min(2, Math.ceil(buildQueue.length / 5));
+      desiredBuilders = Math.max(
+        desiredBuilders,
+        Math.min(2, Math.ceil(buildQueue.length / 5)),
+      );
     }
     const buildersNeeded = Math.max(
       0,

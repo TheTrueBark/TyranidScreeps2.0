@@ -300,6 +300,11 @@ const spawnManager = {
           y: source.pos.y,
           roomName: source.pos.roomName,
         };
+        creepMemory.desiredPosition = {
+          x: creepMemory.miningPosition.x,
+          y: creepMemory.miningPosition.y,
+          roomName: creepMemory.miningPosition.roomName,
+        };
         spawnQueue.addToQueue(
           "allPurpose",
           room.name,
@@ -320,7 +325,11 @@ const spawnManager = {
         role: "allPurpose",
         source: fallback.id,
         working: false,
-        desiredPosition: {},
+        desiredPosition: {
+          x: fallback.pos.x,
+          y: fallback.pos.y,
+          roomName: fallback.pos.roomName,
+        },
         sourcePosition: {
           x: fallback.pos.x,
           y: fallback.pos.y,
