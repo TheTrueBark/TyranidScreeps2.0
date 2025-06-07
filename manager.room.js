@@ -42,22 +42,37 @@ const roomManager = {
       // Limit to a maximum of 3 positions
       const bestPositions = miningSpots.slice(0, 3);
 
-      // Structure the memory as an object
-        Memory.rooms[room.name].miningPositions[source.id] = {
-          x: sourcePos.x,
-          y: sourcePos.y,
-          positions: {
-            best1: bestPositions[0]
-              ? { ...bestPositions[0], roomName: room.name, reserved: false }
-              : null,
-            best2: bestPositions[1]
-              ? { ...bestPositions[1], roomName: room.name, reserved: false }
-              : null,
-            best3: bestPositions[2]
-              ? { ...bestPositions[2], roomName: room.name, reserved: false }
-              : null,
-          },
-        };
+      // Structure the memory as an object without ES6 spread
+      Memory.rooms[room.name].miningPositions[source.id] = {
+        x: sourcePos.x,
+        y: sourcePos.y,
+        positions: {
+          best1: bestPositions[0]
+            ? {
+                x: bestPositions[0].x,
+                y: bestPositions[0].y,
+                roomName: room.name,
+                reserved: false,
+              }
+            : null,
+          best2: bestPositions[1]
+            ? {
+                x: bestPositions[1].x,
+                y: bestPositions[1].y,
+                roomName: room.name,
+                reserved: false,
+              }
+            : null,
+          best3: bestPositions[2]
+            ? {
+                x: bestPositions[2].x,
+                y: bestPositions[2].y,
+                roomName: room.name,
+                reserved: false,
+              }
+            : null,
+        },
+      };
     });
 
     // Additional room-specific data can be gathered here

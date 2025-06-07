@@ -58,7 +58,10 @@ const roleAllPurpose = {
     }
 
     if (creep.memory.desiredPosition && creep.memory.desiredPosition.x !== undefined) {
-      const target = new RoomPosition(creep.memory.desiredPosition.x, creep.memory.desiredPosition.y, creep.memory.desiredPosition.roomName);
+      // Fallback to the creep's current room if roomName is missing
+      var dp = creep.memory.desiredPosition;
+      var targetRoom = dp.roomName || creep.room.name;
+      var target = new RoomPosition(dp.x, dp.y, targetRoom);
       if (!creep.pos.isEqualTo(target)) {
         creep.travelTo(target);
       }
@@ -123,26 +126,15 @@ const roleAllPurpose = {
       }
     }
 
-    const miningPos = creep.memory.miningPosition;
+    var miningPos = creep.memory.miningPosition;
     if (!creep.pos.isEqualTo(miningPos.x, miningPos.y)) {
-      creep.memory.desiredPosition = new RoomPosition(
-        miningPos.x,
-        miningPos.y,
-        miningPos.roomName,
-      );
+      var roomName = miningPos.roomName || creep.room.name;
+      creep.memory.desiredPosition = new RoomPosition(miningPos.x, miningPos.y, roomName);
     } else {
-      const sourcePos = creep.memory.sourcePosition;
-      if (
-        sourcePos &&
-        sourcePos.x !== undefined &&
-        sourcePos.y !== undefined &&
-        sourcePos.roomName
-      ) {
-        const source = new RoomPosition(
-          sourcePos.x,
-          sourcePos.y,
-          sourcePos.roomName,
-        ).findClosestByRange(FIND_SOURCES);
+      var sourcePos = creep.memory.sourcePosition;
+      if (sourcePos && sourcePos.x !== undefined && sourcePos.y !== undefined && sourcePos.roomName) {
+        var sRoom = sourcePos.roomName || creep.room.name;
+        var source = new RoomPosition(sourcePos.x, sourcePos.y, sRoom).findClosestByRange(FIND_SOURCES);
         const harvestResult = creep.harvest(source);
         if (harvestResult === OK) {
           logger.log(
