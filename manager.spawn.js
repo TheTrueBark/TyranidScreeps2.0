@@ -158,37 +158,19 @@ const spawnManager = {
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
   spawnHauler(spawn, room, energyCapacityAvailable) {
-    const currentHaulers = _.filter(
-      Game.creeps,
-      (creep) =>
-        creep.memory.role === "hauler" && creep.room.name === room.name,
-    ).length;
-    const queuedHaulers = spawnQueue.queue.filter(
-      (req) => req.memory.role === "hauler" && req.room === room.name,
-    ).length;
-
-    if (currentHaulers + queuedHaulers < 6) {
-      // Maximum of 6 haulers
-      const bodyParts = dna.getBodyParts("hauler", room);
-      spawnQueue.addToQueue(
-        "hauler",
-        room.name,
-        bodyParts,
-        { role: "hauler" },
-        spawn.id,
-      );
-      logger.log(
-        "spawnManager",
-        `Added hauler creep to spawn queue in room ${room.name}`,
-        2,
-      );
-    } else {
-      logger.log(
-        "spawnManager",
-        `Maximum number of haulers reached for room ${room.name}`,
-        2,
-      );
-    }
+    const bodyParts = dna.getBodyParts("hauler", room);
+    spawnQueue.addToQueue(
+      "hauler",
+      room.name,
+      bodyParts,
+      { role: "hauler" },
+      spawn.id,
+    );
+    logger.log(
+      "spawnManager",
+      `Added hauler creep to spawn queue in room ${room.name}`,
+      2,
+    );
   },
 
 

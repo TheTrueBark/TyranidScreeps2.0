@@ -3,7 +3,7 @@ const debugConfig = {
   bodyPartManager: false,
   memoryManager: false,
   roleAllPurpose: false,
-  traveler: false,
+  hiveTravel: false,
   roleMiner: false,
   demandManager: false,
   spawnQueue: false,
