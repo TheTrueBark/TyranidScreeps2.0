@@ -23,6 +23,12 @@ const hivemind = require("manager.hivemind");
 let myStats = [];
 global.visualizeDT = false;
 
+// Ensure persistent settings exist
+if (!Memory.settings) Memory.settings = {};
+if (Memory.settings.enableVisuals === undefined) {
+  Memory.settings.enableVisuals = true;
+}
+
 global.visual = {
   DT: function (toggle) {
     if (toggle === 1) {
@@ -33,6 +39,18 @@ global.visual = {
       console.log("Distance Transform Visualization: OFF");
     } else {
       console.log("Usage: visual.DT(1) to show, visual.DT(0) to hide");
+    }
+  },
+  overlay: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.enableVisuals = true;
+      console.log("HUD visuals: ON");
+    } else if (toggle === 0) {
+      Memory.settings.enableVisuals = false;
+      console.log("HUD visuals: OFF");
+    } else {
+      console.log("Usage: visual.overlay(1) to show, visual.overlay(0) to hide");
     }
   },
 };
