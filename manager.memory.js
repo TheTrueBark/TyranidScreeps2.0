@@ -134,7 +134,8 @@ const memoryManager = {
       const position = positions[key];
       if (position && !position.reserved) {
         position.reserved = true;
-        creepMemory.miningPosition = position;
+        // Ensure roomName is available for later release and Position usage
+        creepMemory.miningPosition = { ...position, roomName: room.name };
         return true;
       }
     }
