@@ -57,6 +57,8 @@ const spawnModule = {
     const minerBody = dna.getBodyParts('miner', room);
     const workParts = minerBody.filter((p) => p === WORK).length;
     const harvestPerTick = workParts * HARVEST_POWER;
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    const spawnTime = minerBody.length * CREEP_SPAWN_TIME;
 
     for (const source of sources) {
       let positions = null;
@@ -72,9 +74,14 @@ const spawnModule = {
         Object.keys(positions).length,
         Math.ceil(10 / harvestPerTick),
       );
+      const travel = spawn ? spawn.pos.getRangeTo(source.pos) : 0;
+      const replaceThreshold = spawnTime + travel;
       const live = _.filter(
         Game.creeps,
-        (c) => c.memory.role === 'miner' && c.memory.source === source.id,
+        (c) =>
+          c.memory.role === 'miner' &&
+          c.memory.source === source.id &&
+          (!c.ticksToLive || c.ticksToLive > replaceThreshold),
       ).length;
       const queued = spawnQueue.queue.filter(
         (req) =>

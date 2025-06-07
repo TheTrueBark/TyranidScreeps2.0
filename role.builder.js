@@ -1,4 +1,5 @@
 const htm = require('./manager.htm');
+const movementUtils = require('./utils.movement');
 
 function requestEnergy(creep) {
   if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
@@ -42,6 +43,7 @@ function findNearbyEnergy(creep) {
 
 const roleBuilder = {
   run: function (creep) {
+    movementUtils.avoidSpawnArea(creep);
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
       creep.say("🔄 collect");

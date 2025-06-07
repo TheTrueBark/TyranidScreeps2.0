@@ -1,9 +1,11 @@
 const logger = require("./logger");
 const memoryManager = require("manager.memory");
 const { calculateCollectionTicks } = require("utils.energy");
+const movementUtils = require("./utils.movement");
 
 const roleMiner = {
   run: function (creep) {
+    movementUtils.avoidSpawnArea(creep);
     // Check if mining position is correctly assigned
     if (!creep.memory.miningPosition) {
       logger.log(

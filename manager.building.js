@@ -153,10 +153,16 @@ const buildingManager = {
         filter: s => s.structureType === STRUCTURE_CONTAINER,
       });
       if (controllerContainers.length + controllerSites.length < 2) {
-        // Prefer placing containers at the maximum upgrade range
-        const spots = getOpenSpots(room.controller.pos, 3).filter(p =>
+        const spawn = room.find(FIND_MY_SPAWNS)[0];
+        // Prefer placing containers at max upgrade range but closest to the spawn
+        let spots = getOpenSpots(room.controller.pos, 3).filter(p =>
           new RoomPosition(p.x, p.y, room.name).getRangeTo(room.controller) === 3,
         );
+        if (spawn) {
+          spots.sort((a, b) =>
+            spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
+          );
+        }
         for (const spot of spots) {
           if (controllerContainers.length + controllerSites.length >= 2) break;
           const pos = new RoomPosition(spot.x, spot.y, room.name);

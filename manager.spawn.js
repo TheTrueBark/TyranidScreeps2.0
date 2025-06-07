@@ -197,6 +197,7 @@ const spawnManager = {
               role: "miner",
               source: source.id,
               miningPosition: creepMemory.miningPosition,
+              bodySize: bodyParts.length,
               distanceToSpawn,
               energyProducedPerTick,
               collectionTicks,
@@ -266,7 +267,12 @@ const spawnManager = {
     if (sources.length === 0) return 0;
 
     for (const source of sources) {
-      const creepMemory = { role: "allPurpose", source: source.id };
+      const creepMemory = {
+        role: "allPurpose",
+        source: source.id,
+        working: false,
+        desiredPosition: {},
+      };
       if (memoryManager.assignMiningPosition(creepMemory, room)) {
         creepMemory.sourcePosition = {
           x: source.pos.x,
@@ -292,6 +298,8 @@ const spawnManager = {
       {
         role: "allPurpose",
         source: fallback.id,
+        working: false,
+        desiredPosition: {},
         sourcePosition: {
           x: fallback.pos.x,
           y: fallback.pos.y,
@@ -317,6 +325,14 @@ const spawnManager = {
     );
     if (!spawn.spawning) {
       const nextSpawn = spawnQueue.getNextSpawn(spawn.id); // Ensure this fetches the next spawn in the global queue for this spawn
+      if (
+        nextSpawn &&
+        nextSpawn.category === 'miner' &&
+        !this.isMinerStillNeeded(spawn.room, nextSpawn)
+      ) {
+        spawnQueue.removeSpawnFromQueue(nextSpawn.requestId);
+        return;
+      }
       if (nextSpawn && spawn.room.energyAvailable >= nextSpawn.energyRequired) {
         logger.log(
           "spawnManager",
@@ -410,6 +426,38 @@ const spawnManager = {
         2,
       );
     }
+  },
+
+  /**
+   * Determine if a queued miner is still required before spawning.
+   * @param {Room} room - The room context.
+   * @param {object} request - Spawn queue entry.
+   * @returns {boolean} True if the miner should be spawned.
+   */
+  isMinerStillNeeded(room, request) {
+    if (!request.memory || !request.memory.source) return true;
+    const sourceId = request.memory.source;
+    const sourceMem =
+      Memory.rooms[room.name] &&
+      Memory.rooms[room.name].miningPositions &&
+      Memory.rooms[room.name].miningPositions[sourceId];
+    if (!sourceMem) return true;
+
+    const available = Object.keys(sourceMem.positions).length;
+    const energyPerTick = request.bodyParts.filter(p => p === WORK).length * HARVEST_POWER;
+    const required = Math.min(available, Math.ceil(10 / energyPerTick));
+    const live = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'miner' && c.memory.source === sourceId,
+    ).length;
+    const queued = spawnQueue.queue.filter(
+      q =>
+        q.requestId !== request.requestId &&
+        q.memory.role === 'miner' &&
+        q.memory.source === sourceId &&
+        q.room === room.name,
+    ).length;
+    return live + queued < required;
   },
 
   /**

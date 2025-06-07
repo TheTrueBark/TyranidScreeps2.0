@@ -2,6 +2,7 @@
 
 const htm = require('manager.htm');
 const logger = require('./logger');
+const movementUtils = require('./utils.movement');
 
 function findEnergySource(creep) {
   const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
@@ -64,21 +65,7 @@ function deliverEnergy(creep) {
 
 module.exports = {
   run: function (creep) {
-    const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
-    if (spawn && creep.pos.isNearTo(spawn)) {
-      const nearbyDemand = spawn.pos
-        .findInRange(FIND_STRUCTURES, 1, {
-          filter: (s) =>
-            (s.structureType === STRUCTURE_EXTENSION ||
-              s.structureType === STRUCTURE_SPAWN) &&
-            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-        })
-        .length;
-      if (nearbyDemand === 0) {
-        creep.travelTo(spawn, { range: 2 });
-        return;
-      }
-    }
+    movementUtils.avoidSpawnArea(creep);
     // Active delivery task takes priority
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
       const target = Game.creeps[creep.memory.task.target];
