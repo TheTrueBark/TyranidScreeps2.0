@@ -6,6 +6,65 @@ const { DEFAULT_CLAIM_COOLDOWN } = htm;
 const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
 
+// Direction deltas for checking adjacent tiles around a spawn
+const directionDelta = {
+  [TOP]: { x: 0, y: -1 },
+  [TOP_RIGHT]: { x: 1, y: -1 },
+  [RIGHT]: { x: 1, y: 0 },
+  [BOTTOM_RIGHT]: { x: 1, y: 1 },
+  [BOTTOM]: { x: 0, y: 1 },
+  [BOTTOM_LEFT]: { x: -1, y: 1 },
+  [LEFT]: { x: -1, y: 0 },
+  [TOP_LEFT]: { x: -1, y: -1 },
+};
+
+// Determine the best spawn direction based on available space
+function getBestSpawnDirections(spawn, targetPos) {
+  const terrain = spawn.room.getTerrain();
+  const directions = [
+    TOP,
+    TOP_RIGHT,
+    RIGHT,
+    BOTTOM_RIGHT,
+    BOTTOM,
+    BOTTOM_LEFT,
+    LEFT,
+    TOP_LEFT,
+  ];
+
+  let best = null;
+  let bestRange = Infinity;
+
+  for (const dir of directions) {
+    const delta = directionDelta[dir];
+    const x = spawn.pos.x + delta.x;
+    const y = spawn.pos.y + delta.y;
+
+    if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+    if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+    if (
+      spawn.room
+        .lookForAt(LOOK_STRUCTURES, x, y)
+        .some((s) => OBSTACLE_OBJECT_TYPES.includes(s.structureType))
+    ) {
+      continue;
+    }
+    if (spawn.room.lookForAt(LOOK_CREEPS, x, y).length > 0) continue;
+
+    if (!targetPos) {
+      return [dir];
+    }
+
+    const range = new RoomPosition(x, y, spawn.room.name).getRangeTo(targetPos);
+    if (range < bestRange) {
+      best = dir;
+      bestRange = range;
+    }
+  }
+
+  return best !== null ? [best] : undefined;
+}
+
 // Calculate the effective energy capacity excluding incomplete extensions
 const calculateEffectiveEnergyCapacity = (room) => {
   let effectiveEnergyCapacity = room.energyCapacityAvailable;
@@ -173,6 +232,56 @@ const spawnManager = {
     );
   },
 
+  /**
+   * Spawn an allPurpose worker and pre-assign a mining position if possible.
+   * @param {StructureSpawn} spawn - The spawn to create the request for.
+   * @param {Room} room - The room context.
+   * @param {boolean} panic - Whether to use panic sized body.
+   * @returns {number} Body size spawned or 0 on failure.
+   */
+  spawnAllPurpose(spawn, room, panic = false) {
+    const bodyParts = dna.getBodyParts("allPurpose", room, panic);
+    const sources = room.find(FIND_SOURCES);
+    if (sources.length === 0) return 0;
+
+    for (const source of sources) {
+      const creepMemory = { role: "allPurpose", source: source.id };
+      if (memoryManager.assignMiningPosition(creepMemory, room)) {
+        creepMemory.sourcePosition = {
+          x: source.pos.x,
+          y: source.pos.y,
+          roomName: source.pos.roomName,
+        };
+        spawnQueue.addToQueue(
+          "allPurpose",
+          room.name,
+          bodyParts,
+          creepMemory,
+          spawn.id,
+        );
+        return bodyParts.length;
+      }
+    }
+
+    const fallback = sources[0];
+    spawnQueue.addToQueue(
+      "allPurpose",
+      room.name,
+      bodyParts,
+      {
+        role: "allPurpose",
+        source: fallback.id,
+        sourcePosition: {
+          x: fallback.pos.x,
+          y: fallback.pos.y,
+          roomName: fallback.pos.roomName,
+        },
+      },
+      spawn.id,
+    );
+    return bodyParts.length;
+  },
+
 
   /**
    * Processes the spawn queue for a given spawn structure.
@@ -200,7 +309,29 @@ const spawnManager = {
           `Attempting to spawn ${newName} with body parts: ${JSON.stringify(bodyParts)}`,
           3,
         );
-        const result = spawn.spawnCreep(bodyParts, newName, { memory });
+        let spawnPos;
+        if (memory.miningPosition && memory.miningPosition.x !== undefined) {
+          spawnPos = new RoomPosition(
+            memory.miningPosition.x,
+            memory.miningPosition.y,
+            memory.miningPosition.roomName,
+          );
+        } else if (
+          memory.sourcePosition &&
+          memory.sourcePosition.x !== undefined
+        ) {
+          spawnPos = new RoomPosition(
+            memory.sourcePosition.x,
+            memory.sourcePosition.y,
+            memory.sourcePosition.roomName,
+          );
+        }
+
+        const options = { memory };
+        const dirs = getBestSpawnDirections(spawn, spawnPos);
+        if (dirs) options.directions = dirs;
+
+        const result = spawn.spawnCreep(bodyParts, newName, options);
         if (result === OK) {
           logger.log(
             "spawnManager",
@@ -278,16 +409,24 @@ const spawnManager = {
           break;
         case 'spawnBootstrap':
           const role = task.data.role || 'allPurpose';
-          const body = dna.getBodyParts(role, room, task.data.panic);
-          spawnQueue.addToQueue(role, room.name, body, { role }, spawn.id);
-          htm.claimTask(
-            htm.LEVELS.COLONY,
-            room.name,
-            task.name,
-            'spawnManager',
-            DEFAULT_CLAIM_COOLDOWN,
-            body.length * CREEP_SPAWN_TIME,
-          );
+          let size = 0;
+          if (role === 'allPurpose') {
+            size = this.spawnAllPurpose(spawn, room, task.data.panic);
+          } else {
+            const body = dna.getBodyParts(role, room, task.data.panic);
+            spawnQueue.addToQueue(role, room.name, body, { role }, spawn.id);
+            size = body.length;
+          }
+          if (size > 0) {
+            htm.claimTask(
+              htm.LEVELS.COLONY,
+              room.name,
+              task.name,
+              'spawnManager',
+              DEFAULT_CLAIM_COOLDOWN,
+              size * CREEP_SPAWN_TIME,
+            );
+          }
           break;
         default:
           break;
