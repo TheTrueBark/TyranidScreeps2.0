@@ -12,8 +12,8 @@
 - [ ] Internal tick counter for global timing
 - [ ] Safe execution with error isolation
 - [x] Dynamic registration via `addTask(...)`
-- [ ] Runs logger, stats display, and future HTM triggers
-- [ ] Optional debug toggle to list active/queued tasks – *Prio 2*
+- [x] Runs logger, stats display, and future HTM triggers
+- [x] Optional debug toggle to list active/queued tasks – *Prio 2*
 
 ### ✅ Logging (Prio 5)
 - [ ] `logger.log(message, severity, roomName, duration)`

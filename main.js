@@ -28,6 +28,9 @@ if (!Memory.settings) Memory.settings = {};
 if (Memory.settings.enableVisuals === undefined) {
   Memory.settings.enableVisuals = true;
 }
+if (Memory.settings.showTaskList === undefined) {
+  Memory.settings.showTaskList = false;
+}
 
 global.visual = {
   DT: function (toggle) {
@@ -127,6 +130,33 @@ scheduler.addTask("htmRun", 1, () => {
   htm.run();
 });
 
+// Scheduled console drawing
+scheduler.addTask(
+  "consoleDisplay",
+  5,
+  () => {
+    const start = Game.cpu.getUsed();
+    console.log(statsConsole.displayHistogram());
+    console.log(statsConsole.displayStats());
+    console.log(statsConsole.displayLogs());
+    const drawTime = Game.cpu.getUsed() - start;
+    statsConsole.log("Time to Draw: " + drawTime.toFixed(2), 2);
+  },
+  { minBucket: 1000 },
+);
+
+// Debug listing of scheduled tasks
+scheduler.addTask(
+  "showScheduled",
+  50,
+  () => {
+    if (Memory.settings && Memory.settings.showTaskList) {
+      scheduler.logTaskList();
+    }
+  },
+  { minBucket: 0 },
+);
+
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();
 
@@ -212,11 +242,5 @@ module.exports.loop = function () {
     );
   }
 
-  if (Game.time % 5 === 0) {
-    console.log(statsConsole.displayHistogram());
-    console.log(statsConsole.displayStats());
-    console.log(statsConsole.displayLogs());
-    let drawTime = Game.cpu.getUsed() - totalCPUUsage;
-    console.log("Time to Draw: " + drawTime.toFixed(2));
-  }
+  // drawing handled by scheduler
 };
