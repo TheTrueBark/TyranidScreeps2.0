@@ -30,3 +30,9 @@ spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id);
 ```
 
 Requests can include a `ticksToSpawn` delay, allowing future scheduling.
+
+## Clearing a room queue
+
+In panic situations the HiveMind may purge all pending requests for a room. Use
+`spawnQueue.clearRoom(roomName)` to remove every queued entry belonging to that
+room.
