@@ -105,6 +105,7 @@ const spawnModule = {
           logger.log('hivemind.spawn', `Updated miner task amount to ${minersNeeded} for ${roomName}`, 2);
         }
       } else {
+        // Priority 1 so the first replacement after a bootstrap is always a miner
         htm.addColonyTask(
           roomName,
           'spawnMiner',
@@ -130,7 +131,8 @@ const spawnModule = {
       if (haulTask) {
         haulTask.amount = haulersNeeded;
       } else {
-        htm.addColonyTask(roomName, "spawnHauler", { role: "hauler" }, 1, 20, haulersNeeded, "spawnManager");
+        // Haulers spawn after miners to keep the initial economy stable
+        htm.addColonyTask(roomName, "spawnHauler", { role: "hauler" }, 2, 20, haulersNeeded, "spawnManager");
         logger.log('hivemind.spawn', `Queued ${haulersNeeded} hauler spawn(s) for ${roomName}`, 2);
       }
     }
@@ -144,7 +146,8 @@ const spawnModule = {
       if (upgraderTask) {
         upgraderTask.amount = upgradersNeeded;
       } else {
-        htm.addColonyTask(roomName, 'spawnUpgrader', { role: 'upgrader' }, 1, 20, upgradersNeeded, 'spawnManager');
+        // Upgraders are lower priority than miners and haulers during bootstrap
+        htm.addColonyTask(roomName, 'spawnUpgrader', { role: 'upgrader' }, 3, 20, upgradersNeeded, 'spawnManager');
         logger.log('hivemind.spawn', `Queued ${upgradersNeeded} upgrader spawn(s) for ${roomName}`, 2);
       }
     }

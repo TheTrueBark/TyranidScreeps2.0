@@ -103,10 +103,12 @@ const roleAllPurpose = {
 
 
   performCollect: function (creep) {
-    // Check for dropped energy first
+    // Check for dropped energy large enough to fill the creep completely
+    const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
     const droppedEnergy = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
       filter: (resource) =>
-        resource.resourceType === RESOURCE_ENERGY && resource.amount >= 50,
+        resource.resourceType === RESOURCE_ENERGY &&
+        resource.amount >= needed,
     });
 
     if (droppedEnergy) {
