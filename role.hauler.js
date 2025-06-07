@@ -25,13 +25,15 @@ function findEnergySource(creep) {
   return null;
 }
 
-function deliverEnergy(creep) {
-  const structure = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-    filter: s =>
-      (s.structureType === STRUCTURE_EXTENSION ||
-        s.structureType === STRUCTURE_SPAWN) &&
-      s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-  });
+function deliverEnergy(creep, target = null) {
+  const structure =
+    target ||
+    creep.pos.findClosestByPath(FIND_STRUCTURES, {
+      filter: s =>
+        (s.structureType === STRUCTURE_EXTENSION ||
+          s.structureType === STRUCTURE_SPAWN) &&
+        s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    });
   if (structure) {
     if (creep.transfer(structure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
@@ -68,12 +70,13 @@ module.exports = {
     movementUtils.avoidSpawnArea(creep);
     // Active delivery task takes priority
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
-      const target = Game.creeps[creep.memory.task.target];
+      const target = Game.creeps[creep.memory.task.target] ||
+        Game.getObjectById(creep.memory.task.target);
       if (!target) {
         htm.addCreepTask(
           creep.memory.task.target,
           'deliverEnergy',
-          { pos: creep.memory.task.pos },
+          { pos: creep.memory.task.pos, amount: creep.memory.task.reserved },
           1,
           20,
           1,
@@ -81,10 +84,20 @@ module.exports = {
         );
         delete creep.memory.task;
       } else if (creep.store[RESOURCE_ENERGY] > 0) {
+        const before = creep.store[RESOURCE_ENERGY];
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.travelTo(target, { visualizePathStyle: { stroke: '#ffffff' } });
-        } else if (creep.store[RESOURCE_ENERGY] === 0) {
-          delete creep.memory.task;
+        } else {
+          const delivered = before - creep.store[RESOURCE_ENERGY];
+          creep.memory.task.reserved =
+            Math.max(0, creep.memory.task.reserved - delivered);
+          if (
+            creep.memory.task.reserved === 0 ||
+            (target.store &&
+              target.store.getFreeCapacity(RESOURCE_ENERGY) === 0)
+          ) {
+            delete creep.memory.task;
+          }
         }
         return;
       } else {
@@ -137,10 +150,20 @@ module.exports = {
         htm.DEFAULT_CLAIM_COOLDOWN,
         estimate,
       );
+      let deliver = creep.store.getCapacity ? creep.store.getCapacity() : 0;
+      if (task.data.amount !== undefined) {
+        deliver = Math.min(deliver, task.data.amount);
+        task.data.amount -= deliver;
+        if (task.data.amount <= 0) {
+          const idx = creepTasks[name].tasks.indexOf(task);
+          if (idx !== -1) creepTasks[name].tasks.splice(idx, 1);
+        }
+      }
       creep.memory.task = {
         name: 'deliverEnergy',
         target: name,
         pos: task.data.pos,
+        reserved: deliver,
       };
       break;
     }
