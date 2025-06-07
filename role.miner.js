@@ -119,6 +119,8 @@ const roleMiner = {
 
   onDeath: function (creep) {
     memoryManager.releaseMiningPosition(creep);
+    // Cleanup stale reservations in case the miner died unexpectedly
+    memoryManager.cleanUpReservedPositions();
   },
 };
 

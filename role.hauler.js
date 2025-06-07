@@ -104,16 +104,39 @@ module.exports = {
 
     // Look for delivery tasks
     const creepTasks = Memory.htm && Memory.htm.creeps ? Memory.htm.creeps : {};
+    const available = [];
     for (const name in creepTasks) {
       const container = creepTasks[name];
       if (!container.tasks) continue;
       const task = container.tasks.find(
         (t) => t.name === 'deliverEnergy' && Game.time >= t.claimedUntil,
       );
-      if (!task) continue;
+      if (task) available.push({ name, task });
+    }
+
+    available.sort(
+      (a, b) => (a.task.data.ticksNeeded || 0) - (b.task.data.ticksNeeded || 0),
+    );
+
+    for (const entry of available) {
+      const { name, task } = entry;
       const estimate = task.data.ticksNeeded || 0;
-      if (creep.ticksToLive && creep.ticksToLive <= estimate) continue;
-      htm.claimTask(htm.LEVELS.CREEP, name, 'deliverEnergy', 'hauler', htm.DEFAULT_CLAIM_COOLDOWN, estimate);
+      const pos = new RoomPosition(
+        task.data.pos.x,
+        task.data.pos.y,
+        task.data.pos.roomName,
+      );
+      const travel = creep.pos.getRangeTo(pos) * 2;
+      const required = Math.max(estimate, travel);
+      if (creep.ticksToLive && creep.ticksToLive <= required) continue;
+      htm.claimTask(
+        htm.LEVELS.CREEP,
+        name,
+        'deliverEnergy',
+        'hauler',
+        htm.DEFAULT_CLAIM_COOLDOWN,
+        estimate,
+      );
       creep.memory.task = {
         name: 'deliverEnergy',
         target: name,

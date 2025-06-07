@@ -71,5 +71,20 @@ describe('memoryManager.assignMiningPosition', function() {
     expect(pos1).to.have.property('roomName', 'W1N1');
     expect(pos2).to.have.property('roomName', 'W1N1');
   });
+
+  it('frees a mining position without touching creep memory', function() {
+    const room = Game.rooms['W1N1'];
+    const creep = createCreep('m1');
+    creep.memory.source = 'source1';
+    memoryManager.assignMiningPosition(creep.memory, room);
+
+    const pos = { ...creep.memory.miningPosition };
+    memoryManager.freeMiningPosition(pos);
+    expect(
+      Memory.rooms.W1N1.miningPositions.source1.positions.best1.reserved ||
+        Memory.rooms.W1N1.miningPositions.source1.positions.best2.reserved,
+    ).to.be.false;
+    expect(creep.memory.miningPosition).to.deep.equal(pos);
+  });
 });
 
