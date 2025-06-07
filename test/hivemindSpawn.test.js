@@ -1,0 +1,80 @@
+const { expect } = require('chai');
+const globals = require('./mocks/globals');
+
+const htm = require('../manager.htm');
+const spawnModule = require('../manager.hivemind.spawn');
+const spawnQueue = require('../manager.spawnQueue');
+
+global._ = require('lodash');
+
+global.WORK = 'work';
+global.MOVE = 'move';
+global.CARRY = 'carry';
+global.FIND_HOSTILE_CREEPS = 0;
+global.FIND_SOURCES = 1;
+global.FIND_MY_SPAWNS = 2;
+global.HARVEST_POWER = 2;
+global.CREEP_SPAWN_TIME = 3;
+
+global.BODYPART_COST = { work: 100, move: 50, carry: 50 };
+
+describe('hivemind spawn module', function () {
+  beforeEach(function () {
+    globals.resetGame();
+    globals.resetMemory();
+    spawnQueue.queue = [];
+    Game.rooms['W1N1'] = {
+      name: 'W1N1',
+      controller: { my: true, level: 1 },
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      memory: { buildingQueue: [{ id: 'c1', pos: { x: 1, y: 1 } }] },
+      find: (type) => {
+        if (type === FIND_HOSTILE_CREEPS) return [];
+        if (type === FIND_SOURCES) {
+          return [
+            {
+              id: 'source1',
+              pos: {
+                x: 5,
+                y: 5,
+                roomName: 'W1N1',
+                getRangeTo: () => 0,
+              },
+            },
+          ];
+        }
+        if (type === FIND_MY_SPAWNS) {
+          return [
+            {
+              id: 's1',
+              pos: { getRangeTo: () => 5 },
+            },
+          ];
+        }
+        return [];
+      },
+    };
+    Memory.rooms = {
+      W1N1: {
+        miningPositions: {
+          source1: {
+            positions: {
+              a: { x: 4, y: 5 },
+              b: { x: 5, y: 4 },
+              c: { x: 6, y: 5 },
+            },
+          },
+        },
+      },
+    };
+    htm.init();
+  });
+
+  it('queues miner and builder tasks', function () {
+    spawnModule.run(Game.rooms['W1N1']);
+    const tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
+    expect(tasks).to.include('spawnMiner');
+    expect(tasks).to.include('spawnBuilder');
+  });
+});
