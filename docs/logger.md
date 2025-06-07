@@ -11,7 +11,9 @@ The logger provides structured console output across the entire code base. Logs 
 - **4** – errors
 - **5** – critical failures
 
-Higher severity entries are highlighted and displayed before lower ones. Repeated log messages across ticks are aggregated so the console stays readable.
+Higher severity entries are highlighted and displayed before lower ones. Repeated
+log messages across ticks are aggregated into a single entry. Each log entry
+auto-expires after about 30 ticks so the console stays readable.
 
 ## Usage
 

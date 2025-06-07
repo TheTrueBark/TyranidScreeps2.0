@@ -15,9 +15,9 @@
 - [x] Runs logger, stats display, and future HTM triggers
 - [x] Optional debug toggle to list active/queued tasks – *Prio 2*
 
-### ✅ Logging (Prio 5)
+-### ✅ Logging (Prio 5)
 - [ ] `logger.log(message, severity, roomName, duration)`
-- [ ] Logs aggregated across ticks (e.g. “(12 times since Tick X)”)
+- [x] Logs aggregated across ticks (e.g. “(12 times since Tick X)”)
 - [ ] Sorted by severity
  - [x] Integrated with `statsConsole.log` (color-based display)
 - [ ] Displayed every 5 ticks (via Scheduler)

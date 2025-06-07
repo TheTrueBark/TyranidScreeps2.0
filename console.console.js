@@ -24,7 +24,7 @@ var statsConsole = {
       }
 
       if (Memory.stats.logs === undefined) {
-        Memory.stats.logs = [["Logging Initialized!", 3]];
+        Memory.stats.logs = [{ message: "Logging Initialized!", severity: 3, time: Game.time, duration: 30, count: 1 }];
       }
 
       if (Memory.stats.logs && Memory.stats.logs.length >= display) {
@@ -394,20 +394,45 @@ var statsConsole = {
   /**
    * Record a log message with a severity level.
    *
-   * Messages are counted and their severity escalates when repeated.
+   * Messages with the same text are aggregated into a single entry which
+   * escalates in severity the more often it appears. Each entry automatically
+   * expires after a default duration so the console does not overflow.
    *
-   * @param {string} message  The message to log.
+   * @param {string} message     The message to log.
    * @param {number} [severity=3] Severity level 0-5.
+   * @param {number} [duration=30] Ticks before the log entry is removed.
    */
-  log: function (message, severity = 3) {
+  log: function (message, severity = 3, duration = 30) {
     if (!Memory.stats.logCounts) Memory.stats.logCounts = {};
+    if (!Memory.stats.logs) Memory.stats.logs = [];
+
     const count = (Memory.stats.logCounts[message] || 0) + 1;
     Memory.stats.logCounts[message] = count;
 
     // Increase severity when a message is repeated many times
     const escalatedSeverity = Math.min(5, severity + Math.floor(count / 10));
 
-    Memory.stats.logs.push([Game.time + ": " + message, escalatedSeverity]);
+    // Update existing entry or create a new one
+    const existing = Memory.stats.logs.find((l) => l.message === message);
+    if (existing) {
+      existing.severity = escalatedSeverity;
+      existing.time = Game.time;
+      existing.count = (existing.count || 1) + 1;
+      existing.duration = duration;
+    } else {
+      Memory.stats.logs.push({
+        message: message,
+        severity: escalatedSeverity,
+        time: Game.time,
+        duration: duration,
+        count: 1,
+      });
+    }
+
+    // Remove expired entries
+    Memory.stats.logs = Memory.stats.logs.filter(
+      (l) => Game.time - l.time < l.duration,
+    );
   },
 
   displayLogs: function (logs = Memory.stats.logs, opts = {}) {
@@ -422,7 +447,7 @@ var statsConsole = {
     let vbar = opts.vBar || "|";
     let spacing = opts.spacing || " ";
 
-    const filteredLogs = logs.filter((l) => l[1] >= minSeverity);
+    const filteredLogs = logs.filter((l) => l.severity >= minSeverity);
     let boxHeight = filteredLogs.length - 1;
     let boxWidth = totalWidth - 3; // Inside of the box
     let borderWidth = 5;
@@ -449,8 +474,8 @@ var statsConsole = {
       rightTopCorner +
       "\n";
     for (let i = 0; i < boxHeight; i++) {
-      let severity = filteredLogs[i][(0, 1)];
-      let message = filteredLogs[i][(0, 0)];
+      let severity = filteredLogs[i].severity;
+      let message = `${filteredLogs[i].time}: ${filteredLogs[i].message}`;
 
       let htmlFontStart =
         '<log severity="' +
