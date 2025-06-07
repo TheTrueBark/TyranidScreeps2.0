@@ -310,7 +310,12 @@ const spawnManager = {
           3,
         );
         let spawnPos;
-        if (memory.miningPosition && memory.miningPosition.x !== undefined) {
+        if (
+          memory.miningPosition &&
+          memory.miningPosition.x !== undefined &&
+          memory.miningPosition.roomName
+        ) {
+          // Normal case when assignMiningPosition stored the room name
           spawnPos = new RoomPosition(
             memory.miningPosition.x,
             memory.miningPosition.y,
@@ -318,12 +323,36 @@ const spawnManager = {
           );
         } else if (
           memory.sourcePosition &&
-          memory.sourcePosition.x !== undefined
+          memory.sourcePosition.x !== undefined &&
+          memory.sourcePosition.roomName
         ) {
           spawnPos = new RoomPosition(
             memory.sourcePosition.x,
             memory.sourcePosition.y,
             memory.sourcePosition.roomName,
+          );
+        } else if (
+          memory.miningPosition &&
+          memory.miningPosition.x !== undefined &&
+          !memory.miningPosition.roomName
+        ) {
+          // Backwards compatibility for legacy memory lacking roomName
+          memory.miningPosition.roomName = spawn.room.name;
+          spawnPos = new RoomPosition(
+            memory.miningPosition.x,
+            memory.miningPosition.y,
+            spawn.room.name,
+          );
+        } else if (
+          memory.sourcePosition &&
+          memory.sourcePosition.x !== undefined &&
+          !memory.sourcePosition.roomName
+        ) {
+          memory.sourcePosition.roomName = spawn.room.name;
+          spawnPos = new RoomPosition(
+            memory.sourcePosition.x,
+            memory.sourcePosition.y,
+            spawn.room.name,
           );
         }
 

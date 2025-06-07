@@ -58,6 +58,7 @@
 - [x] Processes HTM spawn tasks with cooldown estimates
 - [ ] Multi-room spawn and remote queue support
 - [x] Panic mode: minimum creep fallback during total loss – *Prio 5*
+- [x] Spawn request validation for positional roomName
 - [x] Direction-aware spawning to keep spawn exits clear
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*
 
