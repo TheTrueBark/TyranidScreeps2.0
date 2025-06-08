@@ -61,4 +61,15 @@ describe('builder energy evaluation', function () {
     roleBuilder.run(creep);
     expect(Memory.htm.creeps['b2']).to.be.undefined;
   });
+
+  it('scans for energy within 15 tiles', function () {
+    const creep = createCreep('b3');
+    let rangeChecked = 0;
+    creep.pos.findInRange = (type, range) => {
+      rangeChecked = range;
+      return [];
+    };
+    roleBuilder.run(creep);
+    expect(rangeChecked).to.equal(15);
+  });
 });

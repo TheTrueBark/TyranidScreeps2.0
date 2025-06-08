@@ -58,4 +58,10 @@ describe('hive.roles evaluateRoom', function() {
     expect(t).to.exist;
     expect(t.amount).to.equal(3);
   });
+
+  it('stores spawn limits in room memory', function() {
+    roles.evaluateRoom(Game.rooms['W1N1']);
+    const limits = Memory.rooms['W1N1'].spawnLimits;
+    expect(limits).to.include.keys('miners', 'builders', 'upgraders');
+  });
 });

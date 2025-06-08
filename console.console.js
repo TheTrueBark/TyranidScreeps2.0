@@ -1,3 +1,5 @@
+const _ = require('lodash');
+
 var statsConsole = {
   run: function (data, logCpu = true, opts = {}) {
     if (Memory.stats === undefined) {
@@ -291,6 +293,58 @@ var statsConsole = {
           secondLineName = secondLineName.concat(["Stored Energy"]);
           secondLineStat = secondLineStat.concat(["0"]);
         }
+
+        const limits =
+          Memory.rooms && Memory.rooms[room.name]
+            ? Memory.rooms[room.name].spawnLimits || {}
+            : {};
+        const minersAlive = _.filter(
+          Game.creeps,
+          c => c.memory.role === 'miner' && c.room.name === room.name,
+        ).length;
+        const queuedMiners = (Memory.spawnQueue || []).filter(
+          q => q.room === room.name && q.memory.role === 'miner',
+        ).length;
+        secondLineName = secondLineName.concat(['Miners']);
+        secondLineStat = secondLineStat.concat([
+          `${minersAlive + queuedMiners}/${limits.miners || 0}`,
+        ]);
+
+        const haulersAlive = _.filter(
+          Game.creeps,
+          c => c.memory.role === 'hauler' && c.room.name === room.name,
+        ).length;
+        const queuedHaulers = (Memory.spawnQueue || []).filter(
+          q => q.room === room.name && q.memory.role === 'hauler',
+        ).length;
+        secondLineName = secondLineName.concat(['Haulers']);
+        secondLineStat = secondLineStat.concat([
+          `${haulersAlive + queuedHaulers}/${limits.haulers || 0}`,
+        ]);
+
+        const buildersAlive = _.filter(
+          Game.creeps,
+          c => c.memory.role === 'builder' && c.room.name === room.name,
+        ).length;
+        const queuedBuilders = (Memory.spawnQueue || []).filter(
+          q => q.room === room.name && q.memory.role === 'builder',
+        ).length;
+        secondLineName = secondLineName.concat(['Builders']);
+        secondLineStat = secondLineStat.concat([
+          `${buildersAlive + queuedBuilders}/${limits.builders || 0}`,
+        ]);
+
+        const upgradersAlive = _.filter(
+          Game.creeps,
+          c => c.memory.role === 'upgrader' && c.room.name === room.name,
+        ).length;
+        const queuedUpgraders = (Memory.spawnQueue || []).filter(
+          q => q.room === room.name && q.memory.role === 'upgrader',
+        ).length;
+        secondLineName = secondLineName.concat(['Upgraders']);
+        secondLineStat = secondLineStat.concat([
+          `${upgradersAlive + queuedUpgraders}/${limits.upgraders || 0}`,
+        ]);
       }
     }
 
