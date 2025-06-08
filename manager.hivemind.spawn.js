@@ -80,84 +80,54 @@ const spawnModule = {
       }
     }
 
-    // Initial spawn sequence at RCL1
-  const initialOrder = [
-    { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
-    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-    { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
+  // Initial spawn sequence at RCL1 using strict role counts
+  const initialSteps = [
+    { task: 'spawnBootstrap', role: 'allPurpose', priority: 0, count: 1 },
+    { task: 'spawnMiner', role: 'miner', priority: 1, count: 1 },
+    { task: 'spawnMiner', role: 'miner', priority: 1, count: 2 },
+    { task: 'spawnHauler', role: 'hauler', priority: 2, count: 1 },
+    { task: 'spawnHauler', role: 'hauler', priority: 2, count: 2 },
+    { task: 'spawnUpgrader', role: 'upgrader', priority: 3, count: 1 },
   ];
 
-  const initialRoles = [
-    'allPurpose',
-    'miner',
-    'miner',
-    'hauler',
-    'hauler',
-    'upgrader',
-  ];
-
-  const queuedInitial = spawnQueue.queue.filter(
-    (q) => q.room === roomName && initialRoles.includes(q.memory.role),
-  ).length;
-  const tasksInitial =
-    container && container.tasks
-      ? container.tasks
-          .filter(
-            (t) =>
-              t.manager === 'spawnManager' &&
-              initialOrder.some((o) => o.task === t.name),
-          )
-          .reduce((sum, t) => sum + (t.amount || 1), 0)
-      : 0;
-
-  const spawningInitial = room
-    .find(FIND_MY_SPAWNS)
-    .reduce((sum, s) => {
-      const role = s.memory && s.memory.currentSpawnRole;
-      if (role && initialRoles.includes(role)) return sum + 1;
-      return sum;
-    }, 0);
-
-  const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
-  const totalPlanned = aliveInitial + spawningInitial + queuedInitial + tasksInitial;
-
-    if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
-      const nextEntry = initialOrder[totalPlanned];
-      const existing =
+  if (room.controller.level === 1) {
+    for (const step of initialSteps) {
+      const alive = myCreeps.filter(c => c.memory.role === step.role).length;
+      const spawningCount = room
+        .find(FIND_MY_SPAWNS)
+        .filter(s => s.memory && s.memory.currentSpawnRole === step.role).length;
+      const queued = spawnQueue.queue.filter(
+        q => q.room === roomName && q.memory.role === step.role,
+      ).length;
+      const task =
         container && container.tasks
           ? container.tasks.find(
-              t => t.name === nextEntry.task && t.manager === 'spawnManager',
+              t => t.name === step.task && t.manager === 'spawnManager',
             )
           : null;
-      if (existing) {
-        existing.amount += 1;
+      const taskAmount = task ? task.amount || 0 : 0;
+      const total = alive + spawningCount + queued + taskAmount;
+      if (total < step.count) {
+        if (task) task.amount += 1;
+        else
+          htm.addColonyTask(
+            roomName,
+            step.task,
+            { role: step.role },
+            step.priority,
+            20,
+            1,
+            'spawnManager',
+          );
         logger.log(
           'hivemind.spawn',
-          `Increased initial ${nextEntry.data.role} amount for ${roomName}`,
+          `Queued initial ${step.role} for ${roomName}`,
           2,
         );
-      } else {
-        htm.addColonyTask(
-          roomName,
-          nextEntry.task,
-          nextEntry.data,
-          nextEntry.priority,
-          20,
-          1,
-          'spawnManager',
-        );
-        logger.log(
-          'hivemind.spawn',
-          `Queued initial ${nextEntry.data.role} for ${roomName}`,
-          2,
-        );
+        return; // queue one step per tick
       }
-      // Do not queue other roles until initial order is complete
-      return;
     }
+  }
 
     // Delegate role evaluation to hive.roles module
     const roles = require('./hive.roles');

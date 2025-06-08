@@ -31,7 +31,9 @@ its queue is empty.
   colony grows. Upgraders and builders are now evaluated by `hive.roles.js` which
   monitors controller containers and construction sites. When no creeps remain
   the queue is purged and a bootstrap worker is scheduled so the colony can
-  recover.
+  recover. The module enforces a strict initial order at RCL1: one
+  allPurpose creep, two miners and two haulers must be accounted for before an
+  upgrader is queued.
  - **demand** – Tracks energy deliveries. When the combined
   `demandRate` for requesters exceeds the current `supplyRate` the Hive
   automatically queues enough haulers to close the gap. Delivery statistics are
