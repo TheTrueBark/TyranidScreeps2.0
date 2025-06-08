@@ -32,17 +32,12 @@ const roleMiner = {
       return;
     }
 
-    const miningPos = new RoomPosition(
+    let miningPos = new RoomPosition(
       creep.memory.miningPosition.x,
       creep.memory.miningPosition.y,
       creep.memory.miningPosition.roomName,
     );
 
-    // Move to the mining position if not already there
-    if (!creep.pos.isEqualTo(miningPos)) {
-      creep.travelTo(miningPos, { visualizePathStyle: { stroke: "#ffaa00" } });
-      return;
-    }
     if (!creep.memory.sourceId) {
       const sources = miningPos.findInRange(FIND_SOURCES, 1);
       if (sources.length > 0) {
@@ -57,8 +52,54 @@ const roleMiner = {
       }
     }
 
-    // Mine the assigned source
     const source = Game.getObjectById(creep.memory.sourceId);
+    if (
+      source &&
+      creep.getActiveBodyparts(WORK) >= 5
+    ) {
+      const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      })[0];
+      if (
+        container &&
+        (creep.memory.miningPosition.x !== container.pos.x ||
+          creep.memory.miningPosition.y !== container.pos.y)
+      ) {
+        memoryManager.freeMiningPosition(creep.memory.miningPosition);
+        const mem =
+          Memory.rooms &&
+          Memory.rooms[creep.room.name] &&
+          Memory.rooms[creep.room.name].miningPositions &&
+          Memory.rooms[creep.room.name].miningPositions[source.id];
+        if (mem && mem.positions) {
+          for (const k in mem.positions) {
+            const p = mem.positions[k];
+            if (p && p.x === container.pos.x && p.y === container.pos.y) {
+              mem.positions[k].reserved = true;
+            }
+          }
+        }
+        creep.memory.miningPosition = {
+          x: container.pos.x,
+          y: container.pos.y,
+          roomName: container.pos.roomName,
+          reserved: true,
+        };
+        miningPos = new RoomPosition(
+          container.pos.x,
+          container.pos.y,
+          container.pos.roomName,
+        );
+      }
+    }
+
+    // Move to the mining position if not already there
+    if (!creep.pos.isEqualTo(miningPos)) {
+      creep.travelTo(miningPos, { visualizePathStyle: { stroke: "#ffaa00" } });
+      return;
+    }
+
+    // Mine the assigned source
     if (source) {
       const harvestResult = creep.harvest(source);
       if (harvestResult === OK) {

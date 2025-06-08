@@ -56,4 +56,10 @@ describe('demand recordDelivery', function () {
     expect(Memory.demand.rooms).to.exist;
     expect(Memory.demand.rooms['W1N1']).to.exist;
   });
+
+  it('flags next run when recording request', function () {
+    demand.recordRequest('b1', 50, 'W1N1');
+    const roomMem = Memory.demand.rooms['W1N1'];
+    expect(roomMem.runNextTick).to.be.true;
+  });
 });

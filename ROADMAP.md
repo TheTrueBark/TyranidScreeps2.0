@@ -28,6 +28,7 @@
 - [x] Hierarchical memory layout: Hive → Cluster → Colony → Creep
 - [x] Auto-initialization on boot
 - [x] Release mining positions when creeps die
+- [x] Cleanup HTM creep memory when creeps expire
 - [ ] Auto-assimilation of newly seen rooms into structure
 - [ ] Persistent memory for lost-vision rooms
 - [ ] Expiration system for temporary memory entries – *Prio 3*
@@ -79,8 +80,10 @@
 - [x] Scans rooms for sources and structures
 - [x] Evaluates spawn demand per role
 - [x] Reserves mining positions for miners
+- [x] Recalculate mining spots and prefer container positions
 - [x] Replacement miners requested before predecessors expire
 - [x] Reserved positions cleared on miner/allPurpose death
+- [x] Miners with 5 WORK parts reposition onto containers
 
 ### 🔄 Energy Demand Module (Prio 3)
 - [x] Record delivery performance for requesters
@@ -89,6 +92,7 @@
 - [x] Initial spawn order enforces allPurpose, miners and haulers before upgraders
 - [x] Persist aggregated demand and hauler supply metrics
 - [x] Global demand totals aggregate per room and supply rate only counts hauler deliveries
+- [x] Haulers prioritise ruins and tombstones when closer than containers
 
 ---
 

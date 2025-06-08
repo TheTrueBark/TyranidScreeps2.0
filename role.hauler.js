@@ -5,25 +5,51 @@ const logger = require('./logger');
 const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
 
+/**
+ * Determine the optimal nearby energy source for the hauler.
+ * Considers dropped resources, ruins, tombstones, containers and storage
+ * then selects the closest option by range.
+ *
+ * @param {Creep} creep - The hauler seeking energy.
+ * @returns {{type: string, target: any}|null} Pickup/withdraw instruction.
+ */
 function findEnergySource(creep) {
   const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   if (needed === 0) return null;
+
+  const candidates = [];
   const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount >= needed,
+    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   });
-  if (dropped) return { type: 'pickup', target: dropped };
+  if (dropped) candidates.push({ type: 'pickup', target: dropped });
+
+  const ruin = creep.pos.findClosestByPath(FIND_RUINS, {
+    filter: r => r.store && r.store[RESOURCE_ENERGY] > 0,
+  });
+  if (ruin) candidates.push({ type: 'withdraw', target: ruin });
+
+  const tomb = creep.pos.findClosestByPath(FIND_TOMBSTONES, {
+    filter: t => t.store && t.store[RESOURCE_ENERGY] > 0,
+  });
+  if (tomb) candidates.push({ type: 'withdraw', target: tomb });
 
   const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
-      s.store[RESOURCE_ENERGY] >= needed,
+      s.store[RESOURCE_ENERGY] > 0,
   });
-  if (container) return { type: 'withdraw', target: container };
+  if (container) candidates.push({ type: 'withdraw', target: container });
 
-  if (creep.room.storage && creep.room.storage.store[RESOURCE_ENERGY] >= needed) {
-    return { type: 'withdraw', target: creep.room.storage };
+  if (creep.room.storage && creep.room.storage.store[RESOURCE_ENERGY] > 0) {
+    candidates.push({ type: 'withdraw', target: creep.room.storage });
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort(
+    (a, b) => creep.pos.getRangeTo(a.target) - creep.pos.getRangeTo(b.target),
+  );
+  return candidates[0];
 }
 
 function deliverEnergy(creep, target = null) {

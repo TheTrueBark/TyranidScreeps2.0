@@ -43,6 +43,25 @@ const spawnModule = {
           area.push({ x, y });
         }
       }
+
+      const mining =
+        Memory.rooms &&
+        Memory.rooms[roomName] &&
+        Memory.rooms[roomName].miningPositions
+          ? Memory.rooms[roomName].miningPositions
+          : null;
+      if (mining) {
+        for (const id in mining) {
+          const posObj = mining[id].positions || {};
+          for (const key in posObj) {
+            const p = posObj[key];
+            if (p && p.x !== undefined && p.y !== undefined) {
+              area.push({ x: p.x, y: p.y });
+            }
+          }
+        }
+      }
+
       if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
       Memory.rooms[roomName].restrictedArea = area;
     }

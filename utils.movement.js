@@ -31,6 +31,38 @@ const movementUtils = {
       }
     }
   },
+
+  /**
+   * Step off the current tile if standing on an invalid position such as a construction site.
+   * Attempts to move to the first open adjacent tile.
+   * @param {Creep} creep - The creep to reposition.
+   * @returns {boolean} True if a move command was issued.
+   */
+  stepOff(creep) {
+    if (!creep.room || !creep.room.getTerrain) return false;
+    const terrain = creep.room.getTerrain();
+    const deltas = {
+      [TOP]: { x: 0, y: -1 },
+      [TOP_RIGHT]: { x: 1, y: -1 },
+      [RIGHT]: { x: 1, y: 0 },
+      [BOTTOM_RIGHT]: { x: 1, y: 1 },
+      [BOTTOM]: { x: 0, y: 1 },
+      [BOTTOM_LEFT]: { x: -1, y: 1 },
+      [LEFT]: { x: -1, y: 0 },
+      [TOP_LEFT]: { x: -1, y: -1 },
+    };
+    for (const dir of Object.keys(deltas)) {
+      const d = deltas[dir];
+      const x = creep.pos.x + d.x;
+      const y = creep.pos.y + d.y;
+      if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      if (creep.room.lookForAt(LOOK_CREEPS, x, y).length > 0) continue;
+      creep.move(Number(dir));
+      return true;
+    }
+    return false;
+  },
 };
 
 module.exports = movementUtils;
