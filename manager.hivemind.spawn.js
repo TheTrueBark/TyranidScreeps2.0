@@ -152,6 +152,65 @@ const spawnModule = {
     const roles = require('./hive.roles');
     roles.evaluateRoom(room);
 
+    // Fallback: ensure at least one hauler exists before spawning extras
+    const haulerTask =
+      container && container.tasks
+        ? container.tasks.find(
+            t => t.name === 'spawnHauler' && t.manager === 'spawnManager',
+          )
+        : null;
+    const haulersAlive = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'hauler' && c.room.name === roomName,
+    ).length;
+    const queuedHaulers = spawnQueue.queue.filter(
+      q => q.room === roomName && q.memory.role === 'hauler',
+    ).length;
+    const totalHaulers =
+      haulersAlive + queuedHaulers + (haulerTask ? haulerTask.amount || 0 : 0);
+
+    if (totalHaulers === 0) {
+      const minerTask =
+        container && container.tasks
+          ? container.tasks.find(
+              t => t.name === 'spawnMiner' && t.manager === 'spawnManager',
+            )
+          : null;
+      const minersAlive = _.filter(
+        Game.creeps,
+        c => c.memory.role === 'miner' && c.room.name === roomName,
+      ).length;
+      const queuedMiners = spawnQueue.queue.filter(
+        q => q.room === roomName && q.memory.role === 'miner',
+      ).length;
+      const totalMiners =
+        minersAlive + queuedMiners + (minerTask ? minerTask.amount || 0 : 0);
+
+      if (totalMiners === 0) {
+        if (!taskExists(roomName, 'spawnBootstrap', 'spawnManager')) {
+          htm.addColonyTask(
+            roomName,
+            'spawnBootstrap',
+            { role: 'allPurpose' },
+            0,
+            20,
+            1,
+            'spawnManager',
+          );
+        }
+      } else if (!haulerTask) {
+        htm.addColonyTask(
+          roomName,
+          'spawnHauler',
+          { role: 'hauler' },
+          1,
+          20,
+          1,
+          'spawnManager',
+        );
+      }
+    }
+
 
     // Encourage upgrades when energy is abundant
     if (

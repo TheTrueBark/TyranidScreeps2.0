@@ -118,7 +118,9 @@ const roleMiner = {
   },
 
   onDeath: function (creep) {
+    const roomName = creep.memory.miningPosition && creep.memory.miningPosition.roomName;
     memoryManager.releaseMiningPosition(creep);
+    if (roomName) memoryManager.verifyMiningReservations(roomName);
     // Cleanup stale reservations in case the miner died unexpectedly
     memoryManager.cleanUpReservedPositions();
   },

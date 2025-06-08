@@ -208,6 +208,41 @@ const memoryManager = {
       }
     }
   },
+
+  /**
+   * Ensure mining position reservations reflect currently alive creeps.
+   * Iterates over all reserved spots in the room and releases any that are
+   * no longer claimed by a living creep.
+   *
+   * @param {string} roomName - Room whose reservations should be verified.
+   */
+  verifyMiningReservations(roomName) {
+    const roomMemory = Memory.rooms && Memory.rooms[roomName];
+    if (!roomMemory || !roomMemory.miningPositions) return;
+
+    const active = new Set();
+    for (const name in Game.creeps) {
+      const c = Game.creeps[name];
+      if (
+        c.memory &&
+        c.memory.miningPosition &&
+        c.memory.miningPosition.roomName === roomName
+      ) {
+        const pos = c.memory.miningPosition;
+        active.add(`${pos.x}:${pos.y}`);
+      }
+    }
+
+    for (const sourceId in roomMemory.miningPositions) {
+      const source = roomMemory.miningPositions[sourceId];
+      for (const key in source.positions) {
+        const pos = source.positions[key];
+        if (pos && pos.reserved && !active.has(`${pos.x}:${pos.y}`)) {
+          source.positions[key].reserved = false;
+        }
+      }
+    }
+  },
 };
 
 module.exports = memoryManager;
