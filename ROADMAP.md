@@ -80,6 +80,10 @@
 - [x] Replacement miners requested before predecessors expire
 - [x] Reserved positions cleared on miner/allPurpose death
 
+### 🔄 Energy Demand Module (Prio 3)
+- [x] Record delivery performance for requesters
+- [ ] Evaluate metrics to spawn extra haulers when throughput is low
+
 ---
 
 ## 🛰️ Map Awareness – Hive's Gaze (Prio 3)
