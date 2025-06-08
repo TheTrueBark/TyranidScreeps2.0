@@ -113,6 +113,16 @@ const roles = {
 
     // --- Builder calculation ---
     const sites = room.find(FIND_CONSTRUCTION_SITES);
+    const haulersAlive = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'hauler' && c.room.name === roomName,
+    ).length;
+    const queuedHaulers = spawnQueue.queue.filter(
+      q => q.memory.role === 'hauler' && q.room === roomName,
+    ).length;
+    const haulerTask = tasks.find(t => t.name === 'spawnHauler' && t.manager === 'spawnManager');
+    const haulerTaskAmount = haulerTask ? haulerTask.amount || 0 : 0;
+    const totalHaulers = haulersAlive + queuedHaulers + haulerTaskAmount;
     const important = sites.filter(
       s =>
         s.structureType === STRUCTURE_EXTENSION ||
@@ -123,6 +133,7 @@ const roles = {
     let desiredBuilders = 0;
     if (important.length > 0) desiredBuilders = Math.min(12, important.length * 4);
     else desiredBuilders = Math.min(12, general * 2);
+    if (totalHaulers < 2) desiredBuilders = 0;
     const liveBuilders = _.filter(
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,
