@@ -74,6 +74,18 @@ const roleBuilder = {
 
     if (creep.memory.working) {
       const roomMemory = Memory.rooms[creep.room.name];
+      if (creep.store.getFreeCapacity() > 0) {
+        const nearby = findNearbyEnergy(creep);
+        if (nearby) {
+          if (nearby.type === 'pickup') {
+            if (creep.pickup(nearby.target) === ERR_NOT_IN_RANGE) {
+              creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            }
+          } else if (creep.withdraw(nearby.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+            creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+          }
+        }
+      }
       if (creep.memory.buildTarget) {
         const site = Game.getObjectById(creep.memory.buildTarget);
         if (!site) {
@@ -92,8 +104,7 @@ const roleBuilder = {
 
       if (!creep.memory.buildTarget) {
         const queue = creep.room.memory.buildingQueue || [];
-        if (queue.length > 0) {
-          const entry = queue[0];
+        for (const entry of queue) {
           const assigned =
             (roomMemory.siteAssignments && roomMemory.siteAssignments[entry.id]) ||
             0;
@@ -121,7 +132,7 @@ const roleBuilder = {
         }
       }
 
-      if (!creep.memory.buildTarget) {
+      if (!creep.memory.buildTarget && (creep.room.memory.buildingQueue || []).length === 0) {
         const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
           filter: (object) => object.hits < object.hitsMax,
         });

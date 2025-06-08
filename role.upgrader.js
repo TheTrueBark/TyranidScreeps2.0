@@ -10,7 +10,7 @@ function assignContainer(creep) {
   }
   const controller = creep.room.controller;
   if (!controller || !controller.pos || !controller.pos.findInRange) return null;
-  const container = controller.pos.findInRange(FIND_STRUCTURES, 3, {
+  const container = controller.pos.findInRange(FIND_STRUCTURES, 2, {
     filter: s => s.structureType === STRUCTURE_CONTAINER,
   })[0];
   if (!container) return null;
@@ -30,11 +30,24 @@ function getUpgradePos(creep) {
     return new RoomPosition(p.x, p.y, p.roomName);
   }
   const container = assignContainer(creep);
-  const pos = container
-    ? container.pos
-    : creep.room.controller && creep.room.controller.pos
-      ? creep.room.controller.pos
-      : creep.pos;
+  let pos = null;
+  if (container) {
+    pos = container.pos;
+  } else if (creep.room.controller && creep.room.controller.pos) {
+    const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
+    if (spawn && spawn.pos) {
+      const path = creep.room.findPath(creep.room.controller.pos, spawn.pos, {
+        ignoreCreeps: true,
+      });
+      if (path.length >= 2) {
+        const step = path[1];
+        pos = new RoomPosition(step.x, step.y, creep.room.name);
+      }
+    }
+    if (!pos) pos = creep.room.controller.pos;
+  } else {
+    pos = creep.pos;
+  }
   creep.memory.upgradePos = { x: pos.x, y: pos.y, roomName: pos.roomName };
   return pos;
 }
@@ -82,6 +95,10 @@ const roleUpgrader = {
     }
 
     const pos = getUpgradePos(creep);
+    if (!creep.pos.isEqualTo(pos)) {
+      creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
+      return;
+    }
     if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
       creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffffff' } });
     }

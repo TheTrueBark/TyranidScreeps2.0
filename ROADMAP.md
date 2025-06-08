@@ -70,6 +70,7 @@
 ### ✅ Building Manager (Prio 3)
 - [x] Queues container and extension construction
 - [x] Places controller containers at upgrade range and spawn buffer containers
+- [x] Controller containers placed two tiles from the controller in the closest direction to the spawn
 - [x] Recalculates buildable areas on controller level change
 - [x] Prioritizes build sites via weighted queue
 - [x] Containers requested at RCL1, extensions start at RCL2
