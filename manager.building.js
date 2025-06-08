@@ -96,7 +96,8 @@ const buildingManager = {
 
     if (room.controller.level >= 1) {
       this.buildControllerContainers(room);
-      this.buildBufferContainer(room);
+      // Buffer container near the spawn is no longer required
+      // this.buildBufferContainer(room);
     }
   },
 

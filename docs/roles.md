@@ -18,14 +18,12 @@ Haulers remain governed by the energy demand module.
   range. Upgraders withdraw energy when adjacent to their container rather than
   only when positioned directly on top. When no containers are present the
   system still spawns one upgrader so progress never stalls.
-- **Builders** – Construction sites are prioritised by type. Extensions,
-  containers and roads request up to four builders per site (maximum twelve).
-  Other sites spawn two builders each with the same overall cap. Builders keep
-  their assigned construction site until it is completed and remain near the
-  location while waiting for energy deliveries. While working they also collect
-  dropped energy or withdraw from nearby containers to minimise idle time.
-  Builders start working as soon as some energy is carried so partially filled
-  workers no longer idle.
+ - **Builders** – Always fetch energy from nearby containers or dropped
+   resources before requesting delivery. They select the highest priority
+   construction site each tick (extensions first, then containers, then other
+   structures) and build until empty. Builders begin working as soon as they
+   carry any energy. At least two haulers must exist before additional builders
+   are spawned.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.
