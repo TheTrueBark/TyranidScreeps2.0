@@ -28,10 +28,10 @@ its queue is empty.
 - **spawn** – Maintains the workforce. Miners are requested based on available
   mining spots and work parts (typically three per source at RCL1). Haulers are
   requested in a 1:1 ratio with other roles early on and taper to 1:2 as the
-  colony grows. Upgraders are capped at eight. Builders are limited to four per
-  construction site with a hard maximum of twelve. When no creeps remain the
-  queue is purged and a bootstrap worker
-  is scheduled so the colony can recover.
+  colony grows. Upgraders and builders are now evaluated by `hive.roles.js` which
+  monitors controller containers and construction sites. When no creeps remain
+  the queue is purged and a bootstrap worker is scheduled so the colony can
+  recover.
 - **demand** – Tracks energy deliveries. When average rates fall below
   acceptable thresholds the module queues an additional hauler for the affected
   colony. It only runs when flagged by a completed delivery.

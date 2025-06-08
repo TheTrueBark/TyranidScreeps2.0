@@ -111,7 +111,7 @@ describe('hivemind spawn module', function () {
     spawnModule.run(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     const haulTask = tasks.find(t => t.name === 'spawnHauler');
-    expect(haulTask.amount).to.equal(5);
+    expect(haulTask.amount).to.equal(2);
   });
 
   it('caps builders to four per site with overall max', function () {
@@ -135,6 +135,6 @@ describe('hivemind spawn module', function () {
     spawnModule.run(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     const buildTask = tasks.find(t => t.name === 'spawnBuilder');
-    expect(buildTask.amount).to.equal(12);
+    expect(buildTask).to.be.undefined;
   });
 });

@@ -95,6 +95,11 @@ const demandModule = {
           2,
         );
       }
+      const room = Game.rooms[roomName];
+      if (room) {
+        const roles = require('./hive.roles');
+        roles.evaluateRoom(room);
+      }
     }
 
     Memory.demand.runNextTick = false;

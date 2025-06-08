@@ -20,6 +20,7 @@ const hivemind = require("manager.hivemind");
 const movementUtils = require("./utils.movement");
 
 const energyDemand = require("./manager.hivemind.demand");
+const hiveRoles = require('./hive.roles');
 // HiveTravel installs travelTo on creeps
 
 let myStats = [];
@@ -100,6 +101,7 @@ scheduler.addTask("clearMemory", 100, () => {
     builder: roleBuilder,
     hauler: roleHauler,
   };
+  let removed = false;
   for (const name in Memory.creeps) {
     if (!Game.creeps[name]) {
       const mem = Memory.creeps[name];
@@ -113,8 +115,10 @@ scheduler.addTask("clearMemory", 100, () => {
       }
       logger.log('memory', `Clearing memory of dead creep: ${name}`, 2);
       delete Memory.creeps[name];
+      removed = true;
     }
   }
+  if (removed) scheduler.triggerEvent('roleUpdate', {});
 });
 
 
@@ -146,6 +150,29 @@ scheduler.addTask("hivemind", 1, () => {
 
 scheduler.addTask("energyDemand", 1000, () => {
   energyDemand.run();
+});
+
+// React to creep deaths, spawns and construction updates
+scheduler.addTask('roleUpdateEvent', 0, (data) => {
+  if (data && data.room && Game.rooms[data.room]) {
+    hiveRoles.evaluateRoom(Game.rooms[data.room]);
+  } else {
+    for (const rName in Game.rooms) {
+      const r = Game.rooms[rName];
+      if (r.controller && r.controller.my) hiveRoles.evaluateRoom(r);
+    }
+  }
+}, { event: 'roleUpdate' });
+
+// Fallback evaluation every 50 ticks when bucket high
+scheduler.addTask('roleUpdateFallback', 50, () => {
+  const last = Memory.roleEval ? Memory.roleEval.lastRun || 0 : 0;
+  if (Game.cpu.bucket > 9800 && Game.time - last >= 50) {
+    for (const rName in Game.rooms) {
+      const r = Game.rooms[rName];
+      if (r.controller && r.controller.my) hiveRoles.evaluateRoom(r);
+    }
+  }
 });
 // Core HTM execution task
 scheduler.addTask("htmRun", 1, () => {

@@ -1,4 +1,5 @@
 const logger = require("./logger");
+const scheduler = require('./scheduler');
 
 if (!Memory.spawnQueue) {
   Memory.spawnQueue = [];
@@ -180,8 +181,9 @@ const spawnQueue = {
         );
         const result = spawn.spawnCreep(bodyParts, newName, { memory });
         if (result === OK) {
-          logger.log("spawnQueue", `Spawning new ${category}: ${newName}`, 3);
+          logger.log("spawnQueue", `Spawning new ${category}: ${newName}` , 3);
           this.removeSpawnFromQueue(requestId);
+          scheduler.triggerEvent('roleUpdate', { room: spawn.room.name });
           require("manager.demand").evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
         } else {
           logger.log("spawnQueue", `Failed to spawn ${category}: ${result}` , 4);

@@ -33,3 +33,9 @@ One time tasks are removed after execution. You can force a task to run next tic
 Use `removeTask(name)` to cancel a task entirely or `updateTask(name, interval)` to change its schedule.
 
 Calling `scheduler.listTasks()` returns a summary of upcoming executions which can be printed periodically via `scheduler.logTaskList()`.
+
+### Role Evaluation Events
+
+The `roleUpdate` event triggers the `hive.roles` module to re-evaluate a room's
+workforce. Events are fired when creeps spawn or die, when construction sites
+change or when the controller level increases.
