@@ -12,7 +12,7 @@ const ROLE_PRIORITY = {
   allPurpose: 1,
   miner: 2,
   hauler: 3,
-  upgrader: 5,
+  upgrader: 4,
   builder: 5,
 };
 
@@ -359,6 +359,27 @@ const spawnManager = {
           roomName: fallback.pos.roomName,
         },
       },
+      spawn.id,
+      0,
+      ROLE_PRIORITY.allPurpose,
+    );
+    return bodyParts.length;
+  },
+
+  /**
+   * Spawn a minimal allPurpose creep using currently available energy.
+   * Used when haulers are absent but energy is on the ground.
+   * @param {StructureSpawn} spawn - Spawn structure to use.
+   * @param {Room} room - Room context.
+   */
+  spawnEmergencyCollector(spawn, room) {
+    if (room.energyAvailable < BODYPART_COST[CARRY] + BODYPART_COST[MOVE]) return 0;
+    const bodyParts = [CARRY, MOVE];
+    spawnQueue.addToQueue(
+      "allPurpose",
+      room.name,
+      bodyParts,
+      { role: "allPurpose", emergency: true },
       spawn.id,
       0,
       ROLE_PRIORITY.allPurpose,
