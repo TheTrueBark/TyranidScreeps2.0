@@ -161,35 +161,36 @@ const buildingManager = {
 
   buildControllerContainers: function (room) {
     if (!room.controller) return;
-    // Controller containers
-    if (room.controller) {
-      const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER,
-      });
-      const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 3, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER,
-      });
-      if (controllerContainers.length + controllerSites.length < 2) {
-        const spawn = room.find(FIND_MY_SPAWNS)[0];
-        // Prefer placing containers at max upgrade range but closest to the spawn
-        let spots = getOpenSpots(room.controller.pos, 3).filter(p =>
-          new RoomPosition(p.x, p.y, room.name).getRangeTo(room.controller) === 3,
+    const controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 2, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER,
+    });
+    const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, {
+      filter: s => s.structureType === STRUCTURE_CONTAINER,
+    });
+    if (controllerContainers.length + controllerSites.length < 2) {
+      const spawn = room.find(FIND_MY_SPAWNS)[0];
+      let spots = getOpenSpots(room.controller.pos, 2).filter(p =>
+        new RoomPosition(p.x, p.y, room.name).getRangeTo(room.controller) === 2,
+      );
+      if (spawn) {
+        spots.sort((a, b) =>
+          spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
         );
-        if (spawn) {
-          spots.sort((a, b) =>
-            spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
-          );
-        }
-        for (const spot of spots) {
-          if (controllerContainers.length + controllerSites.length >= 2) break;
-          const pos = new RoomPosition(spot.x, spot.y, room.name);
-          const site = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType === STRUCTURE_CONTAINER);
-          const struct = pos.lookFor(LOOK_STRUCTURES).filter(s => s.structureType === STRUCTURE_CONTAINER);
-          if (site.length === 0 && struct.length === 0) {
-            room.createConstructionSite(pos, STRUCTURE_CONTAINER);
-            controllerSites.push({});
-            statsConsole.log(`Queued controller container at ${pos}`, 6);
-          }
+      }
+      let placed = controllerContainers.length + controllerSites.length;
+      let firstPos = null;
+      for (const spot of spots) {
+        if (placed >= 2) break;
+        const pos = new RoomPosition(spot.x, spot.y, room.name);
+        const site = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType === STRUCTURE_CONTAINER);
+        const struct = pos.lookFor(LOOK_STRUCTURES).filter(s => s.structureType === STRUCTURE_CONTAINER);
+        if (site.length === 0 && struct.length === 0) {
+          if (firstPos && !firstPos.isNearTo(pos)) continue;
+          room.createConstructionSite(pos, STRUCTURE_CONTAINER);
+          controllerSites.push({});
+          placed++;
+          if (!firstPos) firstPos = pos;
+          statsConsole.log(`Queued controller container at ${pos}`, 6);
         }
       }
     }
