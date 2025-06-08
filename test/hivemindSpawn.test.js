@@ -72,13 +72,69 @@ describe('hivemind spawn module', function () {
   });
 
   it('queues initial spawn order before builders', function () {
-    spawnModule.run(Game.rooms['W1N1']);
-    let tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
-    expect(tasks).to.deep.equal(['spawnBootstrap']);
+    const order = [
+      'spawnBootstrap',
+      'spawnMiner',
+      'spawnMiner',
+      'spawnHauler',
+      'spawnHauler',
+      'spawnUpgrader',
+    ];
+    for (let i = 0; i < order.length; i++) {
+      spawnModule.run(Game.rooms['W1N1']);
+    }
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const counts = {};
+    for (const t of tasks) counts[t.name] = t.amount;
+    expect(counts).to.deep.equal({
+      spawnBootstrap: 1,
+      spawnMiner: 2,
+      spawnHauler: 2,
+      spawnUpgrader: 1,
+    });
+    expect(Object.keys(counts)).to.not.include('spawnBuilder');
+  });
 
+  it('adjusts hauler amount based on non-hauler ratio', function () {
+    const order = [
+      'spawnBootstrap',
+      'spawnMiner',
+      'spawnMiner',
+      'spawnHauler',
+      'spawnHauler',
+      'spawnUpgrader',
+    ];
+    for (let i = 0; i < order.length; i++) {
+      spawnModule.run(Game.rooms['W1N1']);
+    }
+    // Run once more to trigger ratio evaluation
     spawnModule.run(Game.rooms['W1N1']);
-    tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
-    expect(tasks).to.include('spawnMiner');
-    expect(tasks).to.not.include('spawnBuilder');
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const haulTask = tasks.find(t => t.name === 'spawnHauler');
+    expect(haulTask.amount).to.equal(5);
+  });
+
+  it('caps builders to four per site with overall max', function () {
+    Game.rooms['W1N1'].controller.level = 2;
+    Game.rooms['W1N1'].memory.buildingQueue = [
+      { id: 'c1', pos: { x: 1, y: 1 } },
+      { id: 'c2', pos: { x: 2, y: 2 } },
+      { id: 'c3', pos: { x: 3, y: 3 } },
+    ];
+    const order = [
+      'spawnBootstrap',
+      'spawnMiner',
+      'spawnMiner',
+      'spawnHauler',
+      'spawnHauler',
+      'spawnUpgrader',
+    ];
+    for (let i = 0; i < order.length; i++) {
+      spawnModule.run(Game.rooms['W1N1']);
+    }
+    spawnModule.run(Game.rooms['W1N1']);
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const buildTask = tasks.find(t => t.name === 'spawnBuilder');
+    expect(buildTask.amount).to.equal(12);
   });
 });

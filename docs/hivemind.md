@@ -27,9 +27,10 @@ its queue is empty.
 
 - **spawn** – Maintains the workforce. Miners are requested based on available
   mining spots and work parts (typically three per source at RCL1). Haulers are
-  queued once miners exist and scale back as the room develops. A baseline
-  upgrader is always ensured and builders are spawned when construction projects
-  are detected. When no creeps remain the queue is purged and a bootstrap worker
+  requested in a 1:1 ratio with other roles early on and taper to 1:2 as the
+  colony grows. Upgraders are capped at eight. Builders are limited to four per
+  construction site with a hard maximum of twelve. When no creeps remain the
+  queue is purged and a bootstrap worker
   is scheduled so the colony can recover.
   Modules can be added later for building, defense or expansion logic.
   The HiveMind also orders basic infrastructure:

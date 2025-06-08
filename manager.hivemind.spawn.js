@@ -72,42 +72,57 @@ const spawnModule = {
     }
 
     // Initial spawn sequence at RCL1
-    const initialOrder = [
-      { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
-      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-      { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
-      { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-      { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
-    ];
+  const initialOrder = [
+    { task: 'spawnBootstrap', data: { role: 'allPurpose' }, priority: 0 },
+    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+    { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
+    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+    { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
+    { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
+  ];
 
-    const initialRoles = [
-      'allPurpose',
-      'miner',
-      'hauler',
-      'miner',
-      'hauler',
-      'upgrader',
-    ];
+  const initialRoles = [
+    'allPurpose',
+    'miner',
+    'miner',
+    'hauler',
+    'hauler',
+    'upgrader',
+  ];
 
-    const queuedInitial = spawnQueue.queue.filter(
-      (q) => q.room === roomName && initialRoles.includes(q.memory.role),
-    ).length;
-    const tasksInitial =
-      container && container.tasks
-        ? container.tasks.filter(
+  const queuedInitial = spawnQueue.queue.filter(
+    (q) => q.room === roomName && initialRoles.includes(q.memory.role),
+  ).length;
+  const tasksInitial =
+    container && container.tasks
+      ? container.tasks
+          .filter(
             (t) =>
               t.manager === 'spawnManager' &&
               initialOrder.some((o) => o.task === t.name),
-          ).length
-        : 0;
+          )
+          .reduce((sum, t) => sum + (t.amount || 1), 0)
+      : 0;
 
     const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
     const totalPlanned = aliveInitial + queuedInitial + tasksInitial;
 
     if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
       const nextEntry = initialOrder[totalPlanned];
-      if (!taskExists(roomName, nextEntry.task, 'spawnManager')) {
+      const existing =
+        container && container.tasks
+          ? container.tasks.find(
+              t => t.name === nextEntry.task && t.manager === 'spawnManager',
+            )
+          : null;
+      if (existing) {
+        existing.amount += 1;
+        logger.log(
+          'hivemind.spawn',
+          `Increased initial ${nextEntry.data.role} amount for ${roomName}`,
+          2,
+        );
+      } else {
         htm.addColonyTask(
           roomName,
           nextEntry.task,
@@ -206,34 +221,51 @@ const spawnModule = {
     const queuedHaulers = spawnQueue.queue.filter(
       req => req.memory.role === 'hauler' && req.room === roomName,
     ).length;
-    const liveMiners = _.filter(
-      Game.creeps,
-      c => c.memory.role === 'miner' && c.room.name === roomName,
+
+    const nonHaulerLive = myCreeps.filter(c => c.memory.role !== 'hauler').length;
+    const nonHaulerQueued = spawnQueue.queue.filter(
+      req => req.room === roomName && req.memory.role !== 'hauler',
     ).length;
-    const queuedMiners = spawnQueue.queue.filter(
-      req => req.memory.role === 'miner' && req.room === roomName,
-    ).length;
-    let requiredHaulers = 0;
-    const totalMiners = liveMiners + queuedMiners;
-    if (totalMiners > 0) {
-      if (room.controller.level <= 1) {
-        requiredHaulers = Math.max(2, totalMiners * 2);
-      } else if (room.controller.level === 2) {
-        requiredHaulers = Math.max(1, Math.ceil(totalMiners * 1.5));
-      } else {
-        requiredHaulers = Math.max(1, totalMiners);
-      }
+    const nonHaulerTasks = container && container.tasks
+      ? container.tasks
+          .filter(t => t.manager === 'spawnManager' && t.name !== 'spawnHauler')
+          .reduce((sum, t) => sum + (t.amount || 1), 0)
+      : 0;
+    const totalNonHaulers = nonHaulerLive + nonHaulerQueued + nonHaulerTasks;
+
+    let desiredHaulers;
+    if (room.controller.level < 3) {
+      desiredHaulers = totalNonHaulers; // initial 1:1 ratio
+    } else {
+      desiredHaulers = Math.ceil(totalNonHaulers / 2); // late 1:2 ratio
     }
-    const haulersNeeded = Math.max(0, requiredHaulers - liveHaulers - queuedHaulers);
-    const haulTask = container && container.tasks ? container.tasks.find(t => t.name === "spawnHauler" && t.manager === "spawnManager") : null;
+
+    const currentHaulers = liveHaulers + queuedHaulers;
+    const haulerTask = container && container.tasks
+      ? container.tasks.find(t => t.name === 'spawnHauler' && t.manager === 'spawnManager')
+      : null;
+    const taskAmount = haulerTask ? haulerTask.amount || 0 : 0;
+    const haulersNeeded = Math.max(0, desiredHaulers - currentHaulers - taskAmount);
+
     if (haulersNeeded > 0) {
-      if (haulTask) {
-        haulTask.amount = haulersNeeded;
+      if (haulerTask) {
+        haulerTask.amount += haulersNeeded;
       } else {
-        // Haulers spawn after miners to keep the initial economy stable
-        htm.addColonyTask(roomName, "spawnHauler", { role: "hauler" }, 2, 20, haulersNeeded, "spawnManager");
-        logger.log('hivemind.spawn', `Queued ${haulersNeeded} hauler spawn(s) for ${roomName}`, 2);
+        htm.addColonyTask(
+          roomName,
+          'spawnHauler',
+          { role: 'hauler' },
+          2,
+          20,
+          haulersNeeded,
+          'spawnManager',
+        );
       }
+      logger.log(
+        'hivemind.spawn',
+        `Queued ${haulersNeeded} hauler spawn(s) for ${roomName}`,
+        2,
+      );
     }
 
     const liveUpgraders = _.filter(Game.creeps, c => c.memory.role === 'upgrader' && c.room.name === roomName).length;
@@ -262,22 +294,19 @@ const spawnModule = {
       req => req.memory.role === 'builder' && req.room === roomName,
     ).length;
     const buildQueue = room.memory.buildingQueue || [];
-    let desiredBuilders = 1; // always keep at least one builder for repairs
-    if (buildQueue.length > 0) {
-      desiredBuilders = Math.max(
-        desiredBuilders,
-        Math.min(2, Math.ceil(buildQueue.length / 5)),
-      );
-    }
-    const buildersNeeded = Math.max(
-      0,
-      desiredBuilders - liveBuilders - queuedBuilders,
-    );
+
+    const builderCap = Math.min(12, buildQueue.length * 4);
+    let desiredBuilders = Math.max(1, builderCap);
     const builderTask = container && container.tasks
       ? container.tasks.find(
           t => t.name === 'spawnBuilder' && t.manager === 'spawnManager',
         )
       : null;
+    const taskAmountBuilder = builderTask ? builderTask.amount || 0 : 0;
+    const buildersNeeded = Math.max(
+      0,
+      desiredBuilders - liveBuilders - queuedBuilders - taskAmountBuilder,
+    );
     if (buildersNeeded > 0) {
       if (builderTask) {
         builderTask.amount = buildersNeeded;

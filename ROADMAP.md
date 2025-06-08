@@ -63,7 +63,7 @@
 - [x] Spawn request validation for positional roomName
 - [x] Direction-aware spawning to keep spawn exits clear
 - [x] Builder spawn logic driven by HiveMind
-- [x] Deterministic bootstrap order: allPurpose → miner → hauler → miner → hauler → upgrader
+- [x] Deterministic bootstrap order: allPurpose → miner → miner → hauler → hauler → upgrader
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*
 
 ### ✅ Building Manager (Prio 3)

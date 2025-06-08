@@ -31,6 +31,9 @@ describe('energy request tasks', function() {
   it('queues deliverEnergy when upgrader is empty', function() {
     const creep = createCreep('u1');
     roleUpgrader.run(creep);
+    // Simulate arriving at the idle position next tick
+    creep.pos.isEqualTo = () => true;
+    roleUpgrader.run(creep);
     const tasks = Memory.htm.creeps['u1'].tasks;
     expect(tasks[0].name).to.equal('deliverEnergy');
   });

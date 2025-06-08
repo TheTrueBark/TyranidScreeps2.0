@@ -181,6 +181,24 @@ module.exports = {
       } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
         creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
       }
+      return;
+    }
+
+    const spawn = creep.room.find ? creep.room.find(FIND_MY_SPAWNS)[0] : null;
+    if (creep.store[RESOURCE_ENERGY] === 0) {
+      const miners = Object.values(Game.creeps).filter(
+        c => c.memory && c.memory.role === 'miner' && c.room.name === creep.room.name,
+      );
+      if (miners.length > 0) {
+        const target = creep.pos.findClosestByRange(miners);
+        if (target) {
+          creep.travelTo(target, { range: 2 });
+          return;
+        }
+      }
+    } else if (spawn) {
+      creep.travelTo(spawn, { range: 2 });
+      return;
     }
   },
   onDeath: function (creep) {

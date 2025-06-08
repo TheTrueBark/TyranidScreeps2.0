@@ -1,6 +1,19 @@
 const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 
+function getIdlePos(creep) {
+  const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
+  const queue = (roomMemory && roomMemory.buildingQueue) || [];
+  for (const entry of queue) {
+    const site = Game.getObjectById(entry.id);
+    if (site) return site.pos;
+  }
+  const site =
+    creep.pos.findClosestByRange &&
+    creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);
+  return site ? site.pos : null;
+}
+
 function requestEnergy(creep) {
   if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
   const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
@@ -128,6 +141,11 @@ const roleBuilder = {
       }
     } else {
       if (creep.store[RESOURCE_ENERGY] === 0) {
+        const idlePos = getIdlePos(creep);
+        if (idlePos && !creep.pos.inRangeTo(idlePos, 1)) {
+          creep.travelTo(idlePos, { visualizePathStyle: { stroke: '#aaaaaa' }, range: 1 });
+          return;
+        }
         const source = findNearbyEnergy(creep);
         if (source) {
           if (source.type === 'pickup') {
