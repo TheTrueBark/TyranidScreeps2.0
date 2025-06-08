@@ -2,8 +2,8 @@ const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 
 function getIdlePos(creep) {
-  if (creep.memory.buildTarget) {
-    const target = Game.getObjectById(creep.memory.buildTarget);
+  if (creep.memory.mainTask && creep.memory.mainTask.type === 'build') {
+    const target = Game.getObjectById(creep.memory.mainTask.id);
     if (target) return target.pos;
   }
   const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
@@ -73,142 +73,140 @@ function findNearbyEnergy(creep) {
   return null;
 }
 
+function assignBuildTask(creep, entry, site, roomMemory) {
+  creep.memory.buildTarget = entry.id;
+  creep.memory.mainTask = { type: 'build', id: entry.id };
+  if (!roomMemory.siteAssignments) roomMemory.siteAssignments = {};
+  roomMemory.siteAssignments[entry.id] = (roomMemory.siteAssignments[entry.id] || 0) + 1;
+  htm.addCreepTask(
+    creep.name,
+    'buildStructure',
+    {
+      id: entry.id,
+      pos: { x: site.pos.x, y: site.pos.y, roomName: site.pos.roomName },
+    },
+    1,
+    50,
+    1,
+    'builder',
+  );
+}
+
+function clearBuildTask(creep, roomMemory) {
+  if (creep.memory.buildTarget && roomMemory && roomMemory.siteAssignments) {
+    roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
+      0,
+      (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
+    );
+  }
+  delete creep.memory.buildTarget;
+  delete creep.memory.mainTask;
+}
+
+function gatherEnergy(creep) {
+  const idlePos = getIdlePos(creep);
+  if (idlePos && creep.pos.getRangeTo(idlePos) > 1) {
+    creep.travelTo(idlePos, { visualizePathStyle: { stroke: '#aaaaaa' }, range: 1 });
+    return;
+  }
+  const source = findNearbyEnergy(creep);
+  if (source) {
+    if (source.type === 'pickup') {
+      if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+      }
+    } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+    }
+  } else {
+    requestEnergy(creep);
+  }
+}
+
+function buildSite(creep, site) {
+  if (!site) return false;
+  if (creep.pos.isEqualTo(site.pos)) {
+    if (!movementUtils.stepOff(creep) && typeof creep.move === 'function') {
+      creep.move(1);
+    }
+    return true;
+  }
+  if (creep.build(site) === ERR_NOT_IN_RANGE) {
+    creep.travelTo(site, { visualizePathStyle: { stroke: '#ffffff' } });
+  }
+  return true;
+}
+
 const roleBuilder = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
-    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
+    const roomMemory = (Memory.rooms && Memory.rooms[creep.room.name]) || {};
+
+    if (creep.store[RESOURCE_ENERGY] === 0) {
       creep.memory.working = false;
-      creep.say("🔄 collect");
     }
     if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
       creep.memory.working = true;
-      creep.say("⚡ build/repair");
     }
-    // Start working as soon as some energy is available to avoid idle creeps
     if (!creep.memory.working && creep.store[RESOURCE_ENERGY] > 0) {
       creep.memory.working = true;
-      creep.say("⚡ build/repair");
     }
 
-    if (creep.memory.working) {
-      const roomMemory = Memory.rooms[creep.room.name];
-      if (creep.store.getFreeCapacity() > 0) {
-        const nearby = findNearbyEnergy(creep);
-        if (nearby) {
-          if (nearby.type === 'pickup') {
-            if (creep.pickup(nearby.target) === ERR_NOT_IN_RANGE) {
-              creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-          } else if (creep.withdraw(nearby.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+    const task = creep.memory.mainTask;
+
+    if (!task || (task.type === 'build' && !Game.getObjectById(task.id))) {
+      clearBuildTask(creep, roomMemory);
+    }
+
+    if (!creep.memory.mainTask) {
+      const queue = (creep.room.memory && creep.room.memory.buildingQueue) || [];
+      for (const entry of queue) {
+        const assigned = (roomMemory.siteAssignments && roomMemory.siteAssignments[entry.id]) || 0;
+        if (assigned < 4) {
+          const site = Game.getObjectById(entry.id);
+          if (site) {
+            assignBuildTask(creep, entry, site, roomMemory);
+            break;
           }
         }
       }
-      if (creep.memory.buildTarget) {
-        const site = Game.getObjectById(creep.memory.buildTarget);
-        if (!site) {
-          if (roomMemory && roomMemory.siteAssignments) {
-            roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
-              0,
-              (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
-            );
-          }
-          delete creep.memory.buildTarget;
-        } else if (creep.pos.isEqualTo(site.pos)) {
-          movementUtils.stepOff(creep);
-          return;
-        } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
-          return;
-        }
+      if (!creep.memory.mainTask && queue.length === 0) {
+        creep.memory.mainTask = { type: 'upgrade', id: creep.room.controller.id };
       }
+    }
 
-      if (!creep.memory.buildTarget) {
-        const queue = creep.room.memory.buildingQueue || [];
-        for (const entry of queue) {
-          const assigned =
-            (roomMemory.siteAssignments && roomMemory.siteAssignments[entry.id]) ||
-            0;
-          if (assigned < 4) {
-            const site = Game.getObjectById(entry.id);
-            if (site) {
-              creep.memory.buildTarget = entry.id;
-              if (!roomMemory.siteAssignments) roomMemory.siteAssignments = {};
-              roomMemory.siteAssignments[entry.id] = assigned + 1;
-              htm.addCreepTask(
-                creep.name,
-                'buildStructure',
-                { id: entry.id, pos: { x: site.pos.x, y: site.pos.y, roomName: site.pos.roomName } },
-                1,
-                50,
-                1,
-                'builder',
-              );
-              if (creep.pos.isEqualTo(site.pos)) {
-                movementUtils.stepOff(creep);
-              } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
-                creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
-              }
-              return;
-            }
-          }
-        }
-      }
+    if (!creep.memory.working) {
+      gatherEnergy(creep);
+      return;
+    }
 
-      if (!creep.memory.buildTarget && (creep.room.memory.buildingQueue || []).length === 0) {
-        const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
-          filter: (object) => object.hits < object.hitsMax,
-        });
-
-        structuresNeedingRepair.sort((a, b) => a.hits - b.hits);
-
-        if (structuresNeedingRepair.length > 0) {
-          if (creep.repair(structuresNeedingRepair[0]) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(structuresNeedingRepair[0], {
-              visualizePathStyle: { stroke: "#ffffff" },
-            });
-          }
-        } else {
-          if (
-            creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE
-          ) {
-            creep.travelTo(creep.room.controller, {
-              visualizePathStyle: { stroke: "#ffffff" },
-            });
-          }
-        }
+    if (creep.memory.mainTask && creep.memory.mainTask.type === 'build') {
+      const site = Game.getObjectById(creep.memory.mainTask.id);
+      if (!buildSite(creep, site)) {
+        clearBuildTask(creep, roomMemory);
       }
     } else {
-      if (creep.store[RESOURCE_ENERGY] === 0) {
-        const idlePos = getIdlePos(creep);
-        if (idlePos && !creep.pos.inRangeTo(idlePos, 1)) {
-          creep.travelTo(idlePos, { visualizePathStyle: { stroke: '#aaaaaa' }, range: 1 });
+      if (creep.repair) {
+        const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
+          filter: o => o.hits < o.hitsMax,
+        });
+        structuresNeedingRepair.sort((a, b) => a.hits - b.hits);
+        if (structuresNeedingRepair.length > 0) {
+          if (creep.repair(structuresNeedingRepair[0]) === ERR_NOT_IN_RANGE) {
+            creep.travelTo(structuresNeedingRepair[0], { visualizePathStyle: { stroke: '#ffffff' } });
+          }
           return;
         }
-        const source = findNearbyEnergy(creep);
-        if (source) {
-          if (source.type === 'pickup') {
-            if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
-              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-          } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-          }
-        } else {
-          requestEnergy(creep);
-        }
+      }
+      if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
       }
     }
   },
   onDeath: function (creep) {
-    if (creep.memory.buildTarget) {
-      const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-      if (roomMemory && roomMemory.siteAssignments) {
-        roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
-          0,
-          (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
-        );
-      }
+    const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
+    if (creep.memory.mainTask && creep.memory.mainTask.type === 'build') {
+      clearBuildTask(creep, roomMemory);
     }
   },
 };
