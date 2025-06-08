@@ -34,7 +34,9 @@ its queue is empty.
   recover.
 - **demand** – Tracks energy deliveries. When average rates fall below
   acceptable thresholds the module queues an additional hauler for the affected
-  colony. It only runs when flagged by a completed delivery.
+  colony. Delivery statistics are stored per-room under `Memory.demand.rooms` and
+  the module migrates legacy flat layouts automatically. It only runs when
+  flagged by a completed delivery.
   Modules can be added later for building, defense or expansion logic.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).

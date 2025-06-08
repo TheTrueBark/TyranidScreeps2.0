@@ -47,4 +47,11 @@ describe('demand recordDelivery', function () {
     const haulTask = tasks.find(t => t.name === 'spawnHauler');
     expect(haulTask).to.exist;
   });
+
+  it('migrates legacy memory layout', function() {
+    Memory.demand = { requesters: {}, runNextTick: false };
+    demand.recordDelivery('legacy', 5, 25, 'W1N1');
+    expect(Memory.demand.rooms).to.exist;
+    expect(Memory.demand.rooms['W1N1']).to.exist;
+  });
 });

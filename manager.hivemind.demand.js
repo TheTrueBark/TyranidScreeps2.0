@@ -7,7 +7,9 @@ const _ = require('lodash');
 const ENERGY_PER_TICK_THRESHOLD = 1; // Delivery rate below which more haulers are spawned
 
 function initMemory() {
-  if (!Memory.demand) Memory.demand = { rooms: {} };
+  if (!Memory.demand || !Memory.demand.rooms) {
+    Memory.demand = { rooms: {} };
+  }
 }
 
 function getRoomMem(roomName) {
