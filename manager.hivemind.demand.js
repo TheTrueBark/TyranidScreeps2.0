@@ -8,14 +8,21 @@ const ENERGY_PER_TICK_THRESHOLD = 1; // Delivery rate below which more haulers a
 
 function initMemory() {
   if (!Memory.demand || !Memory.demand.rooms) {
-    Memory.demand = { rooms: {} };
+    Memory.demand = { rooms: {}, globalTotals: { demand: 0, supply: 0 } };
+  } else if (!Memory.demand.globalTotals) {
+    Memory.demand.globalTotals = { demand: 0, supply: 0 };
   }
 }
 
 function getRoomMem(roomName) {
   initMemory();
   if (!Memory.demand.rooms[roomName]) {
-    Memory.demand.rooms[roomName] = { requesters: {}, runNextTick: false };
+    Memory.demand.rooms[roomName] = {
+      requesters: {},
+      deliverers: {},
+      totals: { demand: 0, supply: 0 },
+      runNextTick: false,
+    };
   }
   return Memory.demand.rooms[roomName];
 }
@@ -26,13 +33,36 @@ function updateAverage(oldAvg, count, value) {
 
 const demandModule = {
   /**
+   * Record an energy request so totals and averages remain accurate.
+   * @param {string} id - Requesting creep or structure id
+   * @param {number} amount - Energy requested
+   * @param {string} room - Room where the requester resides
+   */
+  recordRequest(id, amount, room) {
+    const roomMem = getRoomMem(room);
+    const data = roomMem.requesters[id] || {
+      requests: 0,
+      lastRequestTick: 0,
+      averageRequested: 0,
+    };
+    data.requests += 1;
+    data.lastRequestTick = Game.time;
+    data.lastEnergyRequested = amount;
+    data.averageRequested = updateAverage(
+      data.averageRequested || 0,
+      data.requests,
+      amount,
+    );
+    roomMem.requesters[id] = data;
+  },
+  /**
    * Record delivery metrics for a requester and flag evaluation
    * @param {string} id - Target structure id
    * @param {number} ticks - Ticks spent delivering
    * @param {number} amount - Energy delivered
    * @param {string} room - Room where the requester resides
    */
-  recordDelivery(id, ticks, amount, room) {
+  recordDelivery(id, ticks, amount, room, deliverer = null) {
     const roomMem = getRoomMem(room);
     const data = roomMem.requesters[id] || {
       lastTickTime: 0,
@@ -55,6 +85,31 @@ const demandModule = {
       amount,
     );
     roomMem.requesters[id] = data;
+    roomMem.totals.supply += amount;
+
+    if (deliverer) {
+      const hauler = roomMem.deliverers[deliverer] || {
+        lastTickTime: 0,
+        averageTickTime: 0,
+        lastEnergy: 0,
+        averageEnergy: 0,
+        deliveries: 0,
+      };
+      hauler.deliveries += 1;
+      hauler.lastTickTime = ticks;
+      hauler.lastEnergy = amount;
+      hauler.averageTickTime = updateAverage(
+        hauler.averageTickTime,
+        hauler.deliveries,
+        ticks,
+      );
+      hauler.averageEnergy = updateAverage(
+        hauler.averageEnergy,
+        hauler.deliveries,
+        amount,
+      );
+      roomMem.deliverers[deliverer] = hauler;
+    }
     roomMem.runNextTick = true;
     scheduler.requestTaskUpdate('energyDemand');
     statsConsole.log(`Recorded delivery for ${id}: ${amount} energy in ${ticks} ticks`, 3);
@@ -84,6 +139,48 @@ const demandModule = {
   },
 
   run() {
+    initMemory();
+
+    Memory.demand.globalTotals.demand = 0;
+    Memory.demand.globalTotals.supply = 0;
+
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (!room.controller || !room.controller.my) continue;
+      const roomMem = getRoomMem(roomName);
+
+      let demandAmount = 0;
+      if (Memory.htm && Memory.htm.creeps) {
+        for (const id in Memory.htm.creeps) {
+          const container = Memory.htm.creeps[id];
+          if (!container.tasks) continue;
+          for (const task of container.tasks) {
+            if (
+              task.name === 'deliverEnergy' &&
+              task.manager === 'hauler' &&
+              task.data &&
+              task.data.pos &&
+              task.data.pos.roomName === roomName
+            ) {
+              if (task.data.amount !== undefined) {
+                demandAmount += task.data.amount;
+              }
+            }
+          }
+        }
+      }
+      roomMem.totals.demand = demandAmount;
+      Memory.demand.globalTotals.demand += demandAmount;
+
+      const haulers = _.filter(
+        Game.creeps,
+        c => c.memory.role === 'hauler' && c.room.name === roomName,
+      );
+      const supply = _.sumBy(haulers, h => h.store[RESOURCE_ENERGY] || 0);
+      roomMem.totals.supply = supply;
+      Memory.demand.globalTotals.supply += supply;
+    }
+
     if (!this.shouldRun()) return;
 
     const roomsNeedingHaulers = new Set();

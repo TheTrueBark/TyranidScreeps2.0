@@ -55,6 +55,8 @@ function requestEnergy(creep) {
     1,
     'hauler',
   );
+  const demand = require('./manager.hivemind.demand');
+  demand.recordRequest(creep.name, creep.store.getCapacity ? creep.store.getCapacity() : 0, creep.room.name);
 }
 
 const roleUpgrader = {
