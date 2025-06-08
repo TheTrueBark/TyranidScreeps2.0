@@ -7,6 +7,15 @@ const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
 const energyRequests = require("./manager.energyRequests");
 
+// Default spawn priorities per role
+const ROLE_PRIORITY = {
+  allPurpose: 1,
+  miner: 2,
+  hauler: 3,
+  upgrader: 5,
+  builder: 5,
+};
+
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
   [TOP]: { x: 0, y: -1 },
@@ -207,6 +216,8 @@ const spawnManager = {
               collectionTicks,
             },
             spawn.id,
+            0,
+            ROLE_PRIORITY.miner,
           );
           return bodyParts.length;
         }
@@ -229,6 +240,8 @@ const spawnManager = {
       bodyParts,
       { role: "hauler" },
       spawn.id,
+      0,
+      ROLE_PRIORITY.hauler,
     );
     logger.log(
       "spawnManager",
@@ -250,6 +263,8 @@ const spawnManager = {
       bodyParts,
       { role: "upgrader" },
       spawn.id,
+      0,
+      ROLE_PRIORITY.upgrader,
     );
     logger.log(
       "spawnManager",
@@ -271,6 +286,8 @@ const spawnManager = {
       bodyParts,
       { role: "builder" },
       spawn.id,
+      0,
+      ROLE_PRIORITY.builder,
     );
     logger.log(
       "spawnManager",
@@ -315,6 +332,8 @@ const spawnManager = {
           bodyParts,
           creepMemory,
           spawn.id,
+          0,
+          ROLE_PRIORITY.allPurpose,
         );
         return bodyParts.length;
       }
@@ -341,6 +360,8 @@ const spawnManager = {
         },
       },
       spawn.id,
+      0,
+      ROLE_PRIORITY.allPurpose,
     );
     return bodyParts.length;
   },
@@ -568,7 +589,15 @@ const spawnManager = {
             size = this.spawnAllPurpose(spawn, room, task.data.panic);
           } else {
             const body = dna.getBodyParts(role, room, task.data.panic);
-            spawnQueue.addToQueue(role, room.name, body, { role }, spawn.id);
+            spawnQueue.addToQueue(
+              role,
+              room.name,
+              body,
+              { role },
+              spawn.id,
+              0,
+              ROLE_PRIORITY[role] || 5,
+            );
             size = body.length;
           }
           if (size > 0) {
