@@ -2,6 +2,10 @@ const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 
 function getIdlePos(creep) {
+  if (creep.memory.buildTarget) {
+    const target = Game.getObjectById(creep.memory.buildTarget);
+    if (target) return target.pos;
+  }
   const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
   const queue = (roomMemory && roomMemory.buildingQueue) || [];
   for (const entry of queue) {
@@ -60,16 +64,6 @@ const roleBuilder = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
     if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
-      if (creep.memory.buildTarget) {
-        const roomMemory = Memory.rooms[creep.room.name];
-        if (roomMemory && roomMemory.siteAssignments) {
-          roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
-            0,
-            (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
-          );
-        }
-        delete creep.memory.buildTarget;
-      }
       creep.memory.working = false;
       creep.say("🔄 collect");
     }
@@ -109,6 +103,15 @@ const roleBuilder = {
               creep.memory.buildTarget = entry.id;
               if (!roomMemory.siteAssignments) roomMemory.siteAssignments = {};
               roomMemory.siteAssignments[entry.id] = assigned + 1;
+              htm.addCreepTask(
+                creep.name,
+                'buildStructure',
+                { id: entry.id, pos: { x: site.pos.x, y: site.pos.y, roomName: site.pos.roomName } },
+                1,
+                50,
+                1,
+                'builder',
+              );
               if (creep.build(site) === ERR_NOT_IN_RANGE) {
                 creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
               }
