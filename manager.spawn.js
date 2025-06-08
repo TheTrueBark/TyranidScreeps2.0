@@ -379,6 +379,10 @@ const spawnManager = {
       2,
     );
     if (!spawn.spawning) {
+      if (spawn.memory.currentSpawnRole) {
+        delete spawn.memory.currentSpawnRole;
+      }
+
       const nextSpawn = spawnQueue.getNextSpawn(spawn.id); // Ensure this fetches the next spawn in the global queue for this spawn
       if (
         nextSpawn &&
@@ -459,6 +463,8 @@ const spawnManager = {
             `Spawning new ${category}: ${newName}`,
             2,
           );
+          if (!spawn.memory) spawn.memory = {};
+          spawn.memory.currentSpawnRole = memory.role;
           spawnQueue.removeSpawnFromQueue(requestId);
         } else {
           logger.log(
