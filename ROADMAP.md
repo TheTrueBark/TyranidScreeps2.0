@@ -84,6 +84,7 @@
 ### 🔄 Energy Demand Module (Prio 3)
 - [x] Record delivery performance for requesters
 - [ ] Evaluate metrics to spawn extra haulers when throughput is low
+- [ ] Persist aggregated demand and hauler supply metrics
 
 ---
 

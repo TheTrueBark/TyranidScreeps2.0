@@ -13,8 +13,8 @@ describe('demand recordDelivery', function () {
   });
 
   it('updates averages and flags next run', function () {
-    demand.recordDelivery('s1', 10, 100, 'W1N1');
-    demand.recordDelivery('s1', 20, 50, 'W1N1');
+    demand.recordDelivery('s1', 10, 100, 'W1N1', 'h1');
+    demand.recordDelivery('s1', 20, 50, 'W1N1', 'h1');
 
     const data = Memory.demand.rooms['W1N1'].requesters['s1'];
     expect(data.lastTickTime).to.equal(20);
@@ -41,7 +41,7 @@ describe('demand recordDelivery', function () {
       controller: { my: true, pos: { findInRange: () => [] } },
       find: () => [],
     };
-    demand.recordDelivery('target1', 100, 20, 'W1N1');
+    demand.recordDelivery('target1', 100, 20, 'W1N1', 'h1');
     demand.run();
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     const haulTask = tasks.find(t => t.name === 'spawnHauler');
@@ -50,7 +50,7 @@ describe('demand recordDelivery', function () {
 
   it('migrates legacy memory layout', function() {
     Memory.demand = { requesters: {}, runNextTick: false };
-    demand.recordDelivery('legacy', 5, 25, 'W1N1');
+    demand.recordDelivery('legacy', 5, 25, 'W1N1', 'h1');
     expect(Memory.demand.rooms).to.exist;
     expect(Memory.demand.rooms['W1N1']).to.exist;
   });
