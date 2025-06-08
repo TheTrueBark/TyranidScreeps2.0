@@ -35,7 +35,11 @@ function requestEnergy(creep) {
     'hauler',
   );
   const demand = require('./manager.hivemind.demand');
-  demand.recordRequest(creep.name, creep.store.getCapacity ? creep.store.getCapacity() : 0, creep.room.name);
+  // Request only the missing amount so hauler demand reflects actual needs
+  const amount = creep.store.getFreeCapacity
+    ? creep.store.getFreeCapacity(RESOURCE_ENERGY)
+    : 0;
+  demand.recordRequest(creep.name, amount, creep.room.name);
 }
 
 /**
@@ -43,19 +47,28 @@ function requestEnergy(creep) {
  * Returns an object describing the pickup/withdraw action or null if none.
  */
 function findNearbyEnergy(creep) {
-  // Prefer dropped resources adjacent to the creep
-  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 2, {
+  // Prefer dropped resources nearby to limit travel time
+  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 20, {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   })[0];
   if (dropped) return { type: 'pickup', target: dropped };
 
   // Check nearby containers with available energy
-  const container = creep.pos.findInRange(FIND_STRUCTURES, 2, {
+  const container = creep.pos.findInRange(FIND_STRUCTURES, 20, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
       s.store[RESOURCE_ENERGY] > 0,
   })[0];
   if (container) return { type: 'withdraw', target: container };
+
+  // Fallback to storage within reasonable distance
+  const storage = creep.pos.findInRange(FIND_STRUCTURES, 20, {
+    filter: s =>
+      s.structureType === STRUCTURE_STORAGE &&
+      s.store &&
+      s.store[RESOURCE_ENERGY] > 0,
+  })[0];
+  if (storage) return { type: 'withdraw', target: storage };
 
   return null;
 }
@@ -101,6 +114,9 @@ const roleBuilder = {
             );
           }
           delete creep.memory.buildTarget;
+        } else if (creep.pos.isEqualTo(site.pos)) {
+          movementUtils.stepOff(creep);
+          return;
         } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
           creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
           return;
@@ -128,7 +144,9 @@ const roleBuilder = {
                 1,
                 'builder',
               );
-              if (creep.build(site) === ERR_NOT_IN_RANGE) {
+              if (creep.pos.isEqualTo(site.pos)) {
+                movementUtils.stepOff(creep);
+              } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
                 creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
               }
               return;

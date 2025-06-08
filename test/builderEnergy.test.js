@@ -9,6 +9,7 @@ global.FIND_DROPPED_RESOURCES = 2;
 global.FIND_STRUCTURES = 3;
 global.FIND_CONSTRUCTION_SITES = 4;
 global.STRUCTURE_CONTAINER = 'container';
+global.STRUCTURE_STORAGE = 'storage';
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
 global.ERR_NOT_IN_RANGE = -9;

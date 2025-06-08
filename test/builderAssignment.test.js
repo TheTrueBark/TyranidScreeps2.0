@@ -7,8 +7,11 @@ const htm = require('../manager.htm');
 global.FIND_CONSTRUCTION_SITES = 1;
 global.FIND_MY_SPAWNS = 2;
 global.STRUCTURE_CONTAINER = 'container';
+global.STRUCTURE_STORAGE = 'storage';
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
+global.LOOK_CREEPS = 'creep';
+global.TERRAIN_MASK_WALL = 1;
 
 function createSite(id) {
   return {
@@ -33,6 +36,7 @@ function createCreep(name) {
       getRangeTo: () => 1,
       findClosestByRange: () => null,
       findInRange: () => [],
+      isEqualTo: function (p) { return p.x === this.x && p.y === this.y; },
     },
     travelTo: () => {},
     build: () => OK,

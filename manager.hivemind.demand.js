@@ -60,6 +60,8 @@ const demandModule = {
       amount,
     );
     roomMem.requesters[id] = data;
+    roomMem.runNextTick = true;
+    scheduler.requestTaskUpdate('energyDemand');
   },
   /**
    * Record delivery metrics for a requester and flag evaluation

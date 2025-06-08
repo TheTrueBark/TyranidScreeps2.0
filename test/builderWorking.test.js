@@ -7,8 +7,11 @@ const roleBuilder = require('../role.builder');
 global.FIND_CONSTRUCTION_SITES = 1;
 global.FIND_MY_SPAWNS = 2;
 global.STRUCTURE_CONTAINER = 'container';
+global.STRUCTURE_STORAGE = 'storage';
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
+global.LOOK_CREEPS = 'creep';
+global.TERRAIN_MASK_WALL = 1;
 
 function createSite(id) {
   return {
@@ -33,6 +36,7 @@ function createCreep(name) {
       getRangeTo: () => 1,
       findClosestByRange: () => null,
       findInRange: () => [],
+      isEqualTo: function (p) { return p.x === this.x && p.y === this.y; },
     },
     travelTo: () => {},
     build: () => OK,
@@ -51,6 +55,8 @@ describe('builder working state', function () {
     Game.rooms['W1N1'] = {
       name: 'W1N1',
       find: type => (type === FIND_CONSTRUCTION_SITES ? [site] : []),
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
       memory: { buildingQueue: [{ id: 's1', priority: 100 }] },
       controller: {},
     };
@@ -62,5 +68,19 @@ describe('builder working state', function () {
     const creep = createCreep('b1');
     roleBuilder.run(creep);
     expect(creep.memory.working).to.be.true;
+  });
+
+  it('moves off construction site when standing on it', function () {
+    const creep = createCreep('b2');
+    const site = Game.getObjectById('s1');
+    creep.pos.x = site.pos.x;
+    creep.pos.y = site.pos.y;
+    let moved = false;
+    creep.move = () => {
+      moved = true;
+      return OK;
+    };
+    roleBuilder.run(creep);
+    expect(moved).to.be.true;
   });
 });
