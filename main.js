@@ -114,6 +114,7 @@ scheduler.addTask("clearMemory", 100, () => {
         }
       }
       logger.log('memory', `Clearing memory of dead creep: ${name}`, 2);
+      energyDemand.cleanupCreep(name);
       delete Memory.creeps[name];
       if (
         Memory.htm &&

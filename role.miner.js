@@ -103,11 +103,21 @@ const roleMiner = {
       },
     });
 
+    const demand = require('./manager.hivemind.demand');
+    const ticks = creep.memory.lastDelivery
+      ? Game.time - creep.memory.lastDelivery
+      : 0;
+    const delivered = creep.store[RESOURCE_ENERGY];
+
     if (structures.length > 0) {
-      creep.transfer(structures[0], RESOURCE_ENERGY);
-    } else {
+      if (creep.transfer(structures[0], RESOURCE_ENERGY) === OK) {
+        demand.recordSupply(creep.name, ticks, delivered, creep.room.name);
+        creep.memory.lastDelivery = Game.time;
+      }
+    } else if (creep.drop(RESOURCE_ENERGY) === OK) {
       // Drop energy if no storage structure is available
-      creep.drop(RESOURCE_ENERGY);
+      demand.recordSupply(creep.name, ticks, delivered, creep.room.name);
+      creep.memory.lastDelivery = Game.time;
     }
 
     logger.log(
