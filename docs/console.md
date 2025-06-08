@@ -12,3 +12,8 @@ The console module renders an ASCII dashboard inside the Screeps client. It comb
   "Total" CPU line.
 
 The scheduler feeds data into the console module every tick. Use `statsConsole.displayStats()` to print the dashboard from the game console when needed.
+
+Each room section shows the stored energy along with workforce counts. The numbers are
+displayed as `current/max` for miners, haulers, builders and upgraders based on
+the latest spawn evaluation. This helps track whether the colony is meeting its
+target creep limits at a glance.

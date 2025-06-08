@@ -48,13 +48,13 @@ function requestEnergy(creep) {
  */
 function findNearbyEnergy(creep) {
   // Prefer dropped resources nearby to limit travel time
-  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 20, {
+  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 15, {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   })[0];
   if (dropped) return { type: 'pickup', target: dropped };
 
   // Check nearby containers with available energy
-  const container = creep.pos.findInRange(FIND_STRUCTURES, 20, {
+  const container = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
       s.store[RESOURCE_ENERGY] > 0,
@@ -62,7 +62,7 @@ function findNearbyEnergy(creep) {
   if (container) return { type: 'withdraw', target: container };
 
   // Fallback to storage within reasonable distance
-  const storage = creep.pos.findInRange(FIND_STRUCTURES, 20, {
+  const storage = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_STORAGE &&
       s.store &&

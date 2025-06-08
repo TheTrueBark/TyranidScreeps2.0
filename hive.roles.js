@@ -23,6 +23,7 @@ const roles = {
     const minerWorkParts = minerBody.filter(p => p === WORK).length;
     const sources = room.find(FIND_SOURCES);
     let minersNeeded = 0;
+    let desiredMiners = 0;
     for (const source of sources) {
       const positions =
         Memory.rooms &&
@@ -33,6 +34,7 @@ const roles = {
           : null;
       if (!positions) continue;
       const maxMiners = Math.min(Object.keys(positions).length, 3);
+      desiredMiners += maxMiners;
 
       const liveCreeps = _.filter(
         Game.creeps,
@@ -157,7 +159,17 @@ const roles = {
           'spawnManager',
         );
       statsConsole.log(`RoleEval queued ${buildersNeeded} builder(s) for ${roomName}`, 2);
+    } else if (builderTask && desiredBuilders === 0) {
+      const idx = container.tasks.indexOf(builderTask);
+      if (idx !== -1) container.tasks.splice(idx, 1);
     }
+
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    if (!Memory.rooms[roomName].spawnLimits)
+      Memory.rooms[roomName].spawnLimits = {};
+    Memory.rooms[roomName].spawnLimits.miners = desiredMiners;
+    Memory.rooms[roomName].spawnLimits.upgraders = desiredUpgraders;
+    Memory.rooms[roomName].spawnLimits.builders = desiredBuilders;
 
     Memory.roleEval.lastRun = Game.time;
   },
