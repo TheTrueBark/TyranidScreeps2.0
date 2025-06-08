@@ -100,6 +100,7 @@ module.exports = {
               Game.time - creep.memory.task.startTime,
               creep.memory.task.initial,
               target.room.name,
+              creep.name,
             );
             delete creep.memory.task;
           }
