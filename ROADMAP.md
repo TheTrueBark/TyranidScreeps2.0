@@ -158,6 +158,7 @@
 - [ ] Auto-place extensions, roads, containers, towers
 - [ ] Plan paths from sources to controller/spawns/storage
 - [x] Declare spawn restricted area in memory for movement logic
+- [x] Haulers supply controller containers when energy drops below capacity
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
