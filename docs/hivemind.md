@@ -32,18 +32,19 @@ its queue is empty.
   monitors controller containers and construction sites. When no creeps remain
   the queue is purged and a bootstrap worker is scheduled so the colony can
   recover.
-- **demand** – Tracks energy deliveries. When average rates fall below
-  acceptable thresholds the module queues an additional hauler for the affected
-  colony. Delivery statistics are stored per-room under `Memory.demand.rooms`
-  along with aggregate `totals` for outstanding demand and current delivery
-  supply. Each requester and deliverer tracks the last energy amount and time
-  for deliveries so average energy-per-tick rates can be calculated. These
-  averages are stored per-room and globally under `Memory.demand.globalTotals`
-  (`demandRate` and `supplyRate`). Early game miners and bootstrap workers
-  count as deliverers so the Hive can spawn haulers before dedicated carriers
-  exist. The module migrates legacy flat layouts automatically. It only runs
-  when flagged by a completed delivery but maintains these totals every tick so
-  other systems can react without recalculating.
+ - **demand** – Tracks energy deliveries. When the combined
+  `demandRate` for requesters exceeds the current `supplyRate` the Hive
+  automatically queues enough haulers to close the gap. Delivery statistics are
+  stored per-room under `Memory.demand.rooms` along with aggregate `totals`
+  for outstanding demand and current delivery supply. Each requester and
+  deliverer tracks the last energy amount and time for deliveries so average
+  energy-per-tick rates can be calculated. Early game miners and bootstrap
+  workers count as deliverers so the Hive can spawn haulers before dedicated
+  carriers exist. Stale entries for deceased creeps are purged automatically
+  before calculations run and hauler spawns are throttled to avoid spam. The
+  module migrates legacy flat layouts automatically. It only runs when flagged
+  by a completed delivery but maintains these totals every tick so other systems
+  can react without recalculating.
   Modules can be added later for building, defense or expansion logic.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).

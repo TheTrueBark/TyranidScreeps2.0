@@ -5,6 +5,9 @@ const spawnQueue = require('./manager.spawnQueue');
 const _ = require('lodash');
 
 const ENERGY_PER_TICK_THRESHOLD = 1; // Delivery rate below which more haulers are spawned
+const DEFAULT_HAULER_RATE = 5; // Fallback energy/tick value when no haulers exist
+const MAX_HAULERS_PER_ROOM = 4; // Safeguard against spamming hauler spawns
+const HAULER_SPAWN_COOLDOWN = 50; // Minimum ticks between hauler spawn attempts
 
 function initMemory() {
   if (!Memory.demand || !Memory.demand.rooms) {
@@ -193,6 +196,22 @@ const demandModule = {
   run() {
     initMemory();
 
+    // Remove entries for creeps that no longer exist so rates remain accurate
+    for (const roomName in Memory.demand.rooms) {
+      const mem = Memory.demand.rooms[roomName];
+      for (const name in mem.deliverers) {
+        if (!Memory.creeps[name]) delete mem.deliverers[name];
+      }
+      for (const id in mem.requesters) {
+        const obj = typeof Game.getObjectById === 'function'
+          ? Game.getObjectById(id)
+          : null;
+        if (!Memory.creeps[id] && !obj) {
+          delete mem.requesters[id];
+        }
+      }
+    }
+
     Memory.demand.globalTotals.demand = 0;
     Memory.demand.globalTotals.supply = 0;
     Memory.demand.globalTotals.demandRate = 0;
@@ -330,22 +349,35 @@ const demandModule = {
         Game.creeps,
         c => c.memory.role === 'hauler' && c.room.name === roomName,
       ).length;
+      const minersAlive = _.filter(
+        Game.creeps,
+        c => c.memory.role === 'miner' && c.room.name === roomName,
+      ).length;
       const queuedHaulers = spawnQueue.queue.filter(
         q => q.room === roomName && q.memory.role === 'hauler',
       ).length;
       const currentAmount =
         haulersAlive + queuedHaulers + (existing ? existing.amount || 0 : 0);
-      let required = 1;
-      const minersAlive = _.filter(
-        Game.creeps,
-        c => c.memory.role === 'miner' && c.room.name === roomName,
-      ).length;
-      const queuedMiners = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === 'miner',
-      ).length;
-      if (minersAlive + queuedMiners >= 2) required = 2;
-      const toQueue = Math.max(0, required - currentAmount);
-      if (toQueue > 0) {
+
+      const roomMem = Memory.demand.rooms[roomName];
+      const demandRate = roomMem.totals.demandRate;
+      const supplyRate = roomMem.totals.supplyRate;
+      const perHauler =
+        haulersAlive > 0
+          ? supplyRate / haulersAlive
+          : DEFAULT_HAULER_RATE;
+      let target = Math.min(
+        MAX_HAULERS_PER_ROOM,
+        Math.ceil(demandRate / Math.max(perHauler, ENERGY_PER_TICK_THRESHOLD)),
+      );
+      if (target === 0 && haulersAlive === 0 && minersAlive > 0) target = 1;
+      const toQueue = Math.max(0, target - currentAmount);
+
+      if (
+        toQueue > 0 &&
+        (roomMem.lastSpawnTick === undefined ||
+          Game.time - roomMem.lastSpawnTick >= HAULER_SPAWN_COOLDOWN)
+      ) {
         if (existing) existing.amount += toQueue;
         else
           htm.addColonyTask(
@@ -357,8 +389,13 @@ const demandModule = {
             toQueue,
             'spawnManager',
           );
-        statsConsole.log(`Energy demand high in ${roomName}: queued hauler`, 2);
+        roomMem.lastSpawnTick = Game.time;
+        statsConsole.log(
+          `Energy demand high in ${roomName}: queued ${toQueue} hauler(s)`,
+          2,
+        );
       }
+
       const room = Game.rooms[roomName];
       if (room) {
         const roles = require('./hive.roles');
