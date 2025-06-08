@@ -10,16 +10,17 @@ Haulers remain governed by the energy demand module.
   and queued requests are counted and additional miners are requested until the
   source is saturated. Mining power is based on the miner DNA returned by
   `manager.dna` and capped at three creeps per source.
- - **Upgraders** – Containers within three tiles of the controller dictate the
-  desired number of upgraders (four per container). When no containers are
-  present the system still spawns one upgrader so progress never stalls.
+- **Upgraders** – Containers two tiles from the controller dictate the
+  desired number of upgraders (four per container). Upgraders stand at these
+  containers or at a position two tiles from the controller, upgrading from
+  range. When no containers are present the system still spawns one upgrader so
+  progress never stalls.
 - **Builders** – Construction sites are prioritised by type. Extensions,
   containers and roads request up to four builders per site (maximum eight).
   Other sites spawn two builders each with the same overall cap. Builders keep
   their assigned construction site until it is completed and remain near the
-  location while waiting for energy deliveries. When out of energy they either
-  request a hauler or fetch nearby drops before returning to the site, reducing
-  wandering.
+  location while waiting for energy deliveries. While working they also collect
+  dropped energy or withdraw from nearby containers to minimise idle time.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

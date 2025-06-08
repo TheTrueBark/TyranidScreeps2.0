@@ -35,5 +35,6 @@ describe('spawn energy requests', function () {
     const tasks = Memory.htm.creeps['s1'].tasks;
     expect(tasks[0].name).to.equal('deliverEnergy');
     expect(tasks[0].data.amount).to.equal(150);
+    expect(tasks[0].priority).to.equal(0);
   });
 });
