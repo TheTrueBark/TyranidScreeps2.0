@@ -88,3 +88,38 @@ describe('memoryManager.assignMiningPosition', function() {
   });
 });
 
+describe('memoryManager.verifyMiningReservations', function() {
+  beforeEach(function() {
+    globals.resetGame();
+    globals.resetMemory();
+
+    Game.rooms['W1N1'] = { name: 'W1N1' };
+    Memory.rooms = {
+      W1N1: {
+        miningPositions: {
+          source1: {
+            positions: {
+              a: { x: 10, y: 20, roomName: 'W1N1', reserved: true },
+              b: { x: 11, y: 20, roomName: 'W1N1', reserved: true },
+            },
+          },
+        },
+      },
+    };
+
+    Game.creeps = {
+      m1: { memory: { miningPosition: { x: 10, y: 20, roomName: 'W1N1' } } },
+    };
+  });
+
+  it('releases reservations not held by living creeps', function() {
+    memoryManager.verifyMiningReservations('W1N1');
+    expect(
+      Memory.rooms.W1N1.miningPositions.source1.positions.a.reserved
+    ).to.be.true;
+    expect(
+      Memory.rooms.W1N1.miningPositions.source1.positions.b.reserved
+    ).to.be.false;
+  });
+});
+
