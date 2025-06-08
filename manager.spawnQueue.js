@@ -31,7 +31,15 @@ const spawnQueue = {
    * @param {string} spawnId - ID of the spawn to handle this request.
    * @param {number} ticksToSpawn - Number of ticks to delay the spawn (default is 0).
    */
-  addToQueue(category, room, bodyParts, memory, spawnId, ticksToSpawn = 0) {
+  addToQueue(
+    category,
+    room,
+    bodyParts,
+    memory,
+    spawnId,
+    ticksToSpawn = 0,
+    priority = 5,
+  ) {
     // Combine current tick with an incrementing counter to avoid collisions
     const requestId = `${Game.time}-${Memory.nextSpawnRequestId++}`;
     const energyRequired = _.sum(bodyParts, (part) => BODYPART_COST[part]);
@@ -73,10 +81,13 @@ const spawnQueue = {
       spawnId,
       ticksToSpawn,
       energyRequired,
+      priority,
     });
     logger.log(
       "spawnQueue",
-      `Added to spawn queue: category=${category}, room=${room}, bodyParts=${JSON.stringify(bodyParts)}, memory=${JSON.stringify(memory)}, spawnId=${spawnId}, ticksToSpawn=${ticksToSpawn}, energyRequired=${energyRequired}`,
+      `Added to spawn queue: category=${category}, room=${room}, bodyParts=${JSON.stringify(
+        bodyParts,
+      )}, memory=${JSON.stringify(memory)}, spawnId=${spawnId}, ticksToSpawn=${ticksToSpawn}, priority=${priority}, energyRequired=${energyRequired}`,
       2,
     );
   },
@@ -90,7 +101,10 @@ const spawnQueue = {
   getNextSpawn(spawnId) {
     const sortedQueue = this.queue
       .filter((req) => req.spawnId === spawnId)
-      .sort((a, b) => a.ticksToSpawn - b.ticksToSpawn);
+      .sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.ticksToSpawn - b.ticksToSpawn;
+      });
     if (sortedQueue.length > 0) {
       const nextSpawn = sortedQueue[0];
       if (!nextSpawn.memory) {
@@ -155,11 +169,14 @@ const spawnQueue = {
   adjustPriorities(room) {
     logger.log(
       "spawnQueue",
-      `Sorting queue for room ${room.name} by ticksToSpawn`,
+      `Sorting queue for room ${room.name} by priority and ticksToSpawn`,
       2,
     );
-    // Future logic could adjust ticksToSpawn here
-    this.queue.sort((a, b) => a.ticksToSpawn - b.ticksToSpawn);
+    // Priority is primary key, ticksToSpawn secondary
+    this.queue.sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.ticksToSpawn - b.ticksToSpawn;
+    });
   },
 
   /**
