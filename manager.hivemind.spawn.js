@@ -57,7 +57,10 @@ const spawnModule = {
     // Panic: no creeps present
     const myCreeps = _.filter(Game.creeps, (c) => c.my && c.room.name === roomName);
     const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
-    if (myCreeps.length === 0) {
+    const spawning = room
+      .find(FIND_MY_SPAWNS)
+      .some((s) => s.memory && s.memory.currentSpawnRole);
+    if (myCreeps.length === 0 && !spawning) {
       // Emergency: purge existing queue and force a bootstrap creep
       const removed = spawnQueue.clearRoom(roomName);
       if (!taskExists(roomName, 'spawnBootstrap', 'spawnManager')) {
@@ -110,8 +113,16 @@ const spawnModule = {
           .reduce((sum, t) => sum + (t.amount || 1), 0)
       : 0;
 
-    const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
-    const totalPlanned = aliveInitial + queuedInitial + tasksInitial;
+  const spawningInitial = room
+    .find(FIND_MY_SPAWNS)
+    .reduce((sum, s) => {
+      const role = s.memory && s.memory.currentSpawnRole;
+      if (role && initialRoles.includes(role)) return sum + 1;
+      return sum;
+    }, 0);
+
+  const aliveInitial = myCreeps.filter((c) => initialRoles.includes(c.memory.role)).length;
+  const totalPlanned = aliveInitial + spawningInitial + queuedInitial + tasksInitial;
 
     if (room.controller.level === 1 && totalPlanned < initialOrder.length) {
       const nextEntry = initialOrder[totalPlanned];
