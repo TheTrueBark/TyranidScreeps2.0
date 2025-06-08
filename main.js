@@ -17,6 +17,7 @@ const scheduler = require("scheduler");
 const logger = require("./logger");
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
+const movementUtils = require("./utils.movement");
 
 // HiveTravel installs travelTo on creeps
 
@@ -220,6 +221,12 @@ module.exports.loop = function () {
     }
 
     CreepsCPUUsage += Game.cpu.getUsed() - creepStartCPU;
+  }
+
+  // Ensure creeps vacate restricted spawn areas after running role logic
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    movementUtils.avoidSpawnArea(creep);
   }
 
   // Run late tick management
