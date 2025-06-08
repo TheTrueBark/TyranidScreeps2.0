@@ -77,28 +77,29 @@ const roleUpgrader = {
     movementUtils.avoidSpawnArea(creep);
     if (creep.store[RESOURCE_ENERGY] === 0) {
       const pos = getUpgradePos(creep);
-      if (!creep.pos.isEqualTo || !creep.pos.isEqualTo(pos)) {
-        creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
-        return;
-      }
       const container = creep.memory.containerId
         ? Game.getObjectById(creep.memory.containerId)
         : null;
-      if (container && container.store[RESOURCE_ENERGY] > 0) {
+
+      // Withdraw if close enough, otherwise move toward the upgrade position
+      if (
+        container &&
+        container.store[RESOURCE_ENERGY] > 0 &&
+        creep.pos.getRangeTo(container) <= 1
+      ) {
         if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.travelTo(container, { visualizePathStyle: { stroke: '#ffaa00' } });
         }
       } else {
-        requestEnergy(creep);
+        creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
+        if (!container || creep.pos.getRangeTo(container) > 1) {
+          requestEnergy(creep);
+        }
       }
       return;
     }
 
     const pos = getUpgradePos(creep);
-    if (!creep.pos.isEqualTo(pos)) {
-      creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
-      return;
-    }
     if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
       creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffffff' } });
     }

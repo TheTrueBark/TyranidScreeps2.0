@@ -38,9 +38,6 @@ describe('energy request tasks', function() {
   it('queues deliverEnergy when upgrader is empty', function() {
     const creep = createCreep('u1');
     roleUpgrader.run(creep);
-    // Simulate arriving at the idle position next tick
-    creep.pos.isEqualTo = () => true;
-    roleUpgrader.run(creep);
     const tasks = Memory.htm.creeps['u1'].tasks;
     expect(tasks[0].name).to.equal('deliverEnergy');
   });
@@ -58,8 +55,7 @@ describe('energy request tasks', function() {
     Game.getObjectById = id => container;
     const creep = createCreep('u2');
     creep.withdraw = () => OK;
-    roleUpgrader.run(creep);
-    creep.pos.isEqualTo = () => true;
+    creep.pos.getRangeTo = () => 1;
     roleUpgrader.run(creep);
     expect(Memory.htm.creeps['u2']).to.be.undefined;
   });

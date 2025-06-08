@@ -71,6 +71,11 @@ const roleBuilder = {
       creep.memory.working = true;
       creep.say("⚡ build/repair");
     }
+    // Start working as soon as some energy is available to avoid idle creeps
+    if (!creep.memory.working && creep.store[RESOURCE_ENERGY] > 0) {
+      creep.memory.working = true;
+      creep.say("⚡ build/repair");
+    }
 
     if (creep.memory.working) {
       const roomMemory = Memory.rooms[creep.room.name];
