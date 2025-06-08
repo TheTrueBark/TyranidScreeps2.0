@@ -3,6 +3,7 @@
 const htm = require('manager.htm');
 const logger = require('./logger');
 const movementUtils = require('./utils.movement');
+const demand = require("./manager.hivemind.demand");
 
 function findEnergySource(creep) {
   const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
@@ -86,16 +87,20 @@ module.exports = {
       } else if (creep.store[RESOURCE_ENERGY] > 0) {
         const before = creep.store[RESOURCE_ENERGY];
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(target, { visualizePathStyle: { stroke: '#ffffff' } });
+          creep.travelTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
         } else {
           const delivered = before - creep.store[RESOURCE_ENERGY];
-          creep.memory.task.reserved =
-            Math.max(0, creep.memory.task.reserved - delivered);
+          creep.memory.task.reserved = Math.max(0, creep.memory.task.reserved - delivered);
           if (
             creep.memory.task.reserved === 0 ||
-            (target.store &&
-              target.store.getFreeCapacity(RESOURCE_ENERGY) === 0)
+            (target.store && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0)
           ) {
+            demand.recordDelivery(
+              creep.memory.task.target,
+              Game.time - creep.memory.task.startTime,
+              creep.memory.task.initial,
+              target.room.name,
+            );
             delete creep.memory.task;
           }
         }
@@ -160,10 +165,12 @@ module.exports = {
         }
       }
       creep.memory.task = {
-        name: 'deliverEnergy',
+        name: "deliverEnergy",
         target: name,
         pos: task.data.pos,
         reserved: deliver,
+        startTime: Game.time,
+        initial: deliver,
       };
       break;
     }

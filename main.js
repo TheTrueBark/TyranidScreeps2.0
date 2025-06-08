@@ -19,6 +19,7 @@ const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
 const movementUtils = require("./utils.movement");
 
+const energyDemand = require("./manager.hivemind.demand");
 // HiveTravel installs travelTo on creeps
 
 let myStats = [];
@@ -143,6 +144,9 @@ scheduler.addTask("hivemind", 1, () => {
   hivemind.run();
 });
 
+scheduler.addTask("energyDemand", 1000, () => {
+  energyDemand.run();
+});
 // Core HTM execution task
 scheduler.addTask("htmRun", 1, () => {
   htm.run();
