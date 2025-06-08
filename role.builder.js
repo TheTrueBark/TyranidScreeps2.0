@@ -29,7 +29,6 @@ function findNearbyEnergy(creep) {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   })[0];
   if (dropped) return { type: 'pickup', target: dropped };
-
   const container = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
