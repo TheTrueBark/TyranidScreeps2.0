@@ -163,7 +163,7 @@ const spawnModule = {
     const roles = require('./hive.roles');
     roles.evaluateRoom(room);
 
-    // Fallback: ensure at least one hauler exists before spawning extras
+    // Fallback: ensure at least two haulers exist before spawning extras
     const haulerTask =
       container && container.tasks
         ? container.tasks.find(
@@ -180,7 +180,7 @@ const spawnModule = {
     const totalHaulers =
       haulersAlive + queuedHaulers + (haulerTask ? haulerTask.amount || 0 : 0);
 
-    if (totalHaulers === 0) {
+    if (totalHaulers < 2) {
       const minerTask =
         container && container.tasks
           ? container.tasks.find(
@@ -209,16 +209,32 @@ const spawnModule = {
             'spawnManager',
           );
         }
-      } else if (!haulerTask) {
-        htm.addColonyTask(
-          roomName,
-          'spawnHauler',
-          { role: 'hauler' },
-          1,
-          20,
-          1,
-          'spawnManager',
-        );
+      }
+
+      const missing = 2 - totalHaulers;
+      if (missing > 0) {
+        if (haulerTask) haulerTask.amount += missing;
+        else
+          htm.addColonyTask(
+            roomName,
+            'spawnHauler',
+            { role: 'hauler' },
+            1,
+            20,
+            missing,
+            'spawnManager',
+          );
+      }
+
+      if (
+        haulersAlive === 0 &&
+        room.find(FIND_DROPPED_RESOURCES, { filter: r => r.resourceType === RESOURCE_ENERGY }).length > 0
+      ) {
+        const spawns = room.find(FIND_MY_SPAWNS);
+        if (spawns.length > 0) {
+          const spawnManager = require('./manager.spawn');
+          spawnManager.spawnEmergencyCollector(spawns[0], room);
+        }
       }
     }
 

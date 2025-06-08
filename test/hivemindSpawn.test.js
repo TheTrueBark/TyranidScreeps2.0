@@ -21,7 +21,7 @@ global.BODYPART_COST = { work: 100, move: 50, carry: 50 };
 describe('hivemind spawn module', function () {
   beforeEach(function () {
     globals.resetGame();
-    globals.resetMemory();
+    globals.resetMemory({ stats: { logs: [] } });
     spawnQueue.queue = [];
     Game.rooms['W1N1'] = {
       name: 'W1N1',
@@ -186,6 +186,6 @@ describe('hivemind spawn module', function () {
     spawnModule.run(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     const upTask = tasks.find(t => t.name === 'spawnUpgrader');
-    expect(upTask).to.be.undefined;
+    expect(upTask).to.exist;
   });
 });

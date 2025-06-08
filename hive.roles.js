@@ -71,7 +71,8 @@ const roles = {
         filter: s => s.structureType === STRUCTURE_CONTAINER,
       });
     }
-    const desiredUpgraders = controllerContainers.length * 4;
+    let desiredUpgraders = controllerContainers.length * 4;
+    if (desiredUpgraders === 0) desiredUpgraders = 1;
     const liveUpgraders = _.filter(
       Game.creeps,
       c => c.memory.role === 'upgrader' && c.room.name === roomName,

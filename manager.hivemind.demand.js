@@ -176,19 +176,15 @@ const demandModule = {
     for (const roomName in Memory.demand.rooms) {
       if (Memory.demand.rooms[roomName].runNextTick) return true;
     }
-    // Fallback: no haulers but miners present
+    // Fallback: ensure baseline haulers exist
     for (const roomName in Game.rooms) {
       const room = Game.rooms[roomName];
       if (!room.controller || !room.controller.my) continue;
-      const miners = _.filter(
-        Game.creeps,
-        c => c.memory.role === 'miner' && c.room.name === roomName,
-      ).length;
       const haulers = _.filter(
         Game.creeps,
         c => c.memory.role === 'hauler' && c.room.name === roomName,
       ).length;
-      if (miners > 0 && haulers === 0) return true;
+      if (haulers < 2) return true;
     }
     return false;
   },
@@ -312,7 +308,7 @@ const demandModule = {
       roomMem.runNextTick = false;
     }
 
-    // Evaluate rooms without delivery data but with miners present
+    // Evaluate rooms lacking baseline haulers
     for (const roomName in Game.rooms) {
       const room = Game.rooms[roomName];
       if (!room.controller || !room.controller.my) continue;
@@ -336,9 +332,7 @@ const demandModule = {
         : null;
       const totalMiners = minersAlive + queuedMiners;
       const totalHaulers = haulersAlive + queuedHaulers + (task ? task.amount || 0 : 0);
-      if (totalMiners >= 2 && totalHaulers < 2) {
-        roomsNeedingHaulers.add(roomName);
-      } else if (totalMiners > 0 && totalHaulers === 0) {
+      if (totalHaulers < 2) {
         roomsNeedingHaulers.add(roomName);
       }
     }
@@ -370,11 +364,13 @@ const demandModule = {
         haulersAlive > 0
           ? supplyRate / haulersAlive
           : DEFAULT_HAULER_RATE;
-      let target = Math.min(
-        MAX_HAULERS_PER_ROOM,
-        Math.ceil(demandRate / Math.max(perHauler, ENERGY_PER_TICK_THRESHOLD)),
+      let targetCalc = Math.ceil(
+        demandRate / Math.max(perHauler, ENERGY_PER_TICK_THRESHOLD),
       );
-      if (target === 0 && haulersAlive === 0 && minersAlive > 0) target = 1;
+      let target = Math.max(
+        2,
+        Math.min(MAX_HAULERS_PER_ROOM, targetCalc),
+      );
       const toQueue = Math.max(0, target - currentAmount);
 
       if (
