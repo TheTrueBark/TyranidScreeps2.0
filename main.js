@@ -114,7 +114,16 @@ scheduler.addTask("clearMemory", 100, () => {
         }
       }
       logger.log('memory', `Clearing memory of dead creep: ${name}`, 2);
+      energyDemand.cleanupCreep(name);
       delete Memory.creeps[name];
+      if (
+        Memory.htm &&
+        Memory.htm.creeps &&
+        Memory.htm.creeps[name] &&
+        (!Memory.htm.creeps[name].tasks || Memory.htm.creeps[name].tasks.length === 0)
+      ) {
+        delete Memory.htm.creeps[name];
+      }
       removed = true;
     }
   }
