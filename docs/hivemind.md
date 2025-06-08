@@ -40,11 +40,12 @@ its queue is empty.
   deliverer tracks the last energy amount and time for deliveries so average
   energy-per-tick rates can be calculated. Early game miners and bootstrap
   workers count as deliverers so the Hive can spawn haulers before dedicated
-  carriers exist. Stale entries for deceased creeps are purged automatically
-  before calculations run and hauler spawns are throttled to avoid spam. The
-  module migrates legacy flat layouts automatically. It only runs when flagged
-  by a completed delivery but maintains these totals every tick so other systems
-  can react without recalculating.
+  carriers exist. Stale entries are removed by comparing to `Game.creeps`
+  before demand is calculated, and outstanding energy requests are summed so
+  `totals.demand` reflects the true workload. Hauler spawns are throttled to
+  avoid spam. The module migrates legacy flat layouts automatically. It only
+  runs when flagged by a completed delivery but maintains these totals every
+  tick so other systems can react without recalculating.
   Modules can be added later for building, defense or expansion logic.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).

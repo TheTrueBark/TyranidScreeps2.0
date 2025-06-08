@@ -36,6 +36,7 @@ describe('demand cleanup of dead creeps', function () {
       controller: { my: true, pos: { findInRange: () => [] } },
       find: () => [],
     };
+    Game.getObjectById = () => null;
     Game.creeps = {
       liveHauler: { memory: { role: 'hauler' }, room: { name: 'W1N1' }, store: { [RESOURCE_ENERGY]: 0 } },
     };
@@ -47,5 +48,16 @@ describe('demand cleanup of dead creeps', function () {
     expect(roomMem.deliverers.deadHauler).to.be.undefined;
     expect(roomMem.deliverers.liveHauler).to.exist;
     expect(roomMem.requesters.deadCreep).to.be.undefined;
+  });
+
+  it('totals include outstanding requests', function () {
+    Memory.demand.rooms['W1N1'].requesters = {
+      s1: { lastEnergyRequested: 100, deliveries: 0, averageRequested: 100 },
+    };
+    Game.getObjectById = id => ({ id });
+    Memory.demand.rooms['W1N1'].runNextTick = true;
+    demand.run();
+    const roomMem = Memory.demand.rooms['W1N1'];
+    expect(roomMem.totals.demand).to.equal(100);
   });
 });

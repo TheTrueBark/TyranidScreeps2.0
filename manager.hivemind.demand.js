@@ -242,6 +242,11 @@ const demandModule = {
           }
         }
       }
+      for (const id in roomMem.requesters) {
+        const req = roomMem.requesters[id];
+        if (req.lastEnergyRequested) demandAmount += req.lastEnergyRequested;
+        else if (req.averageRequested) demandAmount += req.averageRequested;
+      }
       roomMem.totals.demand = demandAmount;
       Memory.demand.globalTotals.demand += demandAmount;
 
@@ -284,13 +289,12 @@ const demandModule = {
       let demandRate = 0;
       for (const id in requesters) {
         const data = requesters[id];
-        const rate =
-          data.averageTickTime > 0
-            ? data.averageEnergy / data.averageTickTime
-            : 0;
+        const tickTime = data.averageTickTime || 0;
+        const energy = data.averageEnergy || 0;
+        const rate = tickTime > 0 ? energy / tickTime : 0;
         demandRate += rate;
         statsConsole.log(
-          `Demand ${id}: avg ${data.averageEnergy.toFixed(1)} energy / ${data.averageTickTime.toFixed(1)} ticks`,
+          `Demand ${id}: avg ${energy.toFixed(1)} energy / ${tickTime.toFixed(1)} ticks`,
           2,
         );
         if (rate < ENERGY_PER_TICK_THRESHOLD) {
