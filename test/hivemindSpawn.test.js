@@ -71,14 +71,14 @@ describe('hivemind spawn module', function () {
     htm.init();
   });
 
-  it('queues initial spawn order before builders', function () {
+  it('queues initial spawn order including builder', function () {
     const order = [
       'spawnBootstrap',
       'spawnMiner',
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnUpgrader',
+      'spawnBuilder',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
@@ -90,9 +90,34 @@ describe('hivemind spawn module', function () {
       spawnBootstrap: 1,
       spawnMiner: 2,
       spawnHauler: 2,
-      spawnUpgrader: 1,
+      spawnBuilder: 1,
     });
-    expect(Object.keys(counts)).to.not.include('spawnBuilder');
+  });
+
+  it('considers spawn in progress for initial ordering', function () {
+    // First tick queues bootstrap
+    spawnModule.run(Game.rooms['W1N1']);
+    Memory.htm.colonies['W1N1'].tasks = [];
+    spawnQueue.queue = [];
+    const spawnObj = { id: 's1', pos: { getRangeTo: () => 5 }, memory: { currentSpawnRole: 'allPurpose' }, spawning: { name: 'ap1' } };
+    Game.rooms['W1N1'].find = (type) => {
+      if (type === FIND_HOSTILE_CREEPS) return [];
+      if (type === FIND_SOURCES) {
+        return [
+          {
+            id: 'source1',
+            pos: { x: 5, y: 5, roomName: 'W1N1', getRangeTo: () => 0 },
+          },
+        ];
+      }
+      if (type === FIND_MY_SPAWNS) return [spawnObj];
+      return [];
+    };
+
+    // Second tick should queue the miner as next entry
+    spawnModule.run(Game.rooms['W1N1']);
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    expect(tasks.some(t => t.name === 'spawnMiner')).to.be.true;
   });
 
   it('considers spawn in progress for initial ordering', function () {
@@ -128,7 +153,7 @@ describe('hivemind spawn module', function () {
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnUpgrader',
+      'spawnBuilder',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
@@ -153,7 +178,7 @@ describe('hivemind spawn module', function () {
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnUpgrader',
+      'spawnBuilder',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
