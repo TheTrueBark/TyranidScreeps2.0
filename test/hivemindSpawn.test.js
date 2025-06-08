@@ -94,6 +94,20 @@ describe('hivemind spawn module', function () {
     });
   });
 
+  it('only queues upgrader after two haulers accounted for', function () {
+    // Run enough times to queue up to the second hauler
+    for (let i = 0; i < 5; i++) {
+      spawnModule.run(Game.rooms['W1N1']);
+    }
+    let tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
+    expect(tasks).to.not.include('spawnUpgrader');
+
+    // Next run should queue the upgrader task
+    spawnModule.run(Game.rooms['W1N1']);
+    tasks = Memory.htm.colonies['W1N1'].tasks.map(t => t.name);
+    expect(tasks).to.include('spawnUpgrader');
+  });
+
   it('considers spawn in progress for initial ordering', function () {
     // First tick queues bootstrap
     spawnModule.run(Game.rooms['W1N1']);

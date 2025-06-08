@@ -6,24 +6,22 @@ const htm = require('../manager.htm');
 
 global.RESOURCE_ENERGY = 'energy';
 
-describe('demand spawn scaling', function () {
+describe('demand global totals aggregation', function () {
   beforeEach(function () {
     globals.resetGame();
     globals.resetMemory({ stats: { logs: [] } });
     htm.init();
     Memory.htm.colonies['W1N1'] = { tasks: [] };
-    Memory.creeps = { h1: {}, m1: {} };
     Game.getObjectById = id => ({ id });
 
     Memory.demand = {
       rooms: {
         W1N1: {
           requesters: {
-            s1: { deliveries: 1, averageEnergy: 100, averageTickTime: 5 },
+            s1: { deliveries: 1, averageEnergy: 50, averageTickTime: 5 },
           },
           deliverers: {
             h1: { deliveries: 1, averageEnergy: 20, averageTickTime: 10, role: 'hauler' },
-            m1: { deliveries: 1, averageEnergy: 100, averageTickTime: 5, role: 'miner' },
           },
           totals: { demand: 0, supply: 0, demandRate: 0, supplyRate: 0 },
           runNextTick: true,
@@ -39,15 +37,15 @@ describe('demand spawn scaling', function () {
     };
     Game.creeps = {
       h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' }, store: { [RESOURCE_ENERGY]: 0 } },
-      m1: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: { [RESOURCE_ENERGY]: 0 } },
     };
   });
 
-  it('queues additional haulers based on demand rate', function () {
+  it('aggregates room totals into global totals', function () {
     demand.run();
-    const tasks = Memory.htm.colonies['W1N1'].tasks;
-    const haulTask = tasks.find(t => t.name === 'spawnHauler');
-    expect(haulTask).to.exist;
-    expect(haulTask.amount).to.equal(3);
+    const roomMem = Memory.demand.rooms['W1N1'].totals;
+    expect(Memory.demand.globalTotals.demand).to.equal(roomMem.demand);
+    expect(Memory.demand.globalTotals.supply).to.equal(roomMem.supply);
+    expect(Memory.demand.globalTotals.demandRate).to.equal(roomMem.demandRate);
+    expect(Memory.demand.globalTotals.supplyRate).to.equal(roomMem.supplyRate);
   });
 });

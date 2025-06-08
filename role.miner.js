@@ -111,12 +111,12 @@ const roleMiner = {
 
     if (structures.length > 0) {
       if (creep.transfer(structures[0], RESOURCE_ENERGY) === OK) {
-        demand.recordSupply(creep.name, ticks, delivered, creep.room.name);
+        demand.recordSupply(creep.name, ticks, delivered, creep.room.name, 'miner');
         creep.memory.lastDelivery = Game.time;
       }
     } else if (creep.drop(RESOURCE_ENERGY) === OK) {
       // Drop energy if no storage structure is available
-      demand.recordSupply(creep.name, ticks, delivered, creep.room.name);
+      demand.recordSupply(creep.name, ticks, delivered, creep.room.name, 'miner');
       creep.memory.lastDelivery = Game.time;
     }
 

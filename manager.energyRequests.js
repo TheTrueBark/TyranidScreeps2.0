@@ -4,7 +4,7 @@ const demand = require('./manager.hivemind.demand');
 
 const HAULER_CAPACITY = 600;
 
-function ensureTask(structure) {
+function ensureTask(structure, priority = 1) {
   const needed = structure.store.getFreeCapacity(RESOURCE_ENERGY);
   const id = structure.id;
   if (!needed) {
@@ -25,7 +25,7 @@ function ensureTask(structure) {
         pos: { x: structure.pos.x, y: structure.pos.y, roomName: structure.pos.roomName },
         amount: needed,
       },
-      1,
+      priority,
       20,
       1,
       'hauler',
@@ -38,7 +38,7 @@ function ensureTask(structure) {
   }
 }
 
-function ensureContainerTask(structure) {
+function ensureContainerTask(structure, priority = 2) {
   const capacity = structure.store.getCapacity(RESOURCE_ENERGY);
   const needed = capacity - structure.store[RESOURCE_ENERGY];
   const id = structure.id;
@@ -60,7 +60,7 @@ function ensureContainerTask(structure) {
         pos: { x: structure.pos.x, y: structure.pos.y, roomName: structure.pos.roomName },
         amount: needed,
       },
-      1,
+      priority,
       20,
       1,
       'hauler',
@@ -77,13 +77,15 @@ const energyRequests = {
   run(room) {
     const spawns = room.find(FIND_MY_SPAWNS);
     for (const spawn of spawns) {
-      ensureTask(spawn);
+      // Spawn energy has the highest delivery priority
+      ensureTask(spawn, 0);
     }
     const extensions = room.find(FIND_MY_STRUCTURES, {
       filter: s => s.structureType === STRUCTURE_EXTENSION,
     });
     for (const ext of extensions) {
-      ensureTask(ext);
+      // Extensions should be filled right after the spawn
+      ensureTask(ext, 0);
     }
     const containers = room.find(FIND_STRUCTURES, {
       filter: s =>

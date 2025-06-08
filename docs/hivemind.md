@@ -31,16 +31,19 @@ its queue is empty.
   colony grows. Upgraders and builders are now evaluated by `hive.roles.js` which
   monitors controller containers and construction sites. When no creeps remain
   the queue is purged and a bootstrap worker is scheduled so the colony can
-  recover.
+  recover. The module enforces a strict initial order at RCL1: one
+  allPurpose creep, two miners and two haulers must be accounted for before an
+  upgrader is queued.
  - **demand** – Tracks energy deliveries. When the combined
   `demandRate` for requesters exceeds the current `supplyRate` the Hive
   automatically queues enough haulers to close the gap. Delivery statistics are
   stored per-room under `Memory.demand.rooms` along with aggregate `totals`
-  for outstanding demand and current delivery supply. Each requester and
+  for outstanding demand and current delivery supply. Global totals are now
+  calculated purely as the sum of each room's metrics. Each requester and
   deliverer tracks the last energy amount and time for deliveries so average
-  energy-per-tick rates can be calculated. Early game miners and bootstrap
-  workers count as deliverers so the Hive can spawn haulers before dedicated
-  carriers exist. Stale entries are removed by comparing to `Game.creeps`
+  energy-per-tick rates can be calculated. Miners still record supply events but
+  the `supplyRate` only reflects hauler performance so early deposits do not
+  inflate delivery capacity. Stale entries are removed by comparing to `Game.creeps`
   before demand is calculated, and outstanding energy requests are summed so
   `totals.demand` reflects the true workload. Hauler spawns are throttled to
   avoid spam. The module migrates legacy flat layouts automatically. It only
