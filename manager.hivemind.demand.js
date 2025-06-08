@@ -68,7 +68,7 @@ const demandModule = {
    * @param {number} amount - Energy delivered
    * @param {string} room - Room where the requester resides
    */
-  recordDelivery(id, ticks, amount, room, deliverer = null) {
+  recordDelivery(id, ticks, amount, room, deliverer = null, role = 'hauler') {
     const roomMem = getRoomMem(room);
     const data = roomMem.requesters[id] || {
       lastTickTime: 0,
@@ -95,12 +95,14 @@ const demandModule = {
 
     if (deliverer) {
       const hauler = roomMem.deliverers[deliverer] || {
+        role,
         lastTickTime: 0,
         averageTickTime: 0,
         lastEnergy: 0,
         averageEnergy: 0,
         deliveries: 0,
       };
+      hauler.role = role;
       hauler.deliveries += 1;
       hauler.lastTickTime = ticks;
       hauler.lastEnergy = amount;
@@ -129,15 +131,17 @@ const demandModule = {
    * @param {number} amount - Energy supplied
    * @param {string} room - Room of the deliverer
    */
-  recordSupply(deliverer, ticks, amount, room) {
+  recordSupply(deliverer, ticks, amount, room, role = 'miner') {
     const roomMem = getRoomMem(room);
     const hauler = roomMem.deliverers[deliverer] || {
+      role,
       lastTickTime: 0,
       averageTickTime: 0,
       lastEnergy: 0,
       averageEnergy: 0,
       deliveries: 0,
     };
+    hauler.role = role;
     hauler.deliveries += 1;
     hauler.lastTickTime = ticks;
     hauler.lastEnergy = amount;
@@ -196,13 +200,13 @@ const demandModule = {
     for (const roomName in Memory.demand.rooms) {
       const mem = Memory.demand.rooms[roomName];
       for (const name in mem.deliverers) {
-        if (!Memory.creeps[name]) delete mem.deliverers[name];
+        if (!Memory.creeps || !Memory.creeps[name]) delete mem.deliverers[name];
       }
       for (const id in mem.requesters) {
         const obj = typeof Game.getObjectById === 'function'
           ? Game.getObjectById(id)
           : null;
-        if (!Memory.creeps[id] && !obj) {
+        if ((!Memory.creeps || !Memory.creeps[id]) && !obj) {
           delete mem.requesters[id];
         }
       }
@@ -213,10 +217,10 @@ const demandModule = {
     Memory.demand.globalTotals.demandRate = 0;
     Memory.demand.globalTotals.supplyRate = 0;
 
-    for (const roomName in Game.rooms) {
+    for (const roomName in Memory.demand.rooms) {
       const room = Game.rooms[roomName];
-      if (!room.controller || !room.controller.my) continue;
       const roomMem = getRoomMem(roomName);
+      if (room && (!room.controller || !room.controller.my)) continue;
 
       let demandAmount = 0;
       if (Memory.htm && Memory.htm.creeps) {
@@ -267,7 +271,9 @@ const demandModule = {
       let supplyRate = 0;
       for (const name in roomMem.deliverers) {
         const d = roomMem.deliverers[name];
-        if (d.averageTickTime > 0) supplyRate += d.averageEnergy / d.averageTickTime;
+        if (d.role === 'hauler' && d.averageTickTime > 0) {
+          supplyRate += d.averageEnergy / d.averageTickTime;
+        }
       }
       roomMem.totals.demandRate = demandRate;
       roomMem.totals.supplyRate = supplyRate;
@@ -300,7 +306,9 @@ const demandModule = {
       let supplyRate = 0;
       for (const name in roomMem.deliverers) {
         const data = roomMem.deliverers[name];
-        if (data.averageTickTime > 0) supplyRate += data.averageEnergy / data.averageTickTime;
+        if (data.role === 'hauler' && data.averageTickTime > 0) {
+          supplyRate += data.averageEnergy / data.averageTickTime;
+        }
       }
       if (demandRate > supplyRate) {
         roomsNeedingHaulers.add(roomName);
@@ -357,7 +365,7 @@ const demandModule = {
       const currentAmount =
         haulersAlive + queuedHaulers + (existing ? existing.amount || 0 : 0);
 
-      const roomMem = Memory.demand.rooms[roomName];
+      const roomMem = getRoomMem(roomName);
       const demandRate = roomMem.totals.demandRate;
       const supplyRate = roomMem.totals.supplyRate;
       const perHauler =

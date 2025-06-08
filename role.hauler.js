@@ -101,6 +101,7 @@ module.exports = {
               creep.memory.task.initial,
               target.room.name,
               creep.name,
+              'hauler',
             );
             delete creep.memory.task;
           }

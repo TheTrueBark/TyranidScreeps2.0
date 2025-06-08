@@ -21,8 +21,8 @@ describe('demand cleanup of dead creeps', function () {
             deadCreep: { deliveries: 1, averageEnergy: 50, averageTickTime: 10 },
           },
           deliverers: {
-            deadHauler: { deliveries: 1, averageEnergy: 50, averageTickTime: 10 },
-            liveHauler: { deliveries: 1, averageEnergy: 50, averageTickTime: 10 },
+            deadHauler: { deliveries: 1, averageEnergy: 50, averageTickTime: 10, role: 'hauler' },
+            liveHauler: { deliveries: 1, averageEnergy: 50, averageTickTime: 10, role: 'hauler' },
           },
           totals: { demand: 0, supply: 0, demandRate: 0, supplyRate: 0 },
           runNextTick: true,

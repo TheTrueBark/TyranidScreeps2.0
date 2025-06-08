@@ -87,7 +87,8 @@
 - [x] Evaluate metrics to spawn extra haulers when throughput is low
 - [x] Maintain at least two haulers and spawn emergency collector when none remain
 - [x] Initial spawn order enforces allPurpose, miners and haulers before upgraders
- - [x] Persist aggregated demand and hauler supply metrics
+- [x] Persist aggregated demand and hauler supply metrics
+- [x] Global demand totals aggregate per room and supply rate only counts hauler deliveries
 
 ---
 
