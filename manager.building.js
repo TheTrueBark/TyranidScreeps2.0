@@ -1,5 +1,6 @@
 const roomPlanner = require("planner.room");
 const statsConsole = require("console.console");
+const scheduler = require('./scheduler');
 
 // Configurable weights for different structures
 const constructionWeights = {
@@ -101,6 +102,7 @@ const buildingManager = {
 
   manageBuildingQueue: function (room) {
     const buildingQueue = [];
+    const prevLength = (room.memory.buildingQueue || []).length;
 
     const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
     for (const site of constructionSites) {
@@ -116,6 +118,10 @@ const buildingManager = {
 
     buildingQueue.sort((a, b) => b.priority - a.priority);
     room.memory.buildingQueue = buildingQueue;
+    if (prevLength !== buildingQueue.length) {
+      const scheduler = require('./scheduler');
+      scheduler.triggerEvent('roleUpdate', { room: room.name });
+    }
   },
 
   calculatePriority: function (site) {

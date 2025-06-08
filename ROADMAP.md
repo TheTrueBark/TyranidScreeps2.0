@@ -51,6 +51,7 @@
 - [x] Creep energy request tasks claimed by haulers
 - [x] Builders check nearby energy before requesting haulers
 - [x] Dynamic miner evaluation based on room energy
+- [x] Dynamic role evaluation via `hive.roles.js`
 - [x] Modular HiveMind with spawn and subconscious modules
 
 ### ✅ Spawn Manager (Prio 4)
