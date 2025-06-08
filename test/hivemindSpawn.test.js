@@ -71,14 +71,14 @@ describe('hivemind spawn module', function () {
     htm.init();
   });
 
-  it('queues initial spawn order including builder', function () {
+  it('queues initial spawn order including upgrader', function () {
     const order = [
       'spawnBootstrap',
       'spawnMiner',
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnBuilder',
+      'spawnUpgrader',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
@@ -90,7 +90,7 @@ describe('hivemind spawn module', function () {
       spawnBootstrap: 1,
       spawnMiner: 2,
       spawnHauler: 2,
-      spawnBuilder: 1,
+      spawnUpgrader: 1,
     });
   });
 
@@ -153,7 +153,7 @@ describe('hivemind spawn module', function () {
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnBuilder',
+      'spawnUpgrader',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
@@ -178,14 +178,14 @@ describe('hivemind spawn module', function () {
       'spawnMiner',
       'spawnHauler',
       'spawnHauler',
-      'spawnBuilder',
+      'spawnUpgrader',
     ];
     for (let i = 0; i < order.length; i++) {
       spawnModule.run(Game.rooms['W1N1']);
     }
     spawnModule.run(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
-    const buildTask = tasks.find(t => t.name === 'spawnBuilder');
-    expect(buildTask).to.be.undefined;
+    const upTask = tasks.find(t => t.name === 'spawnUpgrader');
+    expect(upTask).to.be.undefined;
   });
 });

@@ -87,7 +87,7 @@ const spawnModule = {
     { task: 'spawnMiner', data: { role: 'miner' }, priority: 1 },
     { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
     { task: 'spawnHauler', data: { role: 'hauler' }, priority: 2 },
-    { task: 'spawnBuilder', data: { role: 'builder' }, priority: 5 },
+    { task: 'spawnUpgrader', data: { role: 'upgrader' }, priority: 3 },
   ];
 
   const initialRoles = [
@@ -96,7 +96,7 @@ const spawnModule = {
     'miner',
     'hauler',
     'hauler',
-    'builder',
+    'upgrader',
   ];
 
   const queuedInitial = spawnQueue.queue.filter(

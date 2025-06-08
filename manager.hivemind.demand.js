@@ -172,11 +172,15 @@ const demandModule = {
       roomMem.totals.demand = demandAmount;
       Memory.demand.globalTotals.demand += demandAmount;
 
-      const haulers = _.filter(
+      const delivererRoles = ['hauler', 'miner', 'allPurpose'];
+      const deliverers = _.filter(
         Game.creeps,
-        c => c.memory.role === 'hauler' && c.room.name === roomName,
+        c => delivererRoles.includes(c.memory.role) && c.room.name === roomName,
       );
-      const supply = _.sumBy(haulers, h => h.store[RESOURCE_ENERGY] || 0);
+      const supply = deliverers.reduce(
+        (sum, d) => sum + (d.store && d.store[RESOURCE_ENERGY] ? d.store[RESOURCE_ENERGY] : 0),
+        0,
+      );
       roomMem.totals.supply = supply;
       Memory.demand.globalTotals.supply += supply;
     }

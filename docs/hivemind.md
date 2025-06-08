@@ -35,10 +35,12 @@ its queue is empty.
 - **demand** – Tracks energy deliveries. When average rates fall below
   acceptable thresholds the module queues an additional hauler for the affected
   colony. Delivery statistics are stored per-room under `Memory.demand.rooms`
-  along with aggregate `totals` for outstanding demand and current hauler
-  supply. The module migrates legacy flat layouts automatically. It only runs
-  when flagged by a completed delivery but maintains these totals every tick
-  so other systems can react without recalculating.
+  along with aggregate `totals` for outstanding demand and current delivery
+  supply. Early game miners and bootstrap workers count as deliverers so the
+  Hive can spawn haulers before dedicated carriers exist. The module migrates
+  legacy flat layouts automatically. It only runs when flagged by a completed
+  delivery but maintains these totals every tick so other systems can react
+  without recalculating.
   Modules can be added later for building, defense or expansion logic.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).
