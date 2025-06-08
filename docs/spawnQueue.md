@@ -13,11 +13,12 @@ The spawn queue decouples creep requests from immediate spawning. Managers or HT
   memory: { role: 'miner' },
   spawnId: '5abc123',
   ticksToSpawn: 0, // lower means sooner
-  energyRequired: 300
+  energyRequired: 300,
+  priority: 2
 }
 ```
 
-`requestId` combines the current tick with an incrementing counter to ensure uniqueness. The queue is sorted by `ticksToSpawn`, so older or urgent entries spawn first.
+`requestId` combines the current tick with an incrementing counter to ensure uniqueness. The queue is sorted by `priority` (lower is higher priority) and then `ticksToSpawn`, so urgent entries spawn first.
 
 ## Processing
 
@@ -26,10 +27,11 @@ Use `spawnQueue.processQueue(spawn)` each tick. It checks energy and spawns the 
 ## Adding requests
 
 ```
-spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id);
+spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id, 0, 2);
 ```
 
 Requests can include a `ticksToSpawn` delay, allowing future scheduling.
+The optional `priority` parameter (default `5`) lets high priority creeps spawn sooner.
 
 ### Positional memory requirements
 
