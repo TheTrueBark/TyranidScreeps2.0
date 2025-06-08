@@ -41,7 +41,8 @@ its queue is empty.
   averages are stored per-room and globally under `Memory.demand.globalTotals`
   (`demandRate` and `supplyRate`). Early game miners and bootstrap workers
   count as deliverers so the Hive can spawn haulers before dedicated carriers
-  exist. The module migrates legacy flat layouts automatically. It only runs
+  exist. Stale entries for deceased creeps are purged automatically before
+  calculations run. The module migrates legacy flat layouts automatically. It only runs
   when flagged by a completed delivery but maintains these totals every tick so
   other systems can react without recalculating.
   Modules can be added later for building, defense or expansion logic.

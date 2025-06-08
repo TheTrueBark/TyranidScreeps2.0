@@ -14,7 +14,9 @@ Haulers remain governed by the energy demand module.
   desired number of upgraders (four per container).
 - **Builders** – Construction sites are prioritised by type. Extensions,
   containers and roads request up to four builders per site (maximum eight).
-  Other sites spawn two builders each with the same overall cap.
+  Other sites spawn two builders each with the same overall cap. Builders keep
+  their assigned construction site until it is completed and remain near the
+  location while waiting for energy deliveries.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

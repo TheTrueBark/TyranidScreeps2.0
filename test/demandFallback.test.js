@@ -11,6 +11,8 @@ describe('demand fallback hauler spawn', function () {
     htm.init();
     Memory.htm.colonies['W1N1'] = { tasks: [] };
     demand.shouldRun();
+    Memory.creeps = {};
+    Game.getObjectById = id => ({ id });
   });
 
   it('queues hauler when miners exist but no haulers', function () {

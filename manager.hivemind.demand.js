@@ -193,6 +193,22 @@ const demandModule = {
   run() {
     initMemory();
 
+    // Remove entries for creeps that no longer exist so rates remain accurate
+    for (const roomName in Memory.demand.rooms) {
+      const mem = Memory.demand.rooms[roomName];
+      for (const name in mem.deliverers) {
+        if (!Memory.creeps[name]) delete mem.deliverers[name];
+      }
+      for (const id in mem.requesters) {
+        const obj = typeof Game.getObjectById === 'function'
+          ? Game.getObjectById(id)
+          : null;
+        if (!Memory.creeps[id] && !obj) {
+          delete mem.requesters[id];
+        }
+      }
+    }
+
     Memory.demand.globalTotals.demand = 0;
     Memory.demand.globalTotals.supply = 0;
     Memory.demand.globalTotals.demandRate = 0;

@@ -10,6 +10,8 @@ describe('demand recordDelivery', function () {
     const htm = require('../manager.htm');
     htm.init();
     Memory.htm.colonies['W1N1'] = { tasks: [] };
+    Memory.creeps = {};
+    Game.getObjectById = id => ({ id });
   });
 
   it('updates averages and flags next run', function () {

@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const globals = require('./mocks/globals');
 
 const roleBuilder = require('../role.builder');
+const htm = require('../manager.htm');
 
 global.FIND_CONSTRUCTION_SITES = 1;
 global.FIND_MY_SPAWNS = 2;
@@ -43,6 +44,8 @@ describe('builder assignment', function () {
   beforeEach(function () {
     globals.resetGame();
     globals.resetMemory();
+    htm.init();
+    Memory.htm.creeps = {};
     const site = createSite('s1');
     Game.rooms['W1N1'] = {
       name: 'W1N1',
