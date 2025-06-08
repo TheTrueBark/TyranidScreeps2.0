@@ -14,6 +14,7 @@ describe('spawnQueue.clearRoom', function() {
     globals.resetGame();
     globals.resetMemory();
     spawnQueue.queue = [];
+    Memory.nextSpawnRequestId = 0;
   });
 
   it('removes queued spawns for specific room', function() {
@@ -42,5 +43,27 @@ describe('spawnQueue.addToQueue validation', function() {
       's1',
     );
     expect(spawnQueue.queue.length).to.equal(0);
+  });
+});
+
+describe('spawnQueue priority handling', function() {
+  beforeEach(function() {
+    globals.resetGame();
+    globals.resetMemory();
+    spawnQueue.queue = [];
+    Memory.nextSpawnRequestId = 0;
+  });
+
+  it('returns highest priority request first', function() {
+    spawnQueue.addToQueue('upgrader', 'W1N1', [WORK], { role: 'upgrader' }, 's1', 0, 5);
+    spawnQueue.addToQueue('hauler', 'W1N1', [CARRY, MOVE], { role: 'hauler' }, 's1', 0, 3);
+    spawnQueue.addToQueue('miner', 'W1N1', [WORK, MOVE], { role: 'miner' }, 's1', 0, 2);
+
+    const next = spawnQueue.getNextSpawn('s1');
+    expect(next.category).to.equal('miner');
+    spawnQueue.removeSpawnFromQueue(next.requestId);
+
+    const next2 = spawnQueue.getNextSpawn('s1');
+    expect(next2.category).to.equal('hauler');
   });
 });
