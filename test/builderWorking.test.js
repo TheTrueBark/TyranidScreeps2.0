@@ -61,13 +61,19 @@ describe('builder working state', function () {
       controller: {},
     };
     Game.getObjectById = () => site;
-    Memory.rooms = { W1N1: { buildingQueue: [{ id: 's1', priority: 100 }], siteAssignments: {} } };
+    Memory.rooms = { W1N1: { buildingQueue: [{ id: 's1', priority: 100 }] } };
   });
 
   it('begins building when partially filled with energy', function () {
     const creep = createCreep('b1');
+    let built = false;
+    creep.build = () => {
+      built = true;
+      return OK;
+    };
     roleBuilder.run(creep);
     expect(creep.memory.working).to.be.true;
+    expect(built).to.be.true;
   });
 
   it('moves off construction site when standing on it', function () {

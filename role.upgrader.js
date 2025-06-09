@@ -96,6 +96,13 @@ const roleUpgrader = {
           requestEnergy(creep);
         }
       }
+      if (
+        creep.store[RESOURCE_ENERGY] > 0 &&
+        creep.room.controller &&
+        creep.pos.getRangeTo(creep.room.controller) <= 3
+      ) {
+        creep.upgradeController(creep.room.controller);
+      }
       return;
     }
 

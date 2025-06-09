@@ -82,6 +82,9 @@ const spawnModule = {
     if (myCreeps.length === 0 && !spawning) {
       // Emergency: purge existing queue and force a bootstrap creep
       const removed = spawnQueue.clearRoom(roomName);
+      if (container && container.tasks) {
+        _.remove(container.tasks, t => t.manager === 'spawnManager');
+      }
       if (!taskExists(roomName, 'spawnBootstrap', 'spawnManager')) {
         htm.addColonyTask(
           roomName,
@@ -97,6 +100,7 @@ const spawnModule = {
       if (removed > 0) {
         logger.log('hivemind.spawn', `Cleared ${removed} queued spawns due to panic in ${roomName}` , 3);
       }
+      return;
     }
 
   // Initial spawn sequence at RCL1 using strict role counts
