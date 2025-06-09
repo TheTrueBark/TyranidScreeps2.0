@@ -58,4 +58,38 @@ describe('hive.roles evaluateRoom', function() {
     expect(t).to.exist;
     expect(t.amount).to.equal(3);
   });
+
+  it('stores spawn limits in room memory', function() {
+    roles.evaluateRoom(Game.rooms['W1N1']);
+    const limits = Memory.rooms['W1N1'].spawnLimits;
+    expect(limits).to.include.keys('miners', 'builders', 'upgraders');
+  });
+
+  it('caps builders at RCL1', function() {
+    const room = Game.rooms['W1N1'];
+    room.find = type => {
+      if (type === FIND_SOURCES) {
+        return [{ id: 's1', energyCapacity: 3000, pos: {} }];
+      }
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [
+          { id: 'c1', structureType: STRUCTURE_EXTENSION },
+          { id: 'c2', structureType: STRUCTURE_EXTENSION },
+        ];
+      }
+      if (type === FIND_STRUCTURES) return [];
+      return [];
+    };
+    room.memory.buildingQueue = [
+      { id: 'c1', priority: 100 },
+      { id: 'c2', priority: 80 },
+    ];
+    Game.creeps = {
+      h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
+      h2: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
+    };
+    roles.evaluateRoom(room);
+    const limits = Memory.rooms['W1N1'].spawnLimits;
+    expect(limits.builders).to.equal(2);
+  });
 });

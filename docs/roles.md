@@ -12,20 +12,19 @@ Haulers remain governed by the energy demand module.
    `manager.dna` and capped at three creeps per source. Miners with at least five
    WORK parts automatically relocate onto the nearby container so they can empty
    the source without moving.
-- **Upgraders** – Containers two tiles from the controller dictate the
-  desired number of upgraders (four per container). Upgraders stand at these
-  containers or at a position two tiles from the controller, upgrading from
-  range. Upgraders withdraw energy when adjacent to their container rather than
-  only when positioned directly on top. When no containers are present the
-  system still spawns one upgrader so progress never stalls.
-- **Builders** – Construction sites are prioritised by type. Extensions,
-  containers and roads request up to four builders per site (maximum twelve).
-  Other sites spawn two builders each with the same overall cap. Builders keep
-  their assigned construction site until it is completed and remain near the
-  location while waiting for energy deliveries. While working they also collect
-  dropped energy or withdraw from nearby containers to minimise idle time.
-  Builders start working as soon as some energy is carried so partially filled
-  workers no longer idle.
+ - **Upgraders** – A single container two tiles from the controller anchors the
+  upgrade position. Upgraders stand on or next to this container and withdraw
+  energy before upgrading from range. When the container is missing the HiveMind
+  still spawns one upgrader so progress never stalls.
+ - **Builders** – Always fetch energy from nearby containers or dropped
+   resources before requesting delivery. They select the highest priority
+   construction site each tick (extensions first, then containers, then other
+  structures) and build until empty. Each builder stores its assigned
+  construction site's id in `creep.memory.mainTask` so it will return after
+  refueling. Builders begin working as soon as they carry any energy. At least
+  two haulers must exist before additional builders are spawned. The desired
+  number of builders is also capped by RCL: 2 at RCL1, 4 at RCL2 and 8 from
+  RCL3 onward.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

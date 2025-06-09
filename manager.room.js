@@ -30,6 +30,20 @@ const roomManager = {
         { x: sourcePos.x - 1, y: sourcePos.y - 1 },
       ].filter(p => room.getTerrain().get(p.x, p.y) !== TERRAIN_MASK_WALL);
 
+      // Determine container spot along the path to the spawn
+      let pathPosition = null;
+      if (spawn) {
+        const result = PathFinder.search(
+          spawn.pos,
+          { pos: sourcePos, range: 1 },
+          { swampCost: 2, plainCost: 2, ignoreCreeps: true },
+        );
+        if (result.path && result.path.length > 0) {
+          const step = result.path[result.path.length - 1];
+          pathPosition = { x: step.x, y: step.y };
+        }
+      }
+
       potential.sort((a, b) =>
         spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
       );
@@ -42,6 +56,8 @@ const roomManager = {
       if (containers.length > 0) {
         const cPos = containers[0].pos;
         bestPositions = [{ x: cPos.x, y: cPos.y }, ...potential.filter(p => p.x !== cPos.x || p.y !== cPos.y).slice(0, 2)];
+      } else if (pathPosition) {
+        bestPositions = [pathPosition, ...potential.filter(p => p.x !== pathPosition.x || p.y !== pathPosition.y).slice(0, 2)];
       }
 
       const mem = Memory.rooms[room.name].miningPositions[source.id] || { positions: {} };

@@ -1,22 +1,11 @@
 const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 
-function getIdlePos(creep) {
-  if (creep.memory.buildTarget) {
-    const target = Game.getObjectById(creep.memory.buildTarget);
-    if (target) return target.pos;
-  }
-  const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-  const queue = (roomMemory && roomMemory.buildingQueue) || [];
-  for (const entry of queue) {
-    const site = Game.getObjectById(entry.id);
-    if (site) return site.pos;
-  }
-  const site =
-    creep.pos.findClosestByRange &&
-    creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);
-  return site ? site.pos : null;
-}
+/**
+ * Builder role responsible for constructing sites. Each builder stores the
+ * target construction site id in `memory.mainTask` so it can gather energy
+ * without losing track of its assigned job.
+ */
 
 function requestEnergy(creep) {
   if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
@@ -35,34 +24,26 @@ function requestEnergy(creep) {
     'hauler',
   );
   const demand = require('./manager.hivemind.demand');
-  // Request only the missing amount so hauler demand reflects actual needs
   const amount = creep.store.getFreeCapacity
     ? creep.store.getFreeCapacity(RESOURCE_ENERGY)
     : 0;
   demand.recordRequest(creep.name, amount, creep.room.name);
 }
 
-/**
- * Look for nearby energy that the builder can collect on its own.
- * Returns an object describing the pickup/withdraw action or null if none.
- */
 function findNearbyEnergy(creep) {
-  // Prefer dropped resources nearby to limit travel time
-  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 20, {
+  const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 15, {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   })[0];
   if (dropped) return { type: 'pickup', target: dropped };
 
-  // Check nearby containers with available energy
-  const container = creep.pos.findInRange(FIND_STRUCTURES, 20, {
+  const container = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
       s.store[RESOURCE_ENERGY] > 0,
   })[0];
   if (container) return { type: 'withdraw', target: container };
 
-  // Fallback to storage within reasonable distance
-  const storage = creep.pos.findInRange(FIND_STRUCTURES, 20, {
+  const storage = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_STORAGE &&
       s.store &&
@@ -73,143 +54,76 @@ function findNearbyEnergy(creep) {
   return null;
 }
 
+function gatherEnergy(creep) {
+  const source = findNearbyEnergy(creep);
+  if (source) {
+    if (source.type === 'pickup') {
+      if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+      }
+    } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+    }
+  } else {
+    requestEnergy(creep);
+  }
+}
+
+function chooseSite(creep) {
+  const queue = (creep.room.memory && creep.room.memory.buildingQueue) || [];
+  for (const entry of queue) {
+    const site = Game.getObjectById(entry.id);
+    if (site) return site;
+  }
+  if (creep.pos.findClosestByRange) {
+    return creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);
+  }
+  return null;
+}
+
 const roleBuilder = {
-  run: function (creep) {
+  run(creep) {
     movementUtils.avoidSpawnArea(creep);
-    if (creep.memory.working && creep.store[RESOURCE_ENERGY] === 0) {
-      creep.memory.working = false;
-      creep.say("🔄 collect");
-    }
-    if (!creep.memory.working && creep.store.getFreeCapacity() === 0) {
-      creep.memory.working = true;
-      creep.say("⚡ build/repair");
-    }
-    // Start working as soon as some energy is available to avoid idle creeps
-    if (!creep.memory.working && creep.store[RESOURCE_ENERGY] > 0) {
-      creep.memory.working = true;
-      creep.say("⚡ build/repair");
+
+    if (creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
+    if (!creep.memory.working && creep.store[RESOURCE_ENERGY] > 0) creep.memory.working = true;
+
+    if (!creep.memory.working) {
+      gatherEnergy(creep);
+      return;
     }
 
-    if (creep.memory.working) {
-      const roomMemory = Memory.rooms[creep.room.name];
-      if (creep.store.getFreeCapacity() > 0) {
-        const nearby = findNearbyEnergy(creep);
-        if (nearby) {
-          if (nearby.type === 'pickup') {
-            if (creep.pickup(nearby.target) === ERR_NOT_IN_RANGE) {
-              creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-          } else if (creep.withdraw(nearby.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(nearby.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-          }
+    let target = creep.memory.mainTask ? Game.getObjectById(creep.memory.mainTask) : null;
+    if (!target) {
+      target = chooseSite(creep);
+      creep.memory.mainTask = target ? target.id : null;
+    }
+
+    if (target && target.progress >= target.progressTotal) {
+      target = chooseSite(creep);
+      creep.memory.mainTask = target ? target.id : null;
+    }
+
+    if (target) {
+      if (creep.pos.isEqualTo(target.pos)) {
+        if (!movementUtils.stepOff(creep) && typeof creep.move === 'function') {
+          creep.move(1);
         }
       }
-      if (creep.memory.buildTarget) {
-        const site = Game.getObjectById(creep.memory.buildTarget);
-        if (!site) {
-          if (roomMemory && roomMemory.siteAssignments) {
-            roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
-              0,
-              (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
-            );
-          }
-          delete creep.memory.buildTarget;
-        } else if (creep.pos.isEqualTo(site.pos)) {
-          movementUtils.stepOff(creep);
-          return;
-        } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
-          return;
-        }
+      if (creep.build(target) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(target, { visualizePathStyle: { stroke: '#ffffff' } });
       }
+      return;
+    }
 
-      if (!creep.memory.buildTarget) {
-        const queue = creep.room.memory.buildingQueue || [];
-        for (const entry of queue) {
-          const assigned =
-            (roomMemory.siteAssignments && roomMemory.siteAssignments[entry.id]) ||
-            0;
-          if (assigned < 4) {
-            const site = Game.getObjectById(entry.id);
-            if (site) {
-              creep.memory.buildTarget = entry.id;
-              if (!roomMemory.siteAssignments) roomMemory.siteAssignments = {};
-              roomMemory.siteAssignments[entry.id] = assigned + 1;
-              htm.addCreepTask(
-                creep.name,
-                'buildStructure',
-                { id: entry.id, pos: { x: site.pos.x, y: site.pos.y, roomName: site.pos.roomName } },
-                1,
-                50,
-                1,
-                'builder',
-              );
-              if (creep.pos.isEqualTo(site.pos)) {
-                movementUtils.stepOff(creep);
-              } else if (creep.build(site) === ERR_NOT_IN_RANGE) {
-                creep.travelTo(site, { visualizePathStyle: { stroke: "#ffffff" } });
-              }
-              return;
-            }
-          }
-        }
-      }
-
-      if (!creep.memory.buildTarget && (creep.room.memory.buildingQueue || []).length === 0) {
-        const structuresNeedingRepair = creep.room.find(FIND_STRUCTURES, {
-          filter: (object) => object.hits < object.hitsMax,
-        });
-
-        structuresNeedingRepair.sort((a, b) => a.hits - b.hits);
-
-        if (structuresNeedingRepair.length > 0) {
-          if (creep.repair(structuresNeedingRepair[0]) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(structuresNeedingRepair[0], {
-              visualizePathStyle: { stroke: "#ffffff" },
-            });
-          }
-        } else {
-          if (
-            creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE
-          ) {
-            creep.travelTo(creep.room.controller, {
-              visualizePathStyle: { stroke: "#ffffff" },
-            });
-          }
-        }
-      }
-    } else {
-      if (creep.store[RESOURCE_ENERGY] === 0) {
-        const idlePos = getIdlePos(creep);
-        if (idlePos && !creep.pos.inRangeTo(idlePos, 1)) {
-          creep.travelTo(idlePos, { visualizePathStyle: { stroke: '#aaaaaa' }, range: 1 });
-          return;
-        }
-        const source = findNearbyEnergy(creep);
-        if (source) {
-          if (source.type === 'pickup') {
-            if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
-              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            }
-          } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-          }
-        } else {
-          requestEnergy(creep);
-        }
+    if (creep.upgradeController && creep.room.controller) {
+      if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
+        creep.travelTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
       }
     }
   },
-  onDeath: function (creep) {
-    if (creep.memory.buildTarget) {
-      const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-      if (roomMemory && roomMemory.siteAssignments) {
-        roomMemory.siteAssignments[creep.memory.buildTarget] = Math.max(
-          0,
-          (roomMemory.siteAssignments[creep.memory.buildTarget] || 1) - 1,
-        );
-      }
-    }
+  onDeath(creep) {
+    delete creep.memory.mainTask;
   },
 };
 

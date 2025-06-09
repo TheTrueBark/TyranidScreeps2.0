@@ -23,6 +23,7 @@ const roles = {
     const minerWorkParts = minerBody.filter(p => p === WORK).length;
     const sources = room.find(FIND_SOURCES);
     let minersNeeded = 0;
+    let desiredMiners = 0;
     for (const source of sources) {
       const positions =
         Memory.rooms &&
@@ -33,6 +34,7 @@ const roles = {
           : null;
       if (!positions) continue;
       const maxMiners = Math.min(Object.keys(positions).length, 3);
+      desiredMiners += maxMiners;
 
       const liveCreeps = _.filter(
         Game.creeps,
@@ -113,6 +115,16 @@ const roles = {
 
     // --- Builder calculation ---
     const sites = room.find(FIND_CONSTRUCTION_SITES);
+    const haulersAlive = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'hauler' && c.room.name === roomName,
+    ).length;
+    const queuedHaulers = spawnQueue.queue.filter(
+      q => q.memory.role === 'hauler' && q.room === roomName,
+    ).length;
+    const haulerTask = tasks.find(t => t.name === 'spawnHauler' && t.manager === 'spawnManager');
+    const haulerTaskAmount = haulerTask ? haulerTask.amount || 0 : 0;
+    const totalHaulers = haulersAlive + queuedHaulers + haulerTaskAmount;
     const important = sites.filter(
       s =>
         s.structureType === STRUCTURE_EXTENSION ||
@@ -123,6 +135,10 @@ const roles = {
     let desiredBuilders = 0;
     if (important.length > 0) desiredBuilders = Math.min(12, important.length * 4);
     else desiredBuilders = Math.min(12, general * 2);
+    if (totalHaulers < 2) desiredBuilders = 0;
+    const builderCaps = { 1: 2, 2: 4 };
+    const cap = builderCaps[room.controller.level] || 8;
+    desiredBuilders = Math.min(desiredBuilders, cap);
     const liveBuilders = _.filter(
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,
@@ -146,7 +162,17 @@ const roles = {
           'spawnManager',
         );
       statsConsole.log(`RoleEval queued ${buildersNeeded} builder(s) for ${roomName}`, 2);
+    } else if (builderTask && desiredBuilders === 0) {
+      const idx = container.tasks.indexOf(builderTask);
+      if (idx !== -1) container.tasks.splice(idx, 1);
     }
+
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    if (!Memory.rooms[roomName].spawnLimits)
+      Memory.rooms[roomName].spawnLimits = {};
+    Memory.rooms[roomName].spawnLimits.miners = desiredMiners;
+    Memory.rooms[roomName].spawnLimits.upgraders = desiredUpgraders;
+    Memory.rooms[roomName].spawnLimits.builders = desiredBuilders;
 
     Memory.roleEval.lastRun = Game.time;
   },

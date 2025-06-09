@@ -8,8 +8,16 @@ const movementUtils = {
     const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
     if (!spawn) return;
 
+    // Miners must remain on their reserved positions even if they are within
+    // the restricted area around the spawn. Skip the restricted tile check for
+    // that role so they don't get pushed away from containers.
     const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-    if (roomMemory && roomMemory.restrictedArea) {
+    if (
+      creep.memory.role !== 'miner' &&
+      creep.memory.role !== 'allPurpose' &&
+      roomMemory &&
+      roomMemory.restrictedArea
+    ) {
       for (const p of roomMemory.restrictedArea) {
         if (creep.pos.x === p.x && creep.pos.y === p.y) {
           creep.travelTo(spawn, { range: 2 });
