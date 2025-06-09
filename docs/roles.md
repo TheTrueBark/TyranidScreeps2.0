@@ -17,7 +17,7 @@ Haulers remain governed by the energy demand module.
   energy before upgrading from range. They top up whenever the container has
   energy available so upgrading rarely pauses. When the container is missing the
   HiveMind still spawns one upgrader so progress never stalls.
- - **Builders** – Always fetch energy from nearby containers or dropped
+ - **Builders** – Always fetch energy from nearby containers, storage or dropped
    resources before requesting delivery. They select the highest priority
    construction site each tick (extensions first, then containers, then other
   structures) and build until empty. Each builder stores its assigned

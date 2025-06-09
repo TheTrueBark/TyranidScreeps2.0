@@ -56,12 +56,27 @@ function rotateStamp(stamp, angle) {
 
 module.exports = {
   getStamps: function (rcl) {
-    return Object.values(stamps).filter((stamp) => stamp.rcl <= rcl);
+    const result = [];
+    for (const stamp of Object.values(stamps)) {
+      const filtered = { structures: {} };
+      for (const [type, positions] of Object.entries(stamp.structures)) {
+        filtered.structures[type] = positions.filter(p => p.rcl <= rcl);
+      }
+      result.push(filtered);
+    }
+    return result;
   },
 
   visualizeStamp: function (room, rcl, angle = 0) {
     const stamp = stamps["main"];
     if (!stamp) return;
+
+    // Initialize spawn position from the first available spawn if missing
+    if (!room.memory.spawnPos) {
+      const spawn = room.find(FIND_MY_SPAWNS)[0];
+      if (!spawn) return;
+      room.memory.spawnPos = { x: spawn.pos.x, y: spawn.pos.y };
+    }
 
     const rotatedStamp = rotateStamp(stamp, angle);
     const visual = new RoomVisual(room.name);
@@ -81,24 +96,27 @@ module.exports = {
   },
 
   decodeStamp: function (encodedStamp) {
+    const reverse = {};
+    for (const [type, code] of Object.entries(structureMapping)) {
+      reverse[code] = type;
+    }
+
     const decoded = { structures: {} };
-
-    const rows = encodedStamp.split("\n");
+    const rows = encodedStamp.trim().split("\n");
     for (const row of rows) {
-      const parts = row.split("[");
+      const parts = row.trim().split(/\s+/);
       for (const part of parts) {
-        if (part) {
-          const [rcl, structureCode] = part.split(":");
-          const structureType = structureMapping[structureCode[0]];
-          const x = parseInt(part[1]);
-          const y = parseInt(part[3]);
-
-          if (!decoded.structures[structureType]) {
-            decoded.structures[structureType] = [];
-          }
-
-          decoded.structures[structureType].push({ x, y, rcl: parseInt(rcl) });
-        }
+        const match = part.match(/(\d+):([A-Za-z]+)\(([-\d]+),([-\d]+)\)/);
+        if (!match) continue;
+        const [, rclStr, code, xStr, yStr] = match;
+        const structureType = reverse[code];
+        if (!structureType) continue;
+        if (!decoded.structures[structureType]) decoded.structures[structureType] = [];
+        decoded.structures[structureType].push({
+          x: parseInt(xStr, 10),
+          y: parseInt(yStr, 10),
+          rcl: parseInt(rclStr, 10),
+        });
       }
     }
 

@@ -30,6 +30,8 @@ function requestEnergy(creep) {
   demand.recordRequest(creep.name, amount, creep.room.name);
 }
 
+// Locate the closest available energy source within a short range.
+// Checks dropped resources first, then containers and finally storage.
 function findNearbyEnergy(creep) {
   const dropped = creep.pos.findInRange(FIND_DROPPED_RESOURCES, 15, {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
@@ -132,9 +134,8 @@ const roleBuilder = {
     }
   },
   onDeath(creep) {
+    // Clean up any lingering task references when the creep dies
     delete creep.memory.mainTask;
-  },
-  onDeath(creep) {
     delete creep.memory.targetId;
   },
 };
