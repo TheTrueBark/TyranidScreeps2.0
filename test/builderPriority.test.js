@@ -11,6 +11,7 @@ global.STRUCTURE_CONTAINER = 'container';
 global.STRUCTURE_STORAGE = 'storage';
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
+global.ERR_NOT_IN_RANGE = -9;
 
 describe('builder prioritization', function () {
   beforeEach(function () {

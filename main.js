@@ -200,6 +200,16 @@ scheduler.addTask(
   { minBucket: 1000 },
 );
 
+// Periodically purge console log counts to avoid memory bloat
+scheduler.addTask('purgeLogs', 250, () => {
+  memoryManager.purgeConsoleLogCounts();
+});
+
+// Cleanup stale HTM creep containers
+scheduler.addTask('htmCleanup', 50, () => {
+  htm.cleanupDeadCreeps();
+});
+
 // Debug listing of scheduled tasks
 scheduler.addTask(
   "showScheduled",

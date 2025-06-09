@@ -189,6 +189,17 @@ const htm = {
     }
   },
 
+  /**
+   * Remove creep containers that no longer correspond to living creeps.
+   * Prevents uncontrolled growth of Memory.htm.creeps.
+   */
+  cleanupDeadCreeps() {
+    if (!Memory.htm || !Memory.htm.creeps) return;
+    for (const name in Memory.htm.creeps) {
+      if (!Game.creeps[name]) delete Memory.htm.creeps[name];
+    }
+  },
+
   // --- Internal helpers ---
 
   _addTask(level, id, name, data, priority, ttl, amount = 1, manager = null) {

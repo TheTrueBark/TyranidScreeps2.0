@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const globals = require('./mocks/globals');
 const debugConfig = require('../console.debugLogs');
 const statsConsole = require('../console.console');
+const memoryManager = require('../manager.memory');
 
 let logger;
 
@@ -50,5 +51,12 @@ describe('logger', function () {
     logger.log('spawnManager', 'with room', 3, 'W1N1');
 
     expect(Memory.stats.logs[0].message).to.equal('[spawnManager] with room');
+  });
+
+  it('purges logCounts via memoryManager', function () {
+    logger.log('spawnManager', 'repeat', 2);
+    expect(Memory.stats.logCounts['[spawnManager] repeat']).to.equal(1);
+    memoryManager.purgeConsoleLogCounts();
+    expect(Memory.stats.logCounts).to.deep.equal({});
   });
 });

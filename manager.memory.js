@@ -243,6 +243,16 @@ const memoryManager = {
       }
     }
   },
+
+  /**
+   * Reset log count aggregation to limit memory usage.
+   * Called periodically by the scheduler.
+   */
+  purgeConsoleLogCounts() {
+    if (Memory.stats && Memory.stats.logCounts) {
+      Memory.stats.logCounts = {};
+    }
+  },
 };
 
 module.exports = memoryManager;
