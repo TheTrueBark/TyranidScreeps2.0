@@ -62,8 +62,28 @@ describe('builder energy evaluation', function () {
     expect(Memory.htm.creeps['b2']).to.be.undefined;
   });
 
-  it('scans for energy within 15 tiles', function () {
+  it('does not request energy if container nearby', function () {
     const creep = createCreep('b3');
+    const container = { structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 11, y: 10, roomName: 'W1N1' } };
+    creep.pos.findInRange = (type) => (type === FIND_STRUCTURES ? [container] : []);
+    creep.pickup = () => OK;
+    creep.withdraw = () => OK;
+    roleBuilder.run(creep);
+    expect(Memory.htm.creeps['b3']).to.be.undefined;
+  });
+
+  it('does not request energy if storage nearby', function () {
+    const creep = createCreep('b4');
+    const storage = { structureType: STRUCTURE_STORAGE, store: { [RESOURCE_ENERGY]: 200 }, pos: { x: 12, y: 10, roomName: 'W1N1' } };
+    creep.pos.findInRange = (type) => (type === FIND_STRUCTURES ? [storage] : []);
+    creep.pickup = () => OK;
+    creep.withdraw = () => OK;
+    roleBuilder.run(creep);
+    expect(Memory.htm.creeps['b4']).to.be.undefined;
+  });
+
+  it('scans for energy within 15 tiles', function () {
+    const creep = createCreep('b5');
     let rangeChecked = 0;
     creep.pos.findInRange = (type, range) => {
       rangeChecked = range;
