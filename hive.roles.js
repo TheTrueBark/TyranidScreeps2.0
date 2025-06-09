@@ -136,6 +136,9 @@ const roles = {
     if (important.length > 0) desiredBuilders = Math.min(12, important.length * 4);
     else desiredBuilders = Math.min(12, general * 2);
     if (totalHaulers < 2) desiredBuilders = 0;
+    const builderCaps = { 1: 2, 2: 4 };
+    const cap = builderCaps[room.controller.level] || 8;
+    desiredBuilders = Math.min(desiredBuilders, cap);
     const liveBuilders = _.filter(
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,

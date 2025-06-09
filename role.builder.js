@@ -1,6 +1,12 @@
 const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 
+/**
+ * Builder role responsible for constructing sites. Each builder stores the
+ * target construction site id in `memory.mainTask` so it can gather energy
+ * without losing track of its assigned job.
+ */
+
 function requestEnergy(creep) {
   if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
   const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
@@ -29,6 +35,7 @@ function findNearbyEnergy(creep) {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   })[0];
   if (dropped) return { type: 'pickup', target: dropped };
+
   const container = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
@@ -86,15 +93,15 @@ const roleBuilder = {
       return;
     }
 
-    let target = creep.memory.targetId ? Game.getObjectById(creep.memory.targetId) : null;
+    let target = creep.memory.mainTask ? Game.getObjectById(creep.memory.mainTask) : null;
     if (!target) {
       target = chooseSite(creep);
-      creep.memory.targetId = target ? target.id : null;
+      creep.memory.mainTask = target ? target.id : null;
     }
 
     if (target && target.progress >= target.progressTotal) {
       target = chooseSite(creep);
-      creep.memory.targetId = target ? target.id : null;
+      creep.memory.mainTask = target ? target.id : null;
     }
 
     if (target) {
@@ -113,7 +120,11 @@ const roleBuilder = {
       if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
         creep.travelTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
       }
+      return;
     }
+  },
+  onDeath(creep) {
+    delete creep.memory.mainTask;
   },
   onDeath(creep) {
     delete creep.memory.targetId;

@@ -19,9 +19,12 @@ Haulers remain governed by the energy demand module.
  - **Builders** – Always fetch energy from nearby containers or dropped
    resources before requesting delivery. They select the highest priority
    construction site each tick (extensions first, then containers, then other
-   structures) and build until empty. Builders begin working as soon as they
-   carry any energy. At least two haulers must exist before additional builders
-   are spawned.
+  structures) and build until empty. Each builder stores its assigned
+  construction site's id in `creep.memory.mainTask` so it will return after
+  refueling. Builders begin working as soon as they carry any energy. At least
+  two haulers must exist before additional builders are spawned. The desired
+  number of builders is also capped by RCL: 2 at RCL1, 4 at RCL2 and 8 from
+  RCL3 onward.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

@@ -33,10 +33,12 @@ function findEnergySource(creep) {
   });
   if (tomb) candidates.push({ type: 'withdraw', target: tomb });
 
+  const avoid = creep.memory.blockedContainerId;
   const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
-      s.store[RESOURCE_ENERGY] > 0,
+      s.store[RESOURCE_ENERGY] > 0 &&
+      s.id !== avoid,
   });
   if (container) candidates.push({ type: 'withdraw', target: container });
 
@@ -64,6 +66,8 @@ function deliverEnergy(creep, target = null) {
   if (structure) {
     if (creep.transfer(structure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
+    } else if (structure.structureType === STRUCTURE_CONTAINER) {
+      creep.memory.blockedContainerId = structure.id;
     }
     return true;
   }
@@ -79,6 +83,8 @@ function deliverEnergy(creep, target = null) {
   if (ctrlContainer) {
     if (creep.transfer(ctrlContainer, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
+    } else {
+      creep.memory.blockedContainerId = ctrlContainer.id;
     }
     return true;
   }
@@ -86,6 +92,8 @@ function deliverEnergy(creep, target = null) {
   if (creep.room.storage && creep.room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
     if (creep.transfer(creep.room.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
+    } else if (creep.room.storage.structureType === STRUCTURE_CONTAINER) {
+      creep.memory.blockedContainerId = creep.room.storage.id;
     }
     return true;
   }
@@ -95,6 +103,10 @@ function deliverEnergy(creep, target = null) {
 module.exports = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
+    if (creep.memory.blockedContainerId) {
+      const obj = Game.getObjectById(creep.memory.blockedContainerId);
+      if (!obj || creep.pos.getRangeTo(obj) > 1) delete creep.memory.blockedContainerId;
+    }
     // Active delivery task takes priority
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
       const target = Game.creeps[creep.memory.task.target] ||
@@ -117,9 +129,12 @@ module.exports = {
         } else {
           const delivered = before - creep.store[RESOURCE_ENERGY];
           creep.memory.task.reserved = Math.max(0, creep.memory.task.reserved - delivered);
+          const isStructure = target.structureType !== undefined;
           if (
             creep.memory.task.reserved === 0 ||
-            (target.store && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0)
+            (isStructure &&
+              target.store &&
+              target.store.getFreeCapacity(RESOURCE_ENERGY) === 0)
           ) {
             demand.recordDelivery(
               creep.memory.task.target,
