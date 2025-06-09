@@ -88,12 +88,20 @@ const roleBuilder = {
     if (creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
     if (!creep.memory.working && creep.store[RESOURCE_ENERGY] > 0) creep.memory.working = true;
 
+    if (!creep.memory.mainTask) {
+      const site = chooseSite(creep);
+      creep.memory.mainTask = site ? { type: 'build', id: site.id } : null;
+    }
+
     if (!creep.memory.working) {
       gatherEnergy(creep);
       return;
     }
 
-    let target = creep.memory.mainTask ? Game.getObjectById(creep.memory.mainTask) : null;
+    let taskId = creep.memory.mainTask && creep.memory.mainTask.id
+      ? creep.memory.mainTask.id
+      : creep.memory.mainTask;
+    let target = taskId ? Game.getObjectById(taskId) : null;
     if (!target) {
       target = chooseSite(creep);
       creep.memory.mainTask = target ? target.id : null;

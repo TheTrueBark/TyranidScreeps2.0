@@ -230,55 +230,78 @@ const buildingManager = {
 
   buildExtensions: function (room) {
     const spawn = room.find(FIND_MY_SPAWNS)[0];
-    if (spawn) {
-      const extensionSites = room.find(FIND_CONSTRUCTION_SITES, {
-        filter: (site) => site.structureType === STRUCTURE_EXTENSION,
-      });
+    if (!spawn) return;
 
-      const extensions = room.find(FIND_MY_STRUCTURES, {
-        filter: (structure) => structure.structureType === STRUCTURE_EXTENSION,
-      });
+    const extensionSites = room.find(FIND_CONSTRUCTION_SITES, {
+      filter: (site) => site.structureType === STRUCTURE_EXTENSION,
+    });
 
-      // Determine how many extensions this RCL allows
-      const maxExtensions =
-        CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][room.controller.level] || 0;
-      if (extensions.length + extensionSites.length < maxExtensions) {
-        const positions = [
-          { x: -2, y: -2 },
-          { x: -2, y: 2 },
-          { x: 2, y: -2 },
-          { x: 2, y: 2 },
-          { x: -3, y: 0 },
-          { x: 3, y: 0 },
-          { x: 0, y: -3 },
-          { x: 0, y: 3 },
-        ];
+    const extensions = room.find(FIND_MY_STRUCTURES, {
+      filter: (structure) => structure.structureType === STRUCTURE_EXTENSION,
+    });
 
-        for (let i = 0; i < positions.length; i++) {
-          const pos = new RoomPosition(
-            spawn.pos.x + positions[i].x,
-            spawn.pos.y + positions[i].y,
-            room.name,
-          );
-          const structuresAtPos = pos.lookFor(LOOK_STRUCTURES);
-          const constructionSitesAtPos = pos.lookFor(LOOK_CONSTRUCTION_SITES);
+    const maxExtensions =
+      CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][room.controller.level] || 0;
+    let remaining = maxExtensions - (extensions.length + extensionSites.length);
+    if (remaining <= 0) return;
 
-          if (
-            structuresAtPos.length === 0 &&
-            constructionSitesAtPos.length === 0
-          ) {
-            const result = pos.createConstructionSite(STRUCTURE_EXTENSION);
-            if (result === OK) {
-              statsConsole.log(`Queued extension construction at ${pos}`, 6);
-              break;
-            } else {
-              statsConsole.log(
-                `Failed to queue extension construction at ${pos} with error ${result}`,
-                6,
-              );
-            }
-          }
+    if (!room.memory.extensionCenters) room.memory.extensionCenters = [];
+
+    const centers = [
+      { x: spawn.pos.x - 2, y: spawn.pos.y - 2 },
+      { x: spawn.pos.x + 2, y: spawn.pos.y - 2 },
+      { x: spawn.pos.x - 2, y: spawn.pos.y + 2 },
+      { x: spawn.pos.x + 2, y: spawn.pos.y + 2 },
+    ];
+
+    const terrain = room.getTerrain();
+
+    for (const center of centers) {
+      if (remaining <= 0) break;
+      const key = `${center.x},${center.y}`;
+      if (room.memory.extensionCenters.indexOf(key) !== -1) continue;
+
+      const stamp = [
+        { x: center.x, y: center.y - 1 },
+        { x: center.x - 1, y: center.y },
+        { x: center.x, y: center.y },
+        { x: center.x + 1, y: center.y },
+        { x: center.x, y: center.y + 1 },
+      ];
+
+      let buildable = true;
+      for (const p of stamp) {
+        if (p.x < 1 || p.x > 48 || p.y < 1 || p.y > 48) {
+          buildable = false;
+          break;
         }
+        if (terrain.get(p.x, p.y) === TERRAIN_MASK_WALL) {
+          buildable = false;
+          break;
+        }
+        if (room.lookForAt(LOOK_STRUCTURES, p.x, p.y).length > 0) {
+          buildable = false;
+          break;
+        }
+        if (room.lookForAt(LOOK_CONSTRUCTION_SITES, p.x, p.y).length > 0) {
+          buildable = false;
+          break;
+        }
+      }
+      if (!buildable) continue;
+
+      let created = false;
+      for (const p of stamp) {
+        if (remaining <= 0) break;
+        const result = room.createConstructionSite(p.x, p.y, STRUCTURE_EXTENSION);
+        if (result === OK) {
+          statsConsole.log(`Queued extension construction at ${p.x},${p.y}`, 6);
+          remaining--;
+          created = true;
+        }
+      }
+      if (created) {
+        room.memory.extensionCenters.push(key);
       }
     }
   },

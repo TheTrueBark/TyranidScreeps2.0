@@ -59,4 +59,7 @@ htm.claimTask(htm.LEVELS.COLONY, 'W1N1', 'spawnMiner', 'spawnManager', 15, 150);
 `claimedUntil` blocks the HiveMind from requeueing the same task for a few
 ticks, preventing duplicate orders.
 
+Stale creep containers are purged every 50 ticks so the `Memory.htm.creeps`
+section only tracks currently living units.
+
 This flexible core allows modules to schedule work without direct coupling and provides the backbone of the hive mind.

@@ -24,6 +24,9 @@ logger.log('spawnManager', 'Spawning failed', 3);
 
 Logs can be toggled per module via `console.debugLogs.js`. This allows selective debugging without polluting the console.
 
+The aggregated log counts stored under `Memory.stats.logCounts` are cleared every
+250 ticks to keep memory usage low.
+
 ## Integration with statsConsole
 
 `statsConsole.log()` is used internally to print colored lines. The scheduler periodically triggers the log display so that messages are flushed every few ticks alongside CPU and room statistics.

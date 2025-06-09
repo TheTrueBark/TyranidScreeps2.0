@@ -137,7 +137,9 @@
 - [ ] Feed into HTM to adjust future decisions
 
 ### 🧹 Garbage Agent (Prio 2)
-- [ ] Purge expired or unused memory entries
+- [x] Purge expired or unused memory entries
+- [x] Reset console log counts every 250 ticks
+- [x] Remove stale HTM creep containers regularly
 - [ ] Respect memory types: permanent, semi, temporary
 - [ ] Run every N ticks via scheduler
 
@@ -169,7 +171,8 @@
 
 ### 🧱 Auto-Layout System
 - [ ] Analyze room structures by RCL
-- [ ] Auto-place extensions, roads, containers, towers
+- [x] Auto-place extensions in plus-shaped stamps around the spawn
+- [ ] Auto-place roads, containers, towers
 - [ ] Plan paths from sources to controller/spawns/storage
 - [x] Declare spawn restricted area in memory for movement logic
 - [x] Haulers supply controller containers when energy drops below capacity

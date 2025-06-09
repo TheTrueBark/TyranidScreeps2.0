@@ -14,8 +14,9 @@ Haulers remain governed by the energy demand module.
    the source without moving.
  - **Upgraders** – A single container two tiles from the controller anchors the
   upgrade position. Upgraders stand on or next to this container and withdraw
-  energy before upgrading from range. When the container is missing the HiveMind
-  still spawns one upgrader so progress never stalls.
+  energy before upgrading from range. They top up whenever the container has
+  energy available so upgrading rarely pauses. When the container is missing the
+  HiveMind still spawns one upgrader so progress never stalls.
  - **Builders** – Always fetch energy from nearby containers or dropped
    resources before requesting delivery. They select the highest priority
    construction site each tick (extensions first, then containers, then other

@@ -53,6 +53,8 @@ its queue is empty.
   The HiveMind also orders basic infrastructure:
   - Containers are planned as soon as the room is claimed (RCL1).
   - Extensions begin construction when the controller reaches RCL2.
+  - Extension sites are placed in plus-shaped stamps around the spawn for
+    maximum accessibility.
   - Source containers are prioritized before extensions, followed by controller
     containers.
   - Mining positions are freed when miners approach expiry so replacements

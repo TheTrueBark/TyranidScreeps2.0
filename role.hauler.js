@@ -5,6 +5,9 @@ const logger = require('./logger');
 const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
 
+// Ticks to ignore a container after depositing energy into it
+const CONTAINER_BLOCK_TIME = 5;
+
 /**
  * Determine the optimal nearby energy source for the hauler.
  * Considers dropped resources, ruins, tombstones, containers and storage
@@ -68,6 +71,7 @@ function deliverEnergy(creep, target = null) {
       creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
     } else if (structure.structureType === STRUCTURE_CONTAINER) {
       creep.memory.blockedContainerId = structure.id;
+      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
     }
     return true;
   }
@@ -85,6 +89,7 @@ function deliverEnergy(creep, target = null) {
       creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
     } else {
       creep.memory.blockedContainerId = ctrlContainer.id;
+      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
     }
     return true;
   }
@@ -94,6 +99,7 @@ function deliverEnergy(creep, target = null) {
       creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
     } else if (creep.room.storage.structureType === STRUCTURE_CONTAINER) {
       creep.memory.blockedContainerId = creep.room.storage.id;
+      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
     }
     return true;
   }
@@ -104,8 +110,10 @@ module.exports = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
     if (creep.memory.blockedContainerId) {
-      const obj = Game.getObjectById(creep.memory.blockedContainerId);
-      if (!obj || creep.pos.getRangeTo(obj) > 1) delete creep.memory.blockedContainerId;
+      if (Game.time >= (creep.memory.blockedContainerUntil || 0)) {
+        delete creep.memory.blockedContainerId;
+        delete creep.memory.blockedContainerUntil;
+      }
     }
     // Active delivery task takes priority
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
