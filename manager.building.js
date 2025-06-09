@@ -135,6 +135,21 @@ const buildingManager = {
   buildSourceContainers: function (room) {
     const sources = room.find(FIND_SOURCES);
     for (const source of sources) {
+      // Skip if any container or site already exists around the source
+      const existingContainers = source.pos.findInRange(FIND_STRUCTURES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      const existingSites = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
+        filter: s => s.structureType === STRUCTURE_CONTAINER,
+      });
+      if (existingContainers.length + existingSites.length > 0) {
+        // Remove duplicate sites to keep only one
+        for (let i = 1; i < existingSites.length; i++) {
+          existingSites[i].remove();
+        }
+        continue;
+      }
+
       const sourceMem =
         Memory.rooms[room.name] && Memory.rooms[room.name].miningPositions
           ? Memory.rooms[room.name].miningPositions[source.id]
@@ -143,13 +158,13 @@ const buildingManager = {
       const posData = best || (room.memory.buildableAreas[source.id] || [])[0];
       if (posData) {
         const containerPos = new RoomPosition(posData.x, posData.y, room.name);
-        const containerSite = containerPos
+        const site = containerPos
           .lookFor(LOOK_CONSTRUCTION_SITES)
-          .filter((site) => site.structureType === STRUCTURE_CONTAINER);
-        const containerStructure = containerPos
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        const struct = containerPos
           .lookFor(LOOK_STRUCTURES)
-          .filter((struct) => struct.structureType === STRUCTURE_CONTAINER);
-        if (containerSite.length === 0 && containerStructure.length === 0) {
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        if (!site && !struct) {
           room.createConstructionSite(containerPos, STRUCTURE_CONTAINER);
           statsConsole.log(
             `Queued container construction at ${containerPos}`,
@@ -168,7 +183,7 @@ const buildingManager = {
     const controllerSites = room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, {
       filter: s => s.structureType === STRUCTURE_CONTAINER,
     });
-    if (controllerContainers.length + controllerSites.length < 2) {
+    if (controllerContainers.length + controllerSites.length < 1) {
       const spawn = room.find(FIND_MY_SPAWNS)[0];
       let spots = getOpenSpots(room.controller.pos, 2).filter(p =>
         new RoomPosition(p.x, p.y, room.name).getRangeTo(room.controller) === 2,
@@ -178,19 +193,16 @@ const buildingManager = {
           spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
         );
       }
-      let placed = controllerContainers.length + controllerSites.length;
-      let firstPos = null;
-      for (const spot of spots) {
-        if (placed >= 2) break;
-        const pos = new RoomPosition(spot.x, spot.y, room.name);
-        const site = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s => s.structureType === STRUCTURE_CONTAINER);
-        const struct = pos.lookFor(LOOK_STRUCTURES).filter(s => s.structureType === STRUCTURE_CONTAINER);
-        if (site.length === 0 && struct.length === 0) {
-          if (firstPos && !firstPos.isNearTo(pos)) continue;
+      if (spots.length > 0) {
+        const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
+        const site = pos
+          .lookFor(LOOK_CONSTRUCTION_SITES)
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        const struct = pos
+          .lookFor(LOOK_STRUCTURES)
+          .find(s => s.structureType === STRUCTURE_CONTAINER);
+        if (!site && !struct) {
           room.createConstructionSite(pos, STRUCTURE_CONTAINER);
-          controllerSites.push({});
-          placed++;
-          if (!firstPos) firstPos = pos;
           statsConsole.log(`Queued controller container at ${pos}`, 6);
         }
       }

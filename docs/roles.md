@@ -12,12 +12,10 @@ Haulers remain governed by the energy demand module.
    `manager.dna` and capped at three creeps per source. Miners with at least five
    WORK parts automatically relocate onto the nearby container so they can empty
    the source without moving.
-- **Upgraders** – Containers two tiles from the controller dictate the
-  desired number of upgraders (four per container). Upgraders stand at these
-  containers or at a position two tiles from the controller, upgrading from
-  range. Upgraders withdraw energy when adjacent to their container rather than
-  only when positioned directly on top. When no containers are present the
-  system still spawns one upgrader so progress never stalls.
+ - **Upgraders** – A single container two tiles from the controller anchors the
+  upgrade position. Upgraders stand on or next to this container and withdraw
+  energy before upgrading from range. When the container is missing the HiveMind
+  still spawns one upgrader so progress never stalls.
  - **Builders** – Always fetch energy from nearby containers or dropped
    resources before requesting delivery. They select the highest priority
    construction site each tick (extensions first, then containers, then other

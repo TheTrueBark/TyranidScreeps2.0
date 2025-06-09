@@ -16,7 +16,11 @@ describe('controller container energy requests', function () {
     Memory.rooms = { W1N1: {} };
     const container = {
       id: 'c1',
-      store: { [global.RESOURCE_ENERGY]: 1200, getCapacity: () => 2000 },
+      store: {
+        [global.RESOURCE_ENERGY]: 1200,
+        getCapacity: () => 2000,
+        getFreeCapacity: () => 800,
+      },
       pos: { x: 5, y: 5, roomName: 'W1N1', inRangeTo: () => true },
       structureType: STRUCTURE_CONTAINER,
     };
