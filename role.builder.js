@@ -120,10 +120,14 @@ const roleBuilder = {
       if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
         creep.travelTo(creep.room.controller, { visualizePathStyle: { stroke: '#ffffff' } });
       }
+      return;
     }
   },
   onDeath(creep) {
     delete creep.memory.mainTask;
+  },
+  onDeath(creep) {
+    delete creep.memory.targetId;
   },
 };
 
