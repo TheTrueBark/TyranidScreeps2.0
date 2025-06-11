@@ -45,3 +45,13 @@ processing.
 In panic situations the HiveMind may purge all pending requests for a room. Use
 `spawnQueue.clearRoom(roomName)` to remove every queued entry belonging to that
 room.
+
+### Memory Layout
+
+@codex-owner spawnQueue
+@codex-path Memory.spawnQueue
+@codex-version 1
+
+`Memory.spawnQueue` is an array containing the request objects shown above.
+`Memory.nextSpawnRequestId` increments each tick to guarantee unique ids.
+Requests are removed once the spawn succeeds or they are explicitly cleared.

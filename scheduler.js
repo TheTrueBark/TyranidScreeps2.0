@@ -1,4 +1,13 @@
 /**
+ * Trigger definition shared by scheduler jobs and HTM tasks.
+ * @typedef {Object} Trigger
+ * @property {'interval'|'event'|'once'} type
+ * @property {number} [interval]
+ * @property {string} [eventName]
+ * @property {number} [tickAt]
+ */
+
+/**
  * Represents a single scheduled task.
  */
 const statsConsole = require('console.console');
@@ -14,6 +23,12 @@ class Task {
     this.event = options.event || null;
     this.minBucket = options.minBucket || 0; // Minimum CPU bucket to execute
     this.executed = false; // Track if the task ran at least once
+    /** @type {Trigger} */
+    this.trigger = this.event
+      ? { type: 'event', eventName: this.event }
+      : this.once
+      ? { type: 'once', tickAt: this.nextRun }
+      : { type: 'interval', interval: this.interval };
   }
 }
 
@@ -58,6 +73,7 @@ class Scheduler {
    * @param {boolean} [options.highPriority=false] Execute before other tasks.
    * @param {boolean} [options.once=false]  Remove task after first execution.
    * @param {string}  [options.event=null]  Event name to bind this task to.
+   * @codex-owner scheduler
    */
   addTask(name, interval, taskFunction, options = {}) {
     const task = new Task(name, interval, taskFunction, options);

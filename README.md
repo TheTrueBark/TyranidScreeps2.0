@@ -66,6 +66,7 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 Next step: focus on the hierarchical task system so the scheduler can trigger colony and creep level tasks dynamically.
 
 ## 📘 Documentation
+- [System Overview](./docs/SYSTEM_OVERVIEW.md)
 - [Roadmap](./ROADMAP.md)
 - [Logger](./docs/logger.md)
 - [Scheduler](./docs/scheduler.md)

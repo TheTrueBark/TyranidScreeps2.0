@@ -12,6 +12,18 @@ Tasks can also be flagged as `highPriority` so they execute before normal tasks 
 
 Tasks may specify `minBucket` to delay execution until the CPU bucket is above a certain value. This allows optional logic to throttle itself when the colony is CPU starved.
 
+### Trigger Interface
+
+Both scheduler jobs and HTM tasks use the same trigger description:
+
+```javascript
+{ type: 'interval', interval: 5 }
+{ type: 'event', eventName: 'roleUpdate' }
+{ type: 'once', tickAt: Game.time + 10 }
+```
+
+This structure is documented via `@codex-trigger` annotations on every job.
+
 ## Registering Tasks
 
 ```javascript
@@ -33,9 +45,33 @@ One time tasks are removed after execution. You can force a task to run next tic
 Use `removeTask(name)` to cancel a task entirely or `updateTask(name, interval)` to change its schedule.
 
 Calling `scheduler.listTasks()` returns a summary of upcoming executions which can be printed periodically via `scheduler.logTaskList()`.
+`debug.showSchedule()` prints the same information on demand along with memory schema status.
 
 ### Role Evaluation Events
 
 The `roleUpdate` event triggers the `hive.roles` module to re-evaluate a room's
 workforce. Events are fired when creeps spawn or die, when construction sites
 change or when the controller level increases.
+
+## Registered Jobs
+
+The main loop registers several core jobs which drive the colony:
+
+| Job Name             | Interval/Event | Owner Module        | Description |
+|----------------------|----------------|--------------------|-------------|
+| `initializeRoomMemory` | once          | `main`             | Prepares room and hive memory on tick 0. |
+| `clearMemory`        | 100 ticks      | `main`             | Removes dead creep memory. |
+| `updateHUD`          | 5 ticks        | `main`             | Draws HUD visuals. |
+| `buildInfrastructure`| every tick     | `buildingManager`  | Places construction sites when needed. |
+| `hivemind`           | 1 tick         | `hivemind`         | Evaluates strategy and queues HTM tasks. |
+| `energyDemand`       | 1000 ticks     | `demand`           | Updates delivery stats. |
+| `roleUpdateEvent`    | event `roleUpdate` | `main`        | Triggers role evaluation on spawn/death. |
+| `roleUpdateFallback` | 50 ticks       | `main`             | Periodic role evaluation when bucket high. |
+| `htmRun`             | 1 tick         | `htm`              | Processes HTM task queues. |
+| `consoleDisplay`     | 5 ticks        | `console.console`  | Prints stats and logs to console. |
+| `purgeLogs`          | 250 ticks      | `memoryManager`    | Clears aggregated log counts. |
+| `htmCleanup`         | 50 ticks       | `htm`              | Removes memory for dead creeps. |
+| `showScheduled`      | 50 ticks       | `scheduler`        | Optional debug output of task list. |
+
+Use `scheduler.listTasks()` to see current timers and next execution tick for each job.
+
