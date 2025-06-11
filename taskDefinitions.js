@@ -37,6 +37,13 @@ taskRegistry.register('buildSite', {
   trigger: { type: 'event', eventName: 'newConstruction' },
 });
 
+taskRegistry.register('BUILD_LAYOUT_PART', {
+  owner: 'buildingManager',
+  priority: 1,
+  ttl: 200,
+  trigger: { type: 'condition', conditionFn: 'layoutAvailable' },
+});
+
 taskRegistry.register('repairEmergency', {
   owner: 'buildingManager',
   priority: 1,

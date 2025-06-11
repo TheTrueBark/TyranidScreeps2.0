@@ -1,7 +1,9 @@
 const statsConsole = require("console.console");
+require("./RoomVisual");
 const roomManager = require("manager.room");
 const spawnManager = require("manager.spawn");
 const buildingManager = require("manager.building");
+const layoutPlanner = require('./layoutPlanner');
 const roomPlanner = require("planner.room");
 const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
@@ -148,6 +150,17 @@ scheduler.addTask("updateHUD", 5, () => {
     }
   }
 }); // @codex-owner main @codex-trigger {"type":"interval","interval":5}
+
+// Plan base layout periodically
+scheduler.addTask('layoutPlanInit', 500, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room.memory.baseLayout && room.controller && room.controller.my) {
+      const spawn = room.find(FIND_MY_SPAWNS)[0];
+      if (spawn) layoutPlanner.planBaseLayout(room);
+    }
+  }
+}); // @codex-owner layoutPlanner @codex-trigger {"type":"interval","interval":500}
 
 
 // Add on-demand building manager task

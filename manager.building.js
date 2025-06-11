@@ -1,6 +1,10 @@
+/** @codex-owner buildingManager */
 const roomPlanner = require("planner.room");
 const statsConsole = require("console.console");
 const scheduler = require('./scheduler');
+const layoutPlanner = require('./layoutPlanner');
+const layoutVisualizer = require('./layoutVisualizer');
+const htm = require('./manager.htm');
 
 // Configurable weights for different structures
 const constructionWeights = {
@@ -79,6 +83,7 @@ const buildingManager = {
   },
 
   buildInfrastructure: function (room) {
+    this.processHTMTasks(room);
     if (this.shouldUpdateCache(room)) {
       this.cacheBuildableAreas(room);
       statsConsole.log(`Recalculated buildable areas for room ${room.name}`, 6);
@@ -99,6 +104,8 @@ const buildingManager = {
       // Buffer container near the spawn is no longer required
       // this.buildBufferContainer(room);
     }
+
+    this.executeLayout(room);
   },
 
   manageBuildingQueue: function (room) {
@@ -122,6 +129,29 @@ const buildingManager = {
     if (prevLength !== buildingQueue.length) {
       const scheduler = require('./scheduler');
       scheduler.triggerEvent('roleUpdate', { room: room.name });
+    }
+  },
+
+  /**
+   * Execute pending BUILD_LAYOUT_PART tasks by placing construction sites.
+   */
+  processHTMTasks: function(room) {
+    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    if (!container || !container.tasks) return;
+    for (const task of container.tasks) {
+      if (task.manager !== 'buildingManager' || task.name !== 'BUILD_LAYOUT_PART') continue;
+      if (Game.time < task.claimedUntil) continue;
+      const { x, y, structureType } = task.data;
+      const hasStruct = room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === structureType);
+      const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === structureType);
+      if (!hasStruct && !hasSite) {
+        const res = room.createConstructionSite(x, y, structureType);
+        if (res === OK) {
+          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'buildingManager');
+        }
+      } else {
+        htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'buildingManager');
+      }
     }
   },
 
@@ -302,6 +332,51 @@ const buildingManager = {
       }
       if (created) {
         room.memory.extensionCenters.push(key);
+      }
+    }
+  },
+
+  executeLayout: function (room) {
+    if (!room.memory.baseLayout) return;
+    if (room.controller.level >= 6 && !room.memory.restructureAtRCL) {
+      room.memory.restructureAtRCL = true;
+      statsConsole.log(`Base restructure flagged for ${room.name}`, 5);
+    }
+    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    const priority = [
+      STRUCTURE_SPAWN,
+      STRUCTURE_EXTENSION,
+      STRUCTURE_TOWER,
+      STRUCTURE_STORAGE,
+      STRUCTURE_TERMINAL,
+      STRUCTURE_ROAD,
+    ];
+    for (const type of priority) {
+      const list = room.memory.baseLayout.stamps[type] || [];
+      for (const pos of list) {
+        const struct = pos.structureType || type;
+        if (pos.rcl > room.controller.level) continue;
+        const hasStruct = room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y).some(s => s.structureType === struct);
+        const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y).some(s => s.structureType === struct);
+        const queued = htm.taskExistsAt(
+          htm.LEVELS.COLONY,
+          room.name,
+          'BUILD_LAYOUT_PART',
+          { x: pos.x, y: pos.y, structureType: struct },
+        );
+        if (!hasStruct && !hasSite && !queued) {
+          htm.addColonyTask(
+            room.name,
+            'BUILD_LAYOUT_PART',
+            { x: pos.x, y: pos.y, structureType: struct, rcl: pos.rcl },
+            3,
+            200,
+            1,
+            'buildingManager',
+            { module: 'layoutPlanner' },
+          );
+          return;
+        }
       }
     }
   },

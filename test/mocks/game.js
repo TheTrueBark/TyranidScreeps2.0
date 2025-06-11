@@ -25,6 +25,9 @@ function resetGame(overrides = {}) {
       progress: 0,
       progressTotal: 1,
     },
+    map: {
+      getRoomTerrain: () => ({ get: () => 'plain' }),
+    },
   }, overrides);
 }
 

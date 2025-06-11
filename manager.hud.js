@@ -1,5 +1,6 @@
 // hudManager.js
 const visualizer = require("manager.visualizer");
+const layoutVisualizer = require('./layoutVisualizer');
 
 module.exports = {
   createHUD: function (room) {
@@ -32,5 +33,7 @@ module.exports = {
         pos: new RoomPosition(1, 1, room.name),
       });
     }
+
+    layoutVisualizer.draw(room);
   },
 };
