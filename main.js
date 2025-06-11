@@ -16,6 +16,7 @@ const hiveTravel = require("manager.hiveTravel");
 const scheduler = require("scheduler");
 const logger = require("./logger");
 const introspect = require('./debug.introspection');
+require('./taskDefinitions');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
 const movementUtils = require("./utils.movement");
