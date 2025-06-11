@@ -1,155 +1,131 @@
-const statsConsole = require("console.console");
-const htm = require("./manager.htm");
-const movementUtils = require("./utils.movement");
+const statsConsole = require('console.console');
+const movementUtils = require('./utils.movement');
 
-const MAX_UPGRADERS_PER_CONTAINER = 4;
+/**
+ * Simplified upgrader behavior.
+ * Creep collects the closest available energy until full then
+ * upgrades the room controller from within a three tile radius.
+ */
 
-function assignContainer(creep) {
-  if (creep.memory.containerId) {
-    const obj = Game.getObjectById(creep.memory.containerId);
-    if (obj) return obj;
-    delete creep.memory.containerId;
+function findClosestEnergy(creep) {
+  const options = [];
+
+  let dropped = null;
+  if (creep.pos.findClosestByRange) {
+    dropped = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {
+      filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+    });
+  } else if (creep.room && creep.room.find) {
+    dropped = creep.room
+      .find(FIND_DROPPED_RESOURCES)
+      .find(r => r.resourceType === RESOURCE_ENERGY && r.amount > 0) || null;
   }
-  const controller = creep.room.controller;
-  if (!controller || !controller.pos || !controller.pos.findInRange) return null;
-  const container = controller.pos.findInRange(FIND_STRUCTURES, 2, {
-    filter: s => s.structureType === STRUCTURE_CONTAINER,
-  })[0];
-  if (!container) return null;
-  const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-  if (!roomMemory) return null;
-  if (!roomMemory.upgradeAssignments) roomMemory.upgradeAssignments = {};
-  const assigned = roomMemory.upgradeAssignments[container.id] || 0;
-  if (assigned >= MAX_UPGRADERS_PER_CONTAINER) return null;
-  creep.memory.containerId = container.id;
-  roomMemory.upgradeAssignments[container.id] = assigned + 1;
-  return container;
-}
+  if (dropped) {
+    options.push({ target: dropped, type: 'pickup', range: creep.pos.getRangeTo(dropped) });
+  }
 
-function getUpgradePos(creep) {
-  const container = assignContainer(creep);
+  let container = null;
+  if (creep.pos.findClosestByRange) {
+    container = creep.pos.findClosestByRange(FIND_STRUCTURES, {
+      filter: s =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        s.store && s.store[RESOURCE_ENERGY] > 0,
+    });
+  }
+  if (!container && creep.room && creep.room.controller && creep.room.controller.pos && creep.room.controller.pos.findInRange) {
+    container = creep.room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
+      filter: s =>
+        (s.structureType === STRUCTURE_CONTAINER || s.structureType === STRUCTURE_STORAGE) &&
+        s.store && s.store[RESOURCE_ENERGY] > 0,
+    })[0];
+  }
   if (container) {
-    creep.memory.upgradePos = {
-      x: container.pos.x,
-      y: container.pos.y,
-      roomName: container.pos.roomName,
-    };
-    return container.pos;
-  }
-  if (creep.memory.upgradePos) {
-    const p = creep.memory.upgradePos;
-    return new RoomPosition(p.x, p.y, p.roomName);
+    options.push({ target: container, type: 'withdraw', range: creep.pos.getRangeTo(container) });
   }
 
-  let pos = null;
-  if (creep.room.controller && creep.room.controller.pos) {
-    const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
-    if (spawn && spawn.pos) {
-      const path = creep.room.findPath(creep.room.controller.pos, spawn.pos, {
-        ignoreCreeps: true,
-      });
-      if (path.length >= 2) {
-        const step = path[1];
-        pos = new RoomPosition(step.x, step.y, creep.room.name);
-      }
-    }
-    if (!pos) pos = creep.room.controller.pos;
-  } else {
-    pos = creep.pos;
+  let source = null;
+  if (creep.pos.findClosestByRange) {
+    source = creep.pos.findClosestByRange(FIND_SOURCES);
+  } else if (creep.room && creep.room.find) {
+    source = creep.room.find(FIND_SOURCES)[0] || null;
   }
-  creep.memory.upgradePos = { x: pos.x, y: pos.y, roomName: pos.roomName };
-  return pos;
+  if (source) {
+    options.push({ target: source, type: 'harvest', range: creep.pos.getRangeTo(source) });
+  }
+
+  if (options.length === 0) return null;
+  options.sort((a, b) => a.range - b.range);
+  return options[0];
 }
 
-function requestEnergy(creep) {
-  if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
-  const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
-  const distance = spawn ? spawn.pos.getRangeTo(creep) : 10;
-  htm.addCreepTask(
-    creep.name,
-    'deliverEnergy',
-    {
-      pos: { x: creep.pos.x, y: creep.pos.y, roomName: creep.room.name },
-      ticksNeeded: distance * 2,
-    },
-    1,
-    50,
-    1,
-    'hauler',
-  );
-  const demand = require('./manager.hivemind.demand');
-  demand.recordRequest(creep.name, creep.store.getCapacity ? creep.store.getCapacity() : 0, creep.room.name);
+function gatherEnergy(creep) {
+  const choice = findClosestEnergy(creep);
+  if (!choice) return;
+
+  if (choice.type === 'pickup') {
+    if (creep.pickup(choice.target) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(choice.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+    }
+  } else if (choice.type === 'withdraw') {
+    if (creep.withdraw(choice.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(choice.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+    }
+  } else if (creep.harvest(choice.target) === ERR_NOT_IN_RANGE) {
+    creep.travelTo(choice.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+  }
+}
+
+function upgrade(creep) {
+  const controller = creep.room.controller;
+  if (!controller) return;
+
+  const range = creep.pos.getRangeTo(controller);
+  if (range > 3) {
+    creep.travelTo(controller, { range: 3, visualizePathStyle: { stroke: '#ffffff' } });
+  }
+  if (creep.pos.getRangeTo(controller) <= 3) {
+    creep.upgradeController(controller);
+  }
 }
 
 const roleUpgrader = {
-  run: function (creep) {
+  run(creep) {
+    const start = Game.cpu.getUsed();
     movementUtils.avoidSpawnArea(creep);
-    const pos = getUpgradePos(creep);
-    const container = creep.memory.containerId
-      ? Game.getObjectById(creep.memory.containerId)
-      : null;
 
-    if (
-      container &&
-      container.store[RESOURCE_ENERGY] > 0 &&
-      creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0 &&
-      creep.pos.getRangeTo(container) <= 1
-    ) {
-      if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.travelTo(container, { visualizePathStyle: { stroke: '#ffaa00' } });
-      }
-      if (
-        creep.store[RESOURCE_ENERGY] > 0 &&
-        creep.room.controller &&
-        creep.pos.getRangeTo(creep.room.controller) <= 3
-      ) {
-        creep.upgradeController(creep.room.controller);
-      }
-      return;
-    }
-
-    if (creep.store[RESOURCE_ENERGY] === 0) {
-
-      // Withdraw if close enough, otherwise move toward the upgrade position
-      if (
-        container &&
-        container.store[RESOURCE_ENERGY] > 0 &&
-        creep.pos.getRangeTo(container) <= 1
-      ) {
-        if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(container, { visualizePathStyle: { stroke: '#ffaa00' } });
-        }
+    if (creep.memory.working === undefined) {
+      let capacity = 0;
+      if (creep.store.getCapacity) {
+        capacity = creep.store.getCapacity(RESOURCE_ENERGY);
+      } else if (creep.store.getFreeCapacity) {
+        capacity = creep.store[RESOURCE_ENERGY] + creep.store.getFreeCapacity(RESOURCE_ENERGY);
       } else {
-        creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
+        capacity = creep.storeCapacity || 0;
       }
-      if (
-        creep.store[RESOURCE_ENERGY] > 0 &&
-        creep.room.controller &&
-        creep.pos.getRangeTo(creep.room.controller) <= 3
-      ) {
-        creep.upgradeController(creep.room.controller);
-      }
-      return;
+      creep.memory.working = creep.store[RESOURCE_ENERGY] >= capacity;
+    }
+    if (creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
+    if (
+      creep.store.getFreeCapacity
+        ? creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0
+        : creep.store[RESOURCE_ENERGY] >= creep.storeCapacity
+    ) {
+      creep.memory.working = true;
     }
 
-    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE) {
-      creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffffff' } });
+    if (creep.memory.working) {
+      upgrade(creep);
+    } else {
+      gatherEnergy(creep);
     }
+
+    statsConsole.run([[
+      'role.upgrader',
+      Game.cpu.getUsed() - start,
+    ]]);
   },
-  onDeath: function (creep) {
-    const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-    if (
-      roomMemory &&
-      roomMemory.upgradeAssignments &&
-      creep.memory.containerId &&
-      roomMemory.upgradeAssignments[creep.memory.containerId]
-    ) {
-      roomMemory.upgradeAssignments[creep.memory.containerId] = Math.max(
-        0,
-        (roomMemory.upgradeAssignments[creep.memory.containerId] || 1) - 1,
-      );
-    }
-  },
+
+  onDeath() {},
 };
 
 module.exports = roleUpgrader;

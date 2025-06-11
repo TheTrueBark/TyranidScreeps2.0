@@ -2,7 +2,6 @@ const { expect } = require('chai');
 const globals = require('./mocks/globals');
 
 const roleUpgrader = require('../role.upgrader');
-const htm = require('../manager.htm');
 
 global.FIND_MY_SPAWNS = 1;
 global.FIND_STRUCTURES = 2;
@@ -10,35 +9,31 @@ global.STRUCTURE_CONTAINER = 'container';
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
 
-describe('upgrader assigns container after it appears', function() {
+describe('upgrader moves toward controller when not in range', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
-    htm.init();
     Memory.rooms = { W1N1: {} };
-    Memory.htm.creeps = {};
-    const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 100 }, pos: { x:5, y:5, roomName:'W1N1' } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
-      controller: { pos: { findInRange: () => [container] } },
+      controller: {},
       find: () => [],
     };
-    Game.getObjectById = id => container;
+    Game.getObjectById = () => null;
   });
 
-  it('updates memory with new container and position', function() {
+  it('calls travelTo when controller is farther than range 3', function() {
+    let moved = false;
     const creep = {
       name: 'u1',
       room: Game.rooms['W1N1'],
-      store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 50 },
+      store: { [RESOURCE_ENERGY]: 50, getFreeCapacity: () => 0 },
       pos: { x:10, y:10, roomName:'W1N1', getRangeTo: () => 5 },
-      travelTo: () => {},
-      withdraw: () => OK,
+      travelTo: () => { moved = true; },
       upgradeController: () => OK,
-      memory: { upgradePos: { x:10, y:10, roomName:'W1N1' } },
+      memory: {},
     };
     roleUpgrader.run(creep);
-    expect(creep.memory.containerId).to.equal('c1');
-    expect(creep.memory.upgradePos.x).to.equal(5);
+    expect(moved).to.be.true;
   });
 });

@@ -12,10 +12,10 @@ Haulers remain governed by the energy demand module.
    `manager.dna` and capped at three creeps per source. Miners with at least five
    WORK parts automatically relocate onto the nearby container so they can empty
    the source without moving.
- - **Upgraders** – Up to four creeps based on open tiles within range&nbsp;3 of
-   the controller, minus active builders. They withdraw from a nearby container
-   or harvest directly and never request hauled energy. At least one upgrader is
-   always maintained.
+ - **Upgraders** – Simplified workers that gather the closest available energy
+   on their own and then move within range&nbsp;3 of the controller to upgrade
+   it. They no longer rely on assigned containers or hauler deliveries but
+   simply harvest, withdraw or pickup whichever energy source is nearest.
 - **Builders** – Limited to six per colony with a soft cap of two builders per
    construction site. Builder spawns are prioritised before upgraders so
    construction continues smoothly. Builders grab energy from containers holding
