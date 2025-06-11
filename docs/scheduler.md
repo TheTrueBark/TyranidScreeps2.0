@@ -75,3 +75,5 @@ The main loop registers several core jobs which drive the colony:
 
 Use `scheduler.listTasks()` to see current timers and next execution tick for each job.
 
+`consoleDisplay` only executes when the CPU bucket exceeds 1000 thanks to its `minBucket` setting. Likewise `showScheduled` respects `Memory.settings.showTaskList` before printing.
+

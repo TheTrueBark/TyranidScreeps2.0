@@ -36,6 +36,9 @@ Memory.hive = {
 - **spawnQueue** – uses `Memory.spawnQueue` and `Memory.nextSpawnRequestId`.
 - **demand module** – stores delivery metrics under `Memory.demand`.
 - **logger/statsConsole** – maintain `Memory.stats`.
+- **main** – user toggles stored under `Memory.settings`.
+- **hive.roles** – evaluation timestamps in `Memory.roleEval`.
+- **hiveTravel** – hostile room data in `Memory.empire`.
 
 Modules must only modify their own branches.
 
@@ -112,4 +115,55 @@ Memory.demand = {
 
 The demand module updates these metrics every tick and decides when additional
 haulers should be spawned.
+
+### Runtime Settings
+
+@codex-owner main
+@codex-path Memory.settings
+@codex-version 1
+
+Stores toggles for optional features such as HUD visuals or task listing.
+Example:
+
+```javascript
+Memory.settings = {
+  enableVisuals: true,
+  showTaskList: false,
+};
+```
+
+### Role Evaluation
+
+@codex-owner hive.roles
+@codex-path Memory.roleEval
+@codex-version 1
+
+Used to throttle automatic role evaluation when CPU is scarce.
+
+```javascript
+Memory.roleEval = { lastRun: 0 };
+```
+
+### Empire Data
+
+@codex-owner hiveTravel
+@codex-path Memory.empire
+@codex-version 1
+
+Legacy storage for hostile room information used by the pathing system.
+
+```javascript
+Memory.empire = {
+  hostileRooms: { [roomName]: true }
+};
+```
+
+### Statistics
+
+@codex-owner logger
+@codex-path Memory.stats
+@codex-version 1
+
+Console and task execution metrics are aggregated here.
+`Memory.stats.taskLogs` keeps the most recent task executions.
 

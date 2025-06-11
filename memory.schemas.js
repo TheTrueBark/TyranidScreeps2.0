@@ -10,6 +10,14 @@ const schemas = {
   demand: { version: 1, owner: 'hivemind.demand', path: 'Memory.demand' },
   /** @codex-path Memory.spawnQueue */
   spawnQueue: { version: 1, owner: 'spawnQueue', path: 'Memory.spawnQueue' },
+  /** @codex-path Memory.empire */
+  empire: { version: 1, owner: 'hiveTravel', path: 'Memory.empire' },
+  /** @codex-path Memory.settings */
+  settings: { version: 1, owner: 'main', path: 'Memory.settings' },
+  /** @codex-path Memory.roleEval */
+  roleEval: { version: 1, owner: 'hive.roles', path: 'Memory.roleEval' },
+  /** @codex-path Memory.stats */
+  stats: { version: 1, owner: 'logger', path: 'Memory.stats' },
 };
 
 module.exports = schemas;

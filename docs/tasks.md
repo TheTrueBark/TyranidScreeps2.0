@@ -59,6 +59,18 @@ taskRegistry.register('upgradeController', {
 | `upgradeController` | `hivemind.spawn` | 3             | Encourage controller upgrades.  |
 | `deliverEnergy`  | `energyRequests` | 2               | Hauler delivery to a structure. |
 | `defendRoom`     | `hivemind.spawn` | 1               | Spawn defenders on hostiles.    |
+| `spawnBootstrap` | `spawnManager`   | 0               | Emergency worker when none exist. |
+
+### Registered Triggers
+
+| Task              | Trigger                                        |
+|-------------------|-----------------------------------------------|
+| `spawnMiner`      | condition via `hive.roles` evaluation          |
+| `spawnHauler`     | condition via energy demand analysis           |
+| `spawnBootstrap`  | condition when no workers are present          |
+| `upgradeController` | event `roleUpdate` or energy surplus check    |
+| `defendRoom`      | event `hostilesDetected`                       |
+| `deliverEnergy`   | condition when structure free capacity > 0     |
 
 Past executions can be inspected under `Memory.stats.taskLogs` when a module chooses to record them.
 
