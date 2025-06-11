@@ -60,6 +60,7 @@ const memoryManager = {
         miningPositions: {},
         reservedPositions: {},
         restrictedArea: [],
+        controllerUpgradeSpots: 0,
       };
     }
 

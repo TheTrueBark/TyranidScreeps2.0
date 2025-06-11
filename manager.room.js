@@ -92,14 +92,32 @@ const roomManager = {
       pos: { x: structure.pos.x, y: structure.pos.y },
     }));
 
-    const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
-    Memory.rooms[room.name].constructionSites = constructionSites.map(
+  const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
+  Memory.rooms[room.name].constructionSites = constructionSites.map(
       (site) => ({
         id: site.id,
         structureType: site.structureType,
         pos: { x: site.pos.x, y: site.pos.y },
       }),
     );
+
+    // Determine upgrade spots around the controller
+    if (room.controller) {
+      const terrain = room.getTerrain();
+      let count = 0;
+      for (let dx = -3; dx <= 3; dx++) {
+        for (let dy = -3; dy <= 3; dy++) {
+          const x = room.controller.pos.x + dx;
+          const y = room.controller.pos.y + dy;
+          if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+          if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+          const structs = room.lookForAt(LOOK_STRUCTURES, x, y);
+          if (structs.some(s => OBSTACLE_OBJECT_TYPES.includes(s.structureType))) continue;
+          count++;
+        }
+      }
+      Memory.rooms[room.name].controllerUpgradeSpots = count;
+    }
   },
 
   // Other update functions remain unchanged

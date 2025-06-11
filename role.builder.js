@@ -1,5 +1,6 @@
 const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
+const _ = require('lodash');
 
 /**
  * Builder role responsible for constructing sites. Each builder stores the
@@ -7,26 +8,26 @@ const movementUtils = require('./utils.movement');
  * without losing track of its assigned job.
  */
 
+// Request hauler delivery when builder is stranded without energy.
 function requestEnergy(creep) {
-  if (htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler')) return;
+  if (
+    htm.hasTask(htm.LEVELS.CREEP, creep.name, 'deliverEnergy', 'hauler') ||
+    Game.time % 10 !== 0
+  )
+    return;
   const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
   const distance = spawn ? spawn.pos.getRangeTo(creep) : 10;
   htm.addCreepTask(
     creep.name,
     'deliverEnergy',
-    {
-      pos: { x: creep.pos.x, y: creep.pos.y, roomName: creep.room.name },
-      ticksNeeded: distance * 2,
-    },
+    { pos: { x: creep.pos.x, y: creep.pos.y, roomName: creep.room.name }, ticksNeeded: distance * 2 },
     1,
     50,
     1,
     'hauler',
   );
   const demand = require('./manager.hivemind.demand');
-  const amount = creep.store.getFreeCapacity
-    ? creep.store.getFreeCapacity(RESOURCE_ENERGY)
-    : 0;
+  const amount = creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 0;
   demand.recordRequest(creep.name, amount, creep.room.name);
 }
 
@@ -41,7 +42,7 @@ function findNearbyEnergy(creep) {
   const container = creep.pos.findInRange(FIND_STRUCTURES, 15, {
     filter: s =>
       s.structureType === STRUCTURE_CONTAINER &&
-      s.store[RESOURCE_ENERGY] > 0,
+      s.store[RESOURCE_ENERGY] >= 500,
   })[0];
   if (container) return { type: 'withdraw', target: container };
 
@@ -66,6 +67,14 @@ function gatherEnergy(creep) {
     } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
     }
+    return;
+  }
+
+  const nearestSource = creep.pos.findClosestByRange(FIND_SOURCES);
+  if (nearestSource) {
+    if (creep.harvest(nearestSource) === ERR_NOT_IN_RANGE) {
+      creep.travelTo(nearestSource, { visualizePathStyle: { stroke: '#ffaa00' } });
+    }
   } else {
     requestEnergy(creep);
   }
@@ -75,7 +84,12 @@ function chooseSite(creep) {
   const queue = (creep.room.memory && creep.room.memory.buildingQueue) || [];
   for (const entry of queue) {
     const site = Game.getObjectById(entry.id);
-    if (site) return site;
+    if (!site) continue;
+    const assigned = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'builder' && c.memory.mainTask && c.memory.mainTask.id === entry.id,
+    ).length;
+    if (assigned < 2) return site;
   }
   if (creep.pos.findClosestByRange) {
     return creep.pos.findClosestByRange(FIND_CONSTRUCTION_SITES);

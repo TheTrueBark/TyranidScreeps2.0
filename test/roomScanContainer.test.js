@@ -8,6 +8,7 @@ global.FIND_SOURCES = 1;
 global.FIND_MY_SPAWNS = 2;
 global.FIND_STRUCTURES = 3;
 global.TERRAIN_MASK_WALL = 1;
+global.OBSTACLE_OBJECT_TYPES = [];
 
 global.PathFinder = {
   search(start, goal) {
@@ -31,7 +32,7 @@ describe('roomManager.scanRoom container placement', function() {
     global.TERRAIN_MASK_WALL = 1;
     Game.rooms['W1N1'] = {
       name: 'W1N1',
-      controller: { my: true },
+      controller: { my: true, pos: { x: 15, y: 15 } },
       find(type) {
         if (type === FIND_SOURCES) {
           return [{ id: 's1', pos: { x: 10, y: 10 } }];
@@ -47,6 +48,7 @@ describe('roomManager.scanRoom container placement', function() {
         if (type === FIND_STRUCTURES) return [];
         return [];
       },
+      lookForAt() { return []; },
       getTerrain() {
         return { get() { return 0; } };
       },

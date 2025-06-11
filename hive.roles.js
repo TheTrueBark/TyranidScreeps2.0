@@ -80,14 +80,13 @@ const roles = {
     }
 
     // --- Upgrader calculation ---
-    let controllerContainers = [];
-    if (room.controller && room.controller.pos && room.controller.pos.findInRange) {
-      controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER,
-      });
-    }
-    let desiredUpgraders = controllerContainers.length * 4;
-    if (desiredUpgraders === 0) desiredUpgraders = 1;
+    const availableSpots =
+      (Memory.rooms[roomName] && Memory.rooms[roomName].controllerUpgradeSpots) || 1;
+    const activeBuilders = _.filter(
+      Game.creeps,
+      c => c.memory.role === 'builder' && c.room.name === roomName,
+    ).length;
+    let desiredUpgraders = Math.max(1, availableSpots - activeBuilders);
     const liveUpgraders = _.filter(
       Game.creeps,
       c => c.memory.role === 'upgrader' && c.room.name === roomName,
@@ -115,30 +114,7 @@ const roles = {
 
     // --- Builder calculation ---
     const sites = room.find(FIND_CONSTRUCTION_SITES);
-    const haulersAlive = _.filter(
-      Game.creeps,
-      c => c.memory.role === 'hauler' && c.room.name === roomName,
-    ).length;
-    const queuedHaulers = spawnQueue.queue.filter(
-      q => q.memory.role === 'hauler' && q.room === roomName,
-    ).length;
-    const haulerTask = tasks.find(t => t.name === 'spawnHauler' && t.manager === 'spawnManager');
-    const haulerTaskAmount = haulerTask ? haulerTask.amount || 0 : 0;
-    const totalHaulers = haulersAlive + queuedHaulers + haulerTaskAmount;
-    const important = sites.filter(
-      s =>
-        s.structureType === STRUCTURE_EXTENSION ||
-        s.structureType === STRUCTURE_CONTAINER ||
-        s.structureType === STRUCTURE_ROAD,
-    );
-    const general = sites.length - important.length;
-    let desiredBuilders = 0;
-    if (important.length > 0) desiredBuilders = Math.min(12, important.length * 4);
-    else desiredBuilders = Math.min(12, general * 2);
-    if (totalHaulers < 2) desiredBuilders = 0;
-    const builderCaps = { 1: 2, 2: 4 };
-    const cap = builderCaps[room.controller.level] || 8;
-    desiredBuilders = Math.min(desiredBuilders, cap);
+    let desiredBuilders = Math.min(6, sites.length * 2);
     const liveBuilders = _.filter(
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,

@@ -1,10 +1,15 @@
 const memoryManager = require("manager.memory");
 const logger = require("./logger");
 const movementUtils = require("./utils.movement");
+const htm = require("./manager.htm");
 
 const roleAllPurpose = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
+    if (!this.ensureMiningData(creep)) {
+      this.fallbackBehavior(creep);
+      return;
+    }
     // Ensure creep knows its energy source
     if (!creep.memory.source) {
       const source = creep.pos.findClosestByRange(FIND_SOURCES);
@@ -126,6 +131,7 @@ const roleAllPurpose = {
           `Creep ${creep.name} could not find an available mining position.`,
           3,
         );
+        this.fallbackBehavior(creep);
         return;
       }
     }
@@ -160,6 +166,56 @@ const roleAllPurpose = {
         this.setSourcePosition(creep);
       }
     }
+  },
+
+  /** Simple behaviour when critical data is missing */
+  fallbackBehavior: function(creep) {
+    if (creep.store[RESOURCE_ENERGY] === 0) creep.memory.working = false;
+    if (creep.store.getFreeCapacity() === 0) creep.memory.working = true;
+
+    if (creep.memory.working) {
+      const spawn = creep.room.find(FIND_MY_SPAWNS)[0];
+      if (spawn && creep.transfer(spawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        creep.memory.desiredPosition = spawn.pos;
+      }
+    } else {
+      const src = creep.pos.findClosestByRange(FIND_SOURCES);
+      if (src && creep.harvest(src) === ERR_NOT_IN_RANGE) {
+        creep.memory.desiredPosition = src.pos;
+      }
+    }
+  },
+
+  /** Ensure mining data exists or trigger acquisition */
+  ensureMiningData: function(creep) {
+    const roomName = creep.room.name;
+    htm.init();
+    const roomMem = Memory.rooms && Memory.rooms[roomName];
+    if (!roomMem || !roomMem.miningPositions) {
+      if (!creep.memory.fallbackReason) {
+        creep.memory.fallbackReason = 'missingMiningData';
+        creep.memory.fallbackSince = Game.time;
+      }
+      if (!htm.hasTask(htm.LEVELS.COLONY, roomName, 'acquireMiningData', 'roomManager')) {
+        htm.addColonyTask(
+          roomName,
+          'acquireMiningData',
+          {},
+          2,
+          20,
+          1,
+          'roomManager',
+          { module: 'role.allPurpose', createdBy: 'ensureMiningData', tickCreated: Game.time }
+        );
+      }
+      return false;
+    }
+
+    if (creep.memory.fallbackReason === 'missingMiningData') {
+      delete creep.memory.fallbackReason;
+      delete creep.memory.fallbackSince;
+    }
+    return true;
   },
   onDeath: function (creep) {
     const roomName = creep.memory.miningPosition && creep.memory.miningPosition.roomName;
