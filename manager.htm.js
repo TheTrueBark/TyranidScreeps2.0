@@ -41,6 +41,29 @@ const htm = {
   },
 
   /**
+   * Check if a task with matching coordinates exists.
+   * Used to prevent duplicate BUILD_LAYOUT_PART requests.
+   *
+   * @param {string} level
+   * @param {string} id
+   * @param {string} name
+   * @param {{x:number,y:number,structureType:string}} data
+   * @returns {boolean}
+   */
+  taskExistsAt(level, id, name, data) {
+    const container = this._getContainer(level, id);
+    if (!container || !container.tasks) return false;
+    return container.tasks.some(
+      (t) =>
+        t.name === name &&
+        t.data &&
+        t.data.x === data.x &&
+        t.data.y === data.y &&
+        t.data.structureType === data.structureType,
+    );
+  },
+
+  /**
    * Register a task handler for a specific level and task name.
    * Handlers can be used to execute logic when tasks are processed.
    */

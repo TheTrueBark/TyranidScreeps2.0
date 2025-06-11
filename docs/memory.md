@@ -189,3 +189,35 @@ creep.memory.fallbackSince = Game.time;
 Number of walkable tiles within range 3 of the controller. Used to cap dedicated
 upgraders.
 
+
+### Base Layout Plan
+
+@codex-owner layoutPlanner
+@codex-path Memory.rooms[roomName].baseLayout
+
+Each room stores its construction plan under `baseLayout`. The object
+contains the `anchor` position (usually the first spawn) and lists of
+absolute coordinates for every stamped structure. Each entry includes
+the `rcl` when the structure becomes available as well as metadata
+about the `structureType` and `origin` of the stamp.
+
+```javascript
+Memory.rooms['W1N1'].baseLayout = {
+  anchor: { x: 25, y: 25 },
+  stamps: {
+    extension: [
+      { x: 26, y: 25, rcl: 2, structureType: STRUCTURE_EXTENSION, origin: 'starterStamp' }
+    ],
+    road: [
+      { x: 25, y: 24, rcl: 1, structureType: STRUCTURE_ROAD, origin: 'starterStamp' }
+    ],
+    tower: [
+      { x: 27, y: 25, rcl: 3, structureType: STRUCTURE_TOWER, origin: 'starterStamp' }
+    ],
+  },
+  layoutUpgraded: false
+};
+```
+
+`restructureAtRCL` is flagged when the controller reaches level 6 so the
+planner can generate a new layout.

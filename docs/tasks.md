@@ -63,6 +63,7 @@ taskRegistry.register('upgradeController', {
 | `acquireMiningData` | `roomManager` | 2 | Rescan room to rebuild mining positions. |
 | `buildSite` | `buildingManager` | 1 | Assign builders to a construction site. |
 | `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
+| `BUILD_LAYOUT_PART` | `buildingManager` | 1 | Construct next piece of the base layout. | @codex-owner buildingManager
 
 ### Registered Triggers
 
