@@ -86,7 +86,7 @@ const roles = {
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,
     ).length;
-    let desiredUpgraders = Math.max(1, availableSpots - activeBuilders);
+    let desiredUpgraders = Math.min(4, Math.max(1, availableSpots - activeBuilders));
     const liveUpgraders = _.filter(
       Game.creeps,
       c => c.memory.role === 'upgrader' && c.room.name === roomName,
@@ -104,7 +104,7 @@ const roles = {
           roomName,
           'spawnUpgrader',
           { role: 'upgrader' },
-          3,
+          4,
           20,
           upgradersNeeded,
           'spawnManager',
@@ -132,7 +132,7 @@ const roles = {
           roomName,
           'spawnBuilder',
           { role: 'builder' },
-          4,
+          3,
           20,
           buildersNeeded,
           'spawnManager',

@@ -12,8 +12,8 @@ const ROLE_PRIORITY = {
   allPurpose: 1,
   miner: 2,
   hauler: 3,
-  upgrader: 4,
-  builder: 5,
+  builder: 4,
+  upgrader: 5,
 };
 
 // Direction deltas for checking adjacent tiles around a spawn

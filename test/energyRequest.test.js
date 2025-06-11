@@ -35,11 +35,10 @@ describe('energy request tasks', function() {
     global.STRUCTURE_CONTAINER = 'container';
   });
 
-  it('queues deliverEnergy when upgrader is empty', function() {
+  it('does not request hauled energy when empty', function() {
     const creep = createCreep('u1');
     roleUpgrader.run(creep);
-    const tasks = Memory.htm.creeps['u1'].tasks;
-    expect(tasks[0].name).to.equal('deliverEnergy');
+    expect(Memory.htm.creeps['u1']).to.be.undefined;
   });
 
   it('withdraws energy from container before requesting delivery', function() {

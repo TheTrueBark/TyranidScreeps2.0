@@ -92,4 +92,12 @@ describe('hive.roles evaluateRoom', function() {
     const limits = Memory.rooms['W1N1'].spawnLimits;
     expect(limits.builders).to.equal(4);
   });
+
+  it('limits upgraders to four', function() {
+    const room = Game.rooms['W1N1'];
+    Memory.rooms['W1N1'].controllerUpgradeSpots = 8;
+    roles.evaluateRoom(room);
+    const limits = Memory.rooms['W1N1'].spawnLimits;
+    expect(limits.upgraders).to.equal(4);
+  });
 });
