@@ -233,11 +233,6 @@ const spawnModule = {
       if (haulersAlive === 0) {
         const spawns = room.find(FIND_MY_SPAWNS);
         if (spawns.length > 0) {
-          const haulerCost = _.sum(
-            dna
-              .getBodyParts('hauler', room)
-              .map(p => BODYPART_COST[p])
-          );
           const apBody = dna.getBodyParts('allPurpose', room, true);
           const apCost = _.sum(apBody.map(p => BODYPART_COST[p]));
           const apAlive = _.filter(
@@ -252,7 +247,6 @@ const spawnModule = {
           );
           if (
             room.energyAvailable >= apCost &&
-            room.energyAvailable < haulerCost &&
             apAlive + apQueued + (apSpawning ? 1 : 0) === 0
           ) {
             const spawnManager = require('./manager.spawn');

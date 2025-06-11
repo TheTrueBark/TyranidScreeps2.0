@@ -41,6 +41,40 @@ const movementUtils = {
   },
 
   /**
+   * Locate a nearby tile around the spawn to use as an idle position.
+   * The spot will not be inside `Memory.rooms[room].restrictedArea`.
+   *
+   * @param {Room} room - The room to search within.
+   * @returns {RoomPosition|null} Safe idle tile or null if none found.
+   */
+  findIdlePosition(room) {
+    const spawn = room.find(FIND_MY_SPAWNS)[0];
+    if (!spawn || !room.getTerrain) return null;
+    const terrain = room.getTerrain();
+    const area =
+      (Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].restrictedArea) || [];
+    const deltas = [
+      { x: 2, y: 0 },
+      { x: -2, y: 0 },
+      { x: 0, y: 2 },
+      { x: 0, y: -2 },
+      { x: 2, y: 2 },
+      { x: -2, y: 2 },
+      { x: 2, y: -2 },
+      { x: -2, y: -2 },
+    ];
+    for (const d of deltas) {
+      const x = spawn.pos.x + d.x;
+      const y = spawn.pos.y + d.y;
+      if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+      if (area.some(p => p.x === x && p.y === y)) continue;
+      return new RoomPosition(x, y, room.name);
+    }
+    return spawn.pos;
+  },
+
+  /**
    * Step off the current tile if standing on an invalid position such as a construction site.
    * Attempts to move to the first open adjacent tile.
    * @param {Creep} creep - The creep to reposition.

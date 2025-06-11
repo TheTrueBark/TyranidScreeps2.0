@@ -40,7 +40,7 @@ describe('hauler avoids withdrawing from deposit container', function() {
     expect(withdrawCalled).to.be.false;
   });
 
-  it('keeps container blocked for several ticks after leaving', function() {
+  it('keeps container blocked after leaving the container', function() {
     const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 2000 }, pos: { x:5, y:5, roomName:'W1N1' } };
     Game.getObjectById = id => container;
     Game.rooms['W1N1'].controller.pos.findInRange = () => [container];
@@ -58,8 +58,9 @@ describe('hauler avoids withdrawing from deposit container', function() {
     };
     roleHauler.run(creep); // deposit
     creep.pos.getRangeTo = () => 3; // moved away
-    Game.time += 3;
-    roleHauler.run(creep); // still blocked
+    Game.time += 10;
+    roleHauler.run(creep); // still blocked even after many ticks
     expect(withdrawCalled).to.be.false;
+    expect(creep.memory.blockedContainerId).to.equal('c1');
   });
 });

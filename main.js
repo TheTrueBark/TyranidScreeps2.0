@@ -149,7 +149,7 @@ scheduler.addTask("clearMemory", 100, () => {
 }); // @codex-owner main @codex-trigger {"type":"interval","interval":100}
 
 
-scheduler.addTask("updateHUD", 5, () => {
+scheduler.addTask("updateHUD", 1, () => {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
 
@@ -159,7 +159,7 @@ scheduler.addTask("updateHUD", 5, () => {
       distanceTransform.visualizeDistanceTransform(roomName, dist);
     }
   }
-}); // @codex-owner main @codex-trigger {"type":"interval","interval":5}
+}); // @codex-owner main @codex-trigger {"type":"interval","interval":1}
 
 // Plan base layout periodically
 scheduler.addTask('layoutPlanInit', 500, () => {

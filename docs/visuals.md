@@ -18,3 +18,10 @@ Colors indicate build status:
 | `#555555`   | Locked until higher RCL        |
 
 Default `RoomVisual.structure` symbols are used for each structure type.
+
+## Distance Transform Overlay
+
+The command `visual.DT(1)` toggles a debug overlay that displays the
+distance transform matrix for each room. When enabled the data is
+recalculated and rendered every tick, allowing you to inspect pathing
+weights interactively. Use `visual.DT(0)` to disable the overlay.

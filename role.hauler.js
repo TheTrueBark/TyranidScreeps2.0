@@ -5,9 +5,20 @@ const logger = require('./logger');
 const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
 
-// Ticks to ignore a container after depositing energy into it
-const CONTAINER_BLOCK_TIME = 5;
+function isRestricted(room, pos) {
+  const area =
+    Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].restrictedArea;
+  return area ? area.some(p => p.x === pos.x && p.y === pos.y) : false;
+}
 
+function moveToIdle(creep) {
+  const idle = movementUtils.findIdlePosition(creep.room);
+  if (idle && !creep.pos.isEqualTo(idle)) creep.travelTo(idle, { range: 0 });
+}
+
+// Remember the last container a hauler deposited into so it doesn't
+// immediately withdraw the energy again. The block persists until
+// a different container is used.
 /**
  * Determine the optimal nearby energy source for the hauler.
  * Considers dropped resources, ruins, tombstones, containers and storage
@@ -62,16 +73,22 @@ function deliverEnergy(creep, target = null) {
     target ||
     creep.pos.findClosestByPath(FIND_STRUCTURES, {
       filter: s =>
-        (s.structureType === STRUCTURE_EXTENSION ||
-          s.structureType === STRUCTURE_SPAWN) &&
+        s.structureType === STRUCTURE_EXTENSION &&
+        s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+    }) ||
+    creep.pos.findClosestByPath(FIND_STRUCTURES, {
+      filter: s =>
+        s.structureType === STRUCTURE_SPAWN &&
         s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
     });
   if (structure) {
     if (creep.transfer(structure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
-    } else if (structure.structureType === STRUCTURE_CONTAINER) {
-      creep.memory.blockedContainerId = structure.id;
-      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
+    } else {
+      if (structure.structureType === STRUCTURE_CONTAINER) {
+        creep.memory.blockedContainerId = structure.id;
+      }
+      if (isRestricted(creep.room, creep.pos)) moveToIdle(creep);
     }
     return true;
   }
@@ -89,7 +106,7 @@ function deliverEnergy(creep, target = null) {
       creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
     } else {
       creep.memory.blockedContainerId = ctrlContainer.id;
-      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
+      if (isRestricted(creep.room, creep.pos)) moveToIdle(creep);
     }
     return true;
   }
@@ -97,9 +114,11 @@ function deliverEnergy(creep, target = null) {
   if (creep.room.storage && creep.room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
     if (creep.transfer(creep.room.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
       creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
-    } else if (creep.room.storage.structureType === STRUCTURE_CONTAINER) {
-      creep.memory.blockedContainerId = creep.room.storage.id;
-      creep.memory.blockedContainerUntil = Game.time + CONTAINER_BLOCK_TIME;
+    } else {
+      if (creep.room.storage.structureType === STRUCTURE_CONTAINER) {
+        creep.memory.blockedContainerId = creep.room.storage.id;
+      }
+      if (isRestricted(creep.room, creep.pos)) moveToIdle(creep);
     }
     return true;
   }
@@ -109,11 +128,25 @@ function deliverEnergy(creep, target = null) {
 module.exports = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
-    if (creep.memory.blockedContainerId) {
-      if (Game.time >= (creep.memory.blockedContainerUntil || 0)) {
-        delete creep.memory.blockedContainerId;
-        delete creep.memory.blockedContainerUntil;
+
+    const last = creep.memory._lastPos;
+    if (
+      last &&
+      last.x === creep.pos.x &&
+      last.y === creep.pos.y &&
+      (last.task || null) === (creep.memory.task ? creep.memory.task.name : null)
+    ) {
+      if (Game.time - last.tick >= 10) {
+        moveToIdle(creep);
+        creep.memory._lastPos.tick = Game.time;
       }
+    } else {
+      creep.memory._lastPos = {
+        x: creep.pos.x,
+        y: creep.pos.y,
+        tick: Game.time,
+        task: creep.memory.task ? creep.memory.task.name : null,
+      };
     }
     // Active delivery task takes priority
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
