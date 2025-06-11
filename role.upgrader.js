@@ -121,9 +121,6 @@ const roleUpgrader = {
         }
       } else {
         creep.travelTo(pos, { visualizePathStyle: { stroke: '#ffaa00' } });
-        if (!container || creep.pos.getRangeTo(container) > 1) {
-          requestEnergy(creep);
-        }
       }
       if (
         creep.store[RESOURCE_ENERGY] > 0 &&

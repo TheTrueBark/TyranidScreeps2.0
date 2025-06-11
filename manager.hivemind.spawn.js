@@ -229,6 +229,37 @@ const spawnModule = {
           spawnManager.spawnEmergencyCollector(spawns[0], room);
         }
       }
+
+      if (haulersAlive === 0) {
+        const spawns = room.find(FIND_MY_SPAWNS);
+        if (spawns.length > 0) {
+          const haulerCost = _.sum(
+            dna
+              .getBodyParts('hauler', room)
+              .map(p => BODYPART_COST[p])
+          );
+          const apBody = dna.getBodyParts('allPurpose', room, true);
+          const apCost = _.sum(apBody.map(p => BODYPART_COST[p]));
+          const apAlive = _.filter(
+            Game.creeps,
+            c => c.memory.role === 'allPurpose' && c.room.name === roomName,
+          ).length;
+          const apQueued = spawnQueue.queue.filter(
+            q => q.room === roomName && q.memory.role === 'allPurpose',
+          ).length;
+          const apSpawning = spawns.some(
+            s => s.memory && s.memory.currentSpawnRole === 'allPurpose',
+          );
+          if (
+            room.energyAvailable >= apCost &&
+            room.energyAvailable < haulerCost &&
+            apAlive + apQueued + (apSpawning ? 1 : 0) === 0
+          ) {
+            const spawnManager = require('./manager.spawn');
+            spawnManager.spawnAllPurpose(spawns[0], room, true);
+          }
+        }
+      }
     }
 
 
