@@ -12,20 +12,14 @@ Haulers remain governed by the energy demand module.
    `manager.dna` and capped at three creeps per source. Miners with at least five
    WORK parts automatically relocate onto the nearby container so they can empty
    the source without moving.
- - **Upgraders** – A single container two tiles from the controller anchors the
-  upgrade position. Upgraders stand on or next to this container and withdraw
-  energy before upgrading from range. They top up whenever the container has
-  energy available so upgrading rarely pauses. When the container is missing the
-  HiveMind still spawns one upgrader so progress never stalls.
- - **Builders** – Always fetch energy from nearby containers, storage or dropped
-   resources before requesting delivery. They select the highest priority
-   construction site each tick (extensions first, then containers, then other
-  structures) and build until empty. Each builder stores its assigned
-  construction site's id in `creep.memory.mainTask` so it will return after
-  refueling. Builders begin working as soon as they carry any energy. At least
-  two haulers must exist before additional builders are spawned. The desired
-  number of builders is also capped by RCL: 2 at RCL1, 4 at RCL2 and 8 from
-  RCL3 onward.
+ - **Upgraders** – Capped by the number of open tiles within range&nbsp;3 of the
+   controller, minus active builders. They withdraw from a nearby container when
+   present and otherwise harvest directly. At least one upgrader is always
+   maintained.
+ - **Builders** – Limited to six per colony with a soft cap of two builders per
+   construction site. Builders grab energy from containers holding at least 500
+   energy, then dropped energy or harvest if needed. When no build or emergency
+   repair task is available they upgrade the controller as a fallback.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

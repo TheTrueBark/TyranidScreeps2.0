@@ -38,16 +38,17 @@ describe('builder task memory', function () {
         roomName: 'W1N1',
         getRangeTo: () => 1,
         findInRange: () => [],
+        findClosestByRange: () => ({ id: 's1', pos: { x: 1, y: 1, roomName: 'W1N1' } }),
+        isNearTo: () => false,
       },
       travelTo: () => {},
       build: () => OK,
+      harvest: () => OK,
       memory: {},
     };
     roleBuilder.run(creep);
     expect(creep.memory.mainTask).to.deep.equal({ type: 'build', id: 's1' });
-    const tasks = Memory.htm.creeps['b1'].tasks;
-    const names = tasks.map(t => t.name);
-    expect(names).to.include('deliverEnergy');
+    expect(Memory.htm.creeps['b1']).to.be.undefined;
   });
 });
 

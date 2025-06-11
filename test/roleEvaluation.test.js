@@ -90,6 +90,6 @@ describe('hive.roles evaluateRoom', function() {
     };
     roles.evaluateRoom(room);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits.builders).to.equal(2);
+    expect(limits.builders).to.equal(4);
   });
 });

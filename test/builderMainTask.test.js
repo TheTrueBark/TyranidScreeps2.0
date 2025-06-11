@@ -40,10 +40,13 @@ describe('builder retains mainTask while refueling', function() {
         roomName: 'W1N1',
         getRangeTo: () => 5,
         findInRange: () => [],
+        findClosestByRange: () => ({ id: 's1', pos: { x: 1, y: 1, roomName: 'W1N1' } }),
+        isNearTo: () => false,
       },
       travelTo: () => {},
       build: () => OK,
       upgradeController: () => OK,
+      harvest: () => OK,
     };
     roleBuilder.run(creep);
     expect(creep.memory.mainTask).to.equal('s1');

@@ -29,11 +29,14 @@ function createCreep(name) {
       roomName: 'W1N1',
       getRangeTo: () => 5,
       findInRange: () => [],
+      findClosestByRange: () => ({ id: 's1', pos: { x: 1, y: 1, roomName: 'W1N1' } }),
+      isNearTo: () => false,
     },
     travelTo: () => {},
     build: () => OK,
     repair: () => OK,
     upgradeController: () => OK,
+    harvest: () => OK,
     memory: {},
   };
 }
@@ -48,9 +51,13 @@ describe('builder energy evaluation', function () {
 
   it('queues deliverEnergy when no nearby energy', function () {
     const creep = createCreep('b1');
+    let harvested = false;
+    creep.harvest = () => {
+      harvested = true;
+      return OK;
+    };
     roleBuilder.run(creep);
-    const tasks = Memory.htm.creeps['b1'].tasks;
-    expect(tasks[0].name).to.equal('deliverEnergy');
+    expect(harvested).to.be.true;
   });
 
   it('does not request energy if dropped energy nearby', function () {

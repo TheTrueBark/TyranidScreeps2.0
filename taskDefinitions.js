@@ -23,6 +23,27 @@ taskRegistry.register('spawnBootstrap', {
   trigger: { type: 'condition', conditionFn: 'hivemind.spawn.bootstrap' },
 });
 
+taskRegistry.register('acquireMiningData', {
+  owner: 'roomManager',
+  priority: 2,
+  ttl: 20,
+  trigger: { type: 'event', eventName: 'missingMiningData' },
+});
+
+taskRegistry.register('buildSite', {
+  owner: 'buildingManager',
+  priority: 1,
+  ttl: 50,
+  trigger: { type: 'event', eventName: 'newConstruction' },
+});
+
+taskRegistry.register('repairEmergency', {
+  owner: 'buildingManager',
+  priority: 1,
+  ttl: 30,
+  trigger: { type: 'condition', conditionFn: 'structureDecayCritical' },
+});
+
 taskRegistry.register('upgradeController', {
   owner: 'hivemind.spawn',
   priority: 3,

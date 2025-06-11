@@ -50,7 +50,8 @@ Room initialization populates `Memory.rooms[roomName]` with:
 {
   miningPositions: {},
   reservedPositions: {},
-  restrictedArea: []
+  restrictedArea: [],
+  controllerUpgradeSpots: 0
 }
 ```
 
@@ -166,4 +167,25 @@ Memory.empire = {
 
 Console and task execution metrics are aggregated here.
 `Memory.stats.taskLogs` keeps the most recent task executions.
+
+### Creep Fallback State
+
+@codex-owner role.allPurpose
+@codex-path creep.memory.fallbackReason
+
+All-purpose creeps temporarily record fallback information when required
+room data is missing. These fields are cleared once normal behaviour resumes.
+
+```javascript
+creep.memory.fallbackReason = 'missingMiningData';
+creep.memory.fallbackSince = Game.time;
+```
+
+### Controller Upgrade Spots
+
+@codex-owner manager.room
+@codex-path Memory.rooms[roomName].controllerUpgradeSpots
+
+Number of walkable tiles within range 3 of the controller. Used to cap dedicated
+upgraders.
 

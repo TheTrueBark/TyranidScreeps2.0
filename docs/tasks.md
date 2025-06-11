@@ -60,6 +60,9 @@ taskRegistry.register('upgradeController', {
 | `deliverEnergy`  | `energyRequests` | 2               | Hauler delivery to a structure. |
 | `defendRoom`     | `hivemind.spawn` | 1               | Spawn defenders on hostiles.    |
 | `spawnBootstrap` | `spawnManager`   | 0               | Emergency worker when none exist. |
+| `acquireMiningData` | `roomManager` | 2 | Rescan room to rebuild mining positions. |
+| `buildSite` | `buildingManager` | 1 | Assign builders to a construction site. |
+| `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
 
 ### Registered Triggers
 
@@ -71,6 +74,9 @@ taskRegistry.register('upgradeController', {
 | `upgradeController` | event `roleUpdate` or energy surplus check    |
 | `defendRoom`      | event `hostilesDetected`                       |
 | `deliverEnergy`   | condition when structure free capacity > 0     |
+| `acquireMiningData` | event `missingMiningData`                     |
+| `buildSite` | event `newConstruction` |
+| `repairEmergency` | condition `structureDecayCritical` |
 
 Past executions can be inspected under `Memory.stats.taskLogs` when a module chooses to record them.
 

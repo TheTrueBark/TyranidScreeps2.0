@@ -69,6 +69,9 @@ describe('allPurpose energy collection', function () {
     globals.resetGame();
     globals.resetMemory();
     Game.rooms['W1N1'] = { name: 'W1N1', find: () => [] };
+    Memory.rooms = {
+      W1N1: { miningPositions: { s1: { positions: { a: { x: 1, y: 1, roomName: 'W1N1', reserved: false } } } } },
+    };
   });
 
   it('moves to dropped energy when enough is available', function () {
