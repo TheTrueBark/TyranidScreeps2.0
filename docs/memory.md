@@ -123,13 +123,15 @@ haulers should be spawned.
 @codex-path Memory.settings
 @codex-version 1
 
-Stores toggles for optional features such as HUD visuals or task listing.
+Stores toggles for optional features such as HUD visuals, scheduler task
+listing, and verbose energy logging.
 Example:
 
 ```javascript
 Memory.settings = {
   enableVisuals: true,
   showTaskList: false,
+  energyLogs: false,
 };
 ```
 

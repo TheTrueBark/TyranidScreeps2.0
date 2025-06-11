@@ -38,6 +38,16 @@ if (Memory.settings.enableVisuals === undefined) {
 if (Memory.settings.showTaskList === undefined) {
   Memory.settings.showTaskList = false;
 }
+if (Memory.settings.energyLogs === undefined) {
+  Memory.settings.energyLogs = false;
+}
+if (Memory.settings.energyLogs) {
+  logger.toggle('energyRequests', true);
+  logger.toggle('demandManager', true);
+} else {
+  logger.toggle('energyRequests', false);
+  logger.toggle('demandManager', false);
+}
 
 global.visual = {
   DT: function (toggle) {
@@ -228,6 +238,15 @@ scheduler.addTask(
 scheduler.addTask('purgeLogs', 250, () => {
   memoryManager.purgeConsoleLogCounts();
 }); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":250}
+
+// Regularly validate mining reservations to free spots from dead creeps
+scheduler.addTask('verifyMiningReservations', 10, () => {
+  for (const roomName in Memory.rooms) {
+    memoryManager.verifyMiningReservations(roomName);
+  }
+  // Also clean up legacy reservation entries
+  memoryManager.cleanUpReservedPositions();
+}); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":10}
 
 // Cleanup stale HTM creep containers
 scheduler.addTask('htmCleanup', 50, () => {

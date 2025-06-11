@@ -75,5 +75,6 @@ Next step: focus on the hierarchical task system so the scheduler can trigger co
 - [Console Stats](./docs/console.md)
 - [Spawn Queue](./docs/spawnQueue.md)
 - [HiveTravel](./docs/hiveTravel.md)
+- [Settings](./docs/settings.md)
 - [Runtime Environment](./docs/runtime.md)
 

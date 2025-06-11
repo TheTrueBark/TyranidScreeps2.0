@@ -2,6 +2,7 @@ const scheduler = require('./scheduler');
 const statsConsole = require('console.console');
 const htm = require('./manager.htm');
 const spawnQueue = require('./manager.spawnQueue');
+const logger = require('./logger');
 const _ = require('lodash');
 
 const ENERGY_PER_TICK_THRESHOLD = 1; // Delivery rate below which more haulers are spawned
@@ -122,7 +123,11 @@ const demandModule = {
     }
     roomMem.runNextTick = true;
     scheduler.requestTaskUpdate('energyDemand');
-    statsConsole.log(`Recorded delivery for ${id}: ${amount} energy in ${ticks} ticks`, 3);
+    logger.log(
+      'demandManager',
+      `Recorded delivery for ${id}: ${amount} energy in ${ticks} ticks`,
+      3,
+    );
   },
 
   /**
@@ -297,7 +302,8 @@ const demandModule = {
         const energy = data.averageEnergy || 0;
         const rate = tickTime > 0 ? energy / tickTime : 0;
         demandRate += rate;
-        statsConsole.log(
+        logger.log(
+          'demandManager',
           `Demand ${id}: avg ${energy.toFixed(1)} energy / ${tickTime.toFixed(1)} ticks`,
           2,
         );
@@ -405,7 +411,8 @@ const demandModule = {
             'spawnManager',
           );
         roomMem.lastSpawnTick = Game.time;
-        statsConsole.log(
+        logger.log(
+          'demandManager',
           `Energy demand high in ${roomName}: queued ${toQueue} hauler(s)`,
           2,
         );
