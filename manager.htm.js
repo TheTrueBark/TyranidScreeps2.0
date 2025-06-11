@@ -50,7 +50,19 @@ const htm = {
     this.handlers[level][name] = handler;
   },
 
-  /** Add a new task to the hive level */
+  /**
+   * Queue a task on the global hive layer.
+   *
+   * @param {string} name - Task name.
+   * @param {Object} [data] - Custom data for the handler.
+   * @param {number} [priority=1] - Lower values execute first.
+   * @param {number} [ttl=DEFAULT_TASK_TTL] - Expiration in ticks.
+   * @param {number} [amount=1] - How many times the task should run.
+   * @param {string|null} [manager=null] - Owning manager module.
+   * @param {object} [origin] - Metadata about who created the task.
+   * @codex-owner htm
+   * @codex-path Memory.htm.hive.tasks
+   */
   addHiveTask(
     name,
     data = {},
@@ -58,6 +70,8 @@ const htm = {
     ttl = DEFAULT_TASK_TTL,
     amount = 1,
     manager = null,
+    origin = {},
+    options = {},
   ) {
     this._addTask(
       HTM_LEVELS.HIVE,
@@ -68,10 +82,23 @@ const htm = {
       ttl,
       amount,
       manager,
+      origin,
+      options,
     );
   },
 
-  /** Add a new task to a cluster */
+  /**
+   * Queue a task for a cluster.
+   * @param {string} clusterId - Cluster identifier.
+   * @param {string} name - Task name.
+   * @param {Object} [data] - Custom task data.
+   * @param {number} [priority=1] - Lower values execute first.
+   * @param {number} [ttl=DEFAULT_TASK_TTL] - Expiration in ticks.
+   * @param {number} [amount=1] - How many times the task should run.
+   * @param {string|null} [manager=null] - Owning manager module.
+   * @codex-owner htm
+   * @codex-path Memory.htm.clusters
+   */
   addClusterTask(
     clusterId,
     name,
@@ -80,6 +107,8 @@ const htm = {
     ttl = DEFAULT_TASK_TTL,
     amount = 1,
     manager = null,
+    origin = {},
+    options = {},
   ) {
     if (!Memory.htm.clusters[clusterId]) Memory.htm.clusters[clusterId] = { tasks: [] };
     this._addTask(
@@ -91,10 +120,24 @@ const htm = {
       ttl,
       amount,
       manager,
+      origin,
+      options,
     );
   },
 
-  /** Add a new task to a colony */
+  /**
+   * Queue a task for a specific colony.
+   *
+   * @param {string} colonyId - Target colony identifier.
+   * @param {string} name - Task name.
+   * @param {Object} [data] - Custom task data.
+   * @param {number} [priority=1] - Lower values execute first.
+   * @param {number} [ttl=DEFAULT_TASK_TTL] - Expiration in ticks.
+   * @param {number} [amount=1] - How many times the task should run.
+   * @param {string|null} [manager=null] - Owning manager module.
+   * @codex-owner htm
+   * @codex-path Memory.htm.colonies
+   */
   addColonyTask(
     colonyId,
     name,
@@ -103,6 +146,8 @@ const htm = {
     ttl = DEFAULT_TASK_TTL,
     amount = 1,
     manager = null,
+    origin = {},
+    options = {},
   ) {
     if (!Memory.htm.colonies[colonyId]) Memory.htm.colonies[colonyId] = { tasks: [] };
     this._addTask(
@@ -114,10 +159,24 @@ const htm = {
       ttl,
       amount,
       manager,
+      origin,
+      options,
     );
   },
 
-  /** Add a new task to a creep */
+  /**
+   * Queue a task directly on a creep memory container.
+   *
+   * @param {string} creepName - Target creep name.
+   * @param {string} name - Task name.
+   * @param {Object} [data] - Custom task data.
+   * @param {number} [priority=1] - Lower values execute first.
+   * @param {number} [ttl=DEFAULT_TASK_TTL] - Expiration in ticks.
+   * @param {number} [amount=1] - How many times the task should run.
+   * @param {string|null} [manager=null] - Owning manager module.
+   * @codex-owner htm
+   * @codex-path Memory.htm.creeps
+   */
   addCreepTask(
     creepName,
     name,
@@ -126,6 +185,8 @@ const htm = {
     ttl = DEFAULT_TASK_TTL,
     amount = 1,
     manager = null,
+    origin = {},
+    options = {},
   ) {
     if (!Memory.htm.creeps[creepName]) Memory.htm.creeps[creepName] = { tasks: [] };
     this._addTask(
@@ -137,6 +198,8 @@ const htm = {
       ttl,
       amount,
       manager,
+      origin,
+      options,
     );
   },
 
@@ -200,10 +263,57 @@ const htm = {
     }
   },
 
+  /**
+   * Return a flat list of all active tasks for introspection.
+   */
+  listTasks() {
+    this.init();
+    const tasks = [];
+    const pushFrom = (level, id, container) => {
+      if (!container || !container.tasks) return;
+      for (const t of container.tasks) {
+        tasks.push({
+          level,
+          id,
+          name: t.name,
+          ttl: t.ttl,
+          age: t.age,
+          manager: t.manager,
+          origin: t.origin,
+          claimedUntil: t.claimedUntil,
+          id: t.id,
+        });
+      }
+    };
+    pushFrom(HTM_LEVELS.HIVE, 'hive', Memory.htm.hive);
+    for (const cid in Memory.htm.clusters) {
+      pushFrom(HTM_LEVELS.CLUSTER, cid, Memory.htm.clusters[cid]);
+    }
+    for (const cid in Memory.htm.colonies) {
+      pushFrom(HTM_LEVELS.COLONY, cid, Memory.htm.colonies[cid]);
+    }
+    for (const cname in Memory.htm.creeps) {
+      pushFrom(HTM_LEVELS.CREEP, cname, Memory.htm.creeps[cname]);
+    }
+    return tasks;
+  },
+
   // --- Internal helpers ---
 
-  _addTask(level, id, name, data, priority, ttl, amount = 1, manager = null) {
+  _addTask(
+    level,
+    id,
+    name,
+    data,
+    priority,
+    ttl,
+    amount = 1,
+    manager = null,
+    origin = {},
+    options = {},
+  ) {
     const task = {
+      id: `${Game.time}-${Math.floor(Math.random() * 10000)}`,
       name,
       data,
       priority,
@@ -212,6 +322,13 @@ const htm = {
       amount,
       manager,
       claimedUntil: 0,
+      origin: {
+        module: origin.module || manager || 'unknown',
+        createdBy: origin.createdBy || 'unknown',
+        tickCreated: origin.tickCreated || Game.time,
+      },
+      parentTaskId: options.parentTaskId || null,
+      subtaskIds: options.subtaskIds || [],
     };
     const container = this._getContainer(level, id);
     if (!this.hasTask(level, id, name, manager)) {
@@ -249,17 +366,37 @@ const htm = {
       if (this.handlers && this.handlers[level]) {
         handler = this.handlers[level][task.name];
       }
+      const start = Game.cpu.getUsed();
       if (typeof handler === 'function') {
         try {
           handler(task.data);
           logger.log('HTM', `Executed ${level} task ${task.name} (${id})`, 2);
+          this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'ok');
         } catch (err) {
           logger.log('HTM', `Error executing ${task.name}: ${err}`, 4);
+          this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'err', err.toString());
         }
       } else {
         logger.log('HTM', `No handler for ${level} task ${task.name}`, 3);
+        this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'missing');
       }
     }
+  },
+
+  _logExecution(task, level, id, cpu, result, reason = '') {
+    if (!Memory.stats) Memory.stats = {};
+    if (!Memory.stats.taskLogs) Memory.stats.taskLogs = [];
+    Memory.stats.taskLogs.push({
+      tick: Game.time,
+      level,
+      id,
+      name: task.name,
+      result,
+      cpu: Math.round(cpu * 100) / 100,
+      reason,
+    });
+    const limit = 20;
+    if (Memory.stats.taskLogs.length > limit) Memory.stats.taskLogs.shift();
   },
 
   _getContainer(level, id) {

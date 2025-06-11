@@ -15,6 +15,7 @@ const memoryManager = require("manager.memory");
 const hiveTravel = require("manager.hiveTravel");
 const scheduler = require("scheduler");
 const logger = require("./logger");
+const introspect = require('./debug.introspection');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
 const movementUtils = require("./utils.movement");
@@ -76,6 +77,15 @@ global.debug = {
     }
   },
   config: logger.getConfig,
+  showHTM() {
+    introspect.printHTMTasks();
+  },
+  showSchedule() {
+    introspect.printSchedulerJobs();
+  },
+  memoryStatus() {
+    introspect.printMemoryStatus();
+  },
 };
 
 // High priority initialization tasks - run once at start of tick 0
@@ -91,7 +101,7 @@ scheduler.addTask(
     }
   },
   { highPriority: true, once: true },
-);
+); // @codex-owner main @codex-trigger once
 
 scheduler.addTask("clearMemory", 100, () => {
   const roleMap = {
@@ -123,7 +133,7 @@ scheduler.addTask("clearMemory", 100, () => {
     }
   }
   if (removed) scheduler.triggerEvent('roleUpdate', {});
-});
+}); // @codex-owner main @codex-trigger {"type":"interval","interval":100}
 
 
 scheduler.addTask("updateHUD", 5, () => {
@@ -136,7 +146,7 @@ scheduler.addTask("updateHUD", 5, () => {
       distanceTransform.visualizeDistanceTransform(roomName, dist);
     }
   }
-});
+}); // @codex-owner main @codex-trigger {"type":"interval","interval":5}
 
 
 // Add on-demand building manager task
@@ -145,16 +155,16 @@ scheduler.addTask("buildInfrastructure", 0, () => {
     const room = Game.rooms[roomName];
     buildingManager.buildInfrastructure(room);
   }
-});
+}); // @codex-owner buildingManager @codex-trigger {"type":"interval","interval":0}
 
 // Decision making layer feeding tasks into HTM
 scheduler.addTask("hivemind", 1, () => {
   hivemind.run();
-});
+}); // @codex-owner hivemind @codex-trigger {"type":"interval","interval":1}
 
 scheduler.addTask("energyDemand", 1000, () => {
   energyDemand.run();
-});
+}); // @codex-owner demand @codex-trigger {"type":"interval","interval":1000}
 
 // React to creep deaths, spawns and construction updates
 scheduler.addTask('roleUpdateEvent', 0, (data) => {
@@ -166,7 +176,7 @@ scheduler.addTask('roleUpdateEvent', 0, (data) => {
       if (r.controller && r.controller.my) hiveRoles.evaluateRoom(r);
     }
   }
-}, { event: 'roleUpdate' });
+}, { event: 'roleUpdate' }); // @codex-owner main @codex-trigger {"type":"event","eventName":"roleUpdate"}
 
 // Fallback evaluation every 50 ticks when bucket high
 scheduler.addTask('roleUpdateFallback', 50, () => {
@@ -177,11 +187,11 @@ scheduler.addTask('roleUpdateFallback', 50, () => {
       if (r.controller && r.controller.my) hiveRoles.evaluateRoom(r);
     }
   }
-});
+}); // @codex-owner main @codex-trigger {"type":"interval","interval":50}
 // Core HTM execution task
 scheduler.addTask("htmRun", 1, () => {
   htm.run();
-});
+}); // @codex-owner htm @codex-trigger {"type":"interval","interval":1}
 
 // Scheduled console drawing
 scheduler.addTask(
@@ -198,17 +208,17 @@ scheduler.addTask(
     Memory.stats.consoleDrawTime = drawTime;
   },
   { minBucket: 1000 },
-);
+); // @codex-owner console.console @codex-trigger {"type":"interval","interval":5}
 
 // Periodically purge console log counts to avoid memory bloat
 scheduler.addTask('purgeLogs', 250, () => {
   memoryManager.purgeConsoleLogCounts();
-});
+}); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":250}
 
 // Cleanup stale HTM creep containers
 scheduler.addTask('htmCleanup', 50, () => {
   htm.cleanupDeadCreeps();
-});
+}); // @codex-owner htm @codex-trigger {"type":"interval","interval":50}
 
 // Debug listing of scheduled tasks
 scheduler.addTask(
@@ -220,7 +230,7 @@ scheduler.addTask(
     }
   },
   { minBucket: 0 },
-);
+); // @codex-owner scheduler @codex-trigger {"type":"interval","interval":50}
 
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();

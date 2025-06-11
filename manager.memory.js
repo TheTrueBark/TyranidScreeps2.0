@@ -6,7 +6,7 @@
  * Keeping the layout uniform helps debugging and allows easy extension.
  *
  * Memory.hive = {
- *   version: 1,                       // schema version
+ *   version: MEMORY_VERSION,          // schema version
  *   clusters: {
  *     [clusterId]: {
  *       meta: {},                     // cluster specific information
@@ -27,7 +27,7 @@
  * written.
  */
 
-const HIVE_MEMORY_VERSION = 1;
+const { MEMORY_VERSION, runMigrations } = require('./memory.migrations');
 
 const DEFAULT_COLONY_MEMORY = {
   creeps: {},
@@ -46,6 +46,12 @@ const memoryManager = {
    * Initialize per-room containers and ensure the hive hierarchy exists.
    *
    * @param {Room} room - The room object to initialize.
+   */
+  /**
+   * Prepare Memory.rooms and link the room into the hive hierarchy.
+   * @param {Room} room - The room object to initialize.
+   * @codex-owner memoryManager
+   * @codex-path Memory.rooms
    */
   initializeRoomMemory(room) {
     if (!Memory.rooms) Memory.rooms = {};
@@ -66,16 +72,17 @@ const memoryManager = {
    *
    * @param {string} clusterId - Identifier for the cluster.
    * @param {string} colonyId  - Identifier for the colony.
+   * @codex-owner memoryManager
+   * @codex-path Memory.hive
    */
   initializeHiveMemory(clusterId, colonyId) {
     if (!Memory.hive) {
       Memory.hive = {
-        version: HIVE_MEMORY_VERSION,
+        version: MEMORY_VERSION,
         clusters: {},
       };
-    } else if (Memory.hive.version !== HIVE_MEMORY_VERSION) {
-      // Upgrade logic could be added here when versions change
-      Memory.hive.version = HIVE_MEMORY_VERSION;
+    } else if (Memory.hive.version < MEMORY_VERSION) {
+      runMigrations(Memory.hive.version);
     }
 
     if (!Memory.hive.clusters[clusterId]) {
@@ -252,6 +259,30 @@ const memoryManager = {
     if (Memory.stats && Memory.stats.logCounts) {
       Memory.stats.logCounts = {};
     }
+  },
+
+  /**
+   * Return version status for all registered schemas.
+   */
+  getVersionStatus() {
+    const schemas = require('./memory.schemas');
+    const getPath = (path) => {
+      const parts = path.split('.').slice(1); // remove 'Memory'
+      let obj = Memory;
+      for (const p of parts) {
+        if (!obj) return undefined;
+        obj = obj[p];
+      }
+      return obj;
+    };
+    const report = [];
+    for (const key in schemas) {
+      const entry = schemas[key];
+      const mem = getPath(entry.path);
+      const current = mem && mem.version !== undefined ? mem.version : undefined;
+      report.push({ path: entry.path, expected: entry.version, current });
+    }
+    return report;
   },
 };
 
