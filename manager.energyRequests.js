@@ -1,6 +1,7 @@
 const htm = require('./manager.htm');
 const statsConsole = require('console.console');
 const demand = require('./manager.hivemind.demand');
+const logger = require('./logger');
 
 const HAULER_CAPACITY = 600;
 
@@ -30,7 +31,11 @@ function ensureTask(structure, priority = 1) {
       1,
       'hauler',
     );
-    statsConsole.log(`Energy request for ${structure.structureType} ${id} (${needed})`, 3);
+    logger.log(
+      'energyRequests',
+      `Energy request for ${structure.structureType} ${id} (${needed})`,
+      3,
+    );
     const roomName = (structure.room && structure.room.name) || structure.pos.roomName;
     demand.recordRequest(id, needed, roomName);
   } else {
@@ -65,7 +70,11 @@ function ensureContainerTask(structure, priority = 2) {
       1,
       'hauler',
     );
-    statsConsole.log(`Energy request for container ${id} (${needed})`, 3);
+    logger.log(
+      'energyRequests',
+      `Energy request for container ${id} (${needed})`,
+      3,
+    );
     const roomName = (structure.room && structure.room.name) || structure.pos.roomName;
     demand.recordRequest(id, needed, roomName);
   } else {

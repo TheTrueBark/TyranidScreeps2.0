@@ -6,6 +6,7 @@ const debugConfig = {
   hiveTravel: false,
   roleMiner: false,
   demandManager: false,
+  energyRequests: false,
   spawnQueue: false,
 
   // Add other modules as needed

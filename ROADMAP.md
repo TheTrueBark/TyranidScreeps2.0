@@ -141,7 +141,7 @@
 - [x] Reset console log counts every 250 ticks
 - [x] Remove stale HTM creep containers regularly
 - [ ] Respect memory types: permanent, semi, temporary
-- [ ] Run every N ticks via scheduler
+- [x] Run every N ticks via scheduler
 
 ### 📈 Efficiency Agent (Prio 2)
 - [ ] Track creep paths to determine frequently used routes

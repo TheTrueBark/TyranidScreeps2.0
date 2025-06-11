@@ -28,10 +28,11 @@ module.exports = {
         Memory.htm.colonies[room.name].tasks) || [];
     const taskLines = tasks.map((t) => `${t.name} (${t.amount})`);
     if (taskLines.length > 0) {
-      visualizer.showInfo(taskLines, {
-        room: room,
-        pos: new RoomPosition(1, 1, room.name),
-      });
+      visualizer.showInfo(
+        taskLines,
+        { room: room, pos: new RoomPosition(48, 1, room.name) },
+        { align: 'right' },
+      );
     }
 
     layoutVisualizer.draw(room);
