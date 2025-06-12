@@ -18,11 +18,12 @@ describe('extension stamp placement', function() {
     globals.resetGame();
     globals.resetMemory();
     Memory.stats = { logs: [] };
+    Memory.rooms = { W1N1: {} };
     const terrain = { get: () => 0 };
     const spawn = { pos: { x:4, y:4, roomName:'W1N1' } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
-      controller: { level:2 },
+      controller: { level:2, my: true },
       find: type => {
         if (type === FIND_MY_SPAWNS) return [spawn];
         if (type === FIND_MY_STRUCTURES) return [];
@@ -32,19 +33,19 @@ describe('extension stamp placement', function() {
       lookForAt: () => [],
       getTerrain: () => terrain,
       createConstructionSite: (x,y,type) => { created.push({x,y,type}); return OK; },
-      memory: {},
+      memory: Memory.rooms['W1N1'],
     };
     created = [];
   });
 
   let created;
 
-  it('creates plus-shaped extension stamp', function() {
+  it('stores extension stamp in room memory', function() {
     const room = Game.rooms['W1N1'];
     building.buildExtensions(room);
-    expect(created).to.have.lengthOf(5);
-    const coords = created.map(p => `${p.x},${p.y}`);
-    expect(coords).to.have.members(['2,1','1,2','2,2','3,2','2,3']);
-    expect(room.memory.extensionCenters).to.include('2,2');
+    expect(created).to.have.lengthOf(0);
+    expect(room.memory.baseLayout).to.exist;
+    const ext = room.memory.baseLayout.stamps[STRUCTURE_EXTENSION];
+    expect(ext).to.have.lengthOf(5);
   });
 });
