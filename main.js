@@ -10,6 +10,8 @@ const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
 const roleHauler = require("role.hauler");
+const roleRemoteMiner = require('./role.remoteMiner');
+const roleReservist = require('./role.reservist');
 const distanceTransform = require("algorithm.distanceTransform");
 const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
@@ -42,6 +44,9 @@ if (Memory.settings.showTaskList === undefined) {
 }
 if (Memory.settings.energyLogs === undefined) {
   Memory.settings.energyLogs = false;
+}
+if (Memory.settings.debugHiveGaze === undefined) {
+  Memory.settings.debugHiveGaze = false;
 }
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
@@ -125,6 +130,8 @@ scheduler.addTask("clearMemory", 100, () => {
     miner: roleMiner,
     builder: roleBuilder,
     hauler: roleHauler,
+    remoteMiner: roleRemoteMiner,
+    reservist: roleReservist,
   };
   let removed = false;
   for (const name in Memory.creeps) {
@@ -192,6 +199,16 @@ scheduler.addTask('predictMinerLifecycles', 25, () => {
 scheduler.addTask('predictHaulerLifecycle', 25, () => {
   haulerLifecycle.run();
 }); // @codex-owner haulerLifecycle @codex-trigger {"type":"interval","interval":25}
+
+// Periodic expansion vision check
+scheduler.addTask('hiveGazeRefresh', 15000, () => {
+  hivemind.evaluateExpansionVision();
+}); // @codex-owner hiveGaze @codex-trigger {"type":"interval","interval":15000}
+
+// Scout lifecycle management
+scheduler.addTask('hiveGazeManageScouts', 10, () => {
+  hivemind.manageScouts();
+}); // @codex-owner hiveGaze @codex-trigger {"type":"interval","interval":10}
 
 // Decision making layer feeding tasks into HTM
 scheduler.addTask("hivemind", 1, () => {
@@ -318,6 +335,10 @@ module.exports.loop = function () {
       roleBuilder.run(creep);
     } else if (creep.memory.role === "hauler") {
       roleHauler.run(creep);
+    } else if (creep.memory.role === 'remoteMiner') {
+      roleRemoteMiner.run(creep);
+    } else if (creep.memory.role === 'reservist') {
+      roleReservist.run(creep);
     }
 
     CreepsCPUUsage += Game.cpu.getUsed() - creepStartCPU;

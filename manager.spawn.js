@@ -9,12 +9,19 @@ const energyRequests = require("./manager.energyRequests");
 
 // Default spawn priorities per role
 const ROLE_PRIORITY = {
+  scout: 0,
   allPurpose: 1,
   miner: 2,
   hauler: 3,
   builder: 4,
   upgrader: 5,
+  remoteMiner: 2,
+  reservist: 3,
 };
+
+// Exportable priority shortcuts for remote roles
+const PRIORITY_REMOTE_MINER = ROLE_PRIORITY.remoteMiner;
+const PRIORITY_RESERVIST = ROLE_PRIORITY.reservist;
 
 // Exportable priority constants for external modules
 const PRIORITY_HIGH = ROLE_PRIORITY.miner;
@@ -653,4 +660,7 @@ const spawnManager = {
 
 module.exports = spawnManager;
 module.exports.PRIORITY_HIGH = PRIORITY_HIGH;
+module.exports.PRIORITY_SCOUT = ROLE_PRIORITY.scout;
+module.exports.PRIORITY_REMOTE_MINER = PRIORITY_REMOTE_MINER;
+module.exports.PRIORITY_RESERVIST = PRIORITY_RESERVIST;
 module.exports.ROLE_PRIORITY = ROLE_PRIORITY;

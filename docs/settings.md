@@ -11,6 +11,7 @@ Memory.settings = {
   showTaskList: false,      // print scheduled tasks periodically
   energyLogs: false,        // enable energy request & demand logging
   showLayoutOverlay: false, // draw planned structures
+  debugHiveGaze: false,     // verbose scout & hiveGaze logging
 };
 ```
 

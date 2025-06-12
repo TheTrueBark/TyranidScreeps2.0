@@ -72,4 +72,29 @@ taskRegistry.register('defendRoom', {
   trigger: { type: 'event', eventName: 'hostilesDetected' },
 });
 
+taskRegistry.register('SCOUT_ROOM', {
+  owner: 'hiveGaze',
+  priority: 5,
+  ttl: 500,
+  trigger: { type: 'condition', conditionFn: 'hiveGaze.evaluateExpansionVision' },
+});
+
+taskRegistry.register('REMOTE_SCORE_ROOM', {
+  owner: 'hiveGaze',
+  priority: 4,
+  ttl: 500,
+});
+
+taskRegistry.register('REMOTE_MINER_INIT', {
+  owner: 'hiveGaze',
+  priority: 2,
+  ttl: 500,
+});
+
+taskRegistry.register('RESERVE_REMOTE_ROOM', {
+  owner: 'hiveGaze',
+  priority: 3,
+  ttl: 500,
+});
+
 module.exports = taskRegistry;
