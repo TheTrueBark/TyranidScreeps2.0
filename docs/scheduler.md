@@ -71,6 +71,8 @@ The main loop registers several core jobs which drive the colony:
 | `htmRun`             | 1 tick         | `htm`              | Processes HTM task queues. |
 | `consoleDisplay`     | 5 ticks        | `console.console`  | Prints stats and logs to console. |
 | `purgeLogs`          | 250 ticks      | `memoryManager`    | Clears aggregated log counts. |
+| `predictMinerLifecycles` | 25 ticks | `lifecyclePredictor` | Queues miner replacements before death. |
+| `predictHaulerLifecycle` | 25 ticks | `haulerLifecycle` | Queues hauler replacements before death. |
 | `verifyMiningReservations` | 10 ticks | `memoryManager`    | Frees reserved mining spots from dead creeps. |
 | `htmCleanup`         | 50 ticks       | `htm`              | Removes memory for dead creeps. |
 | `showScheduled`      | 50 ticks       | `scheduler`        | Optional debug output of task list. |

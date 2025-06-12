@@ -32,6 +32,7 @@ const roomManager = {
 
       // Determine container spot along the path to the spawn
       let pathPosition = null;
+      let distanceFromSpawn = 0;
       if (spawn) {
         const result = PathFinder.search(
           spawn.pos,
@@ -42,6 +43,7 @@ const roomManager = {
           const step = result.path[result.path.length - 1];
           pathPosition = { x: step.x, y: step.y };
         }
+        distanceFromSpawn = result.path ? result.path.length : 0;
       }
 
       potential.sort((a, b) =>
@@ -80,6 +82,7 @@ const roomManager = {
       Memory.rooms[room.name].miningPositions[source.id] = {
         x: sourcePos.x,
         y: sourcePos.y,
+        distanceFromSpawn,
         positions,
       };
     });

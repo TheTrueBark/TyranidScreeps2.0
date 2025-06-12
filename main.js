@@ -21,6 +21,8 @@ const introspect = require('./debug.introspection');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
+const lifecycle = require('./hiveMind.lifecycle');
+const haulerLifecycle = require('./haulerLifecycle');
 const movementUtils = require("./utils.movement");
 
 const energyDemand = require("./manager.hivemind.demand");
@@ -180,6 +182,16 @@ scheduler.addTask("buildInfrastructure", 0, () => {
     buildingManager.buildInfrastructure(room);
   }
 }); // @codex-owner buildingManager @codex-trigger {"type":"interval","interval":0}
+
+// Lifecycle-based miner replacement
+scheduler.addTask('predictMinerLifecycles', 25, () => {
+  lifecycle.run();
+}); // @codex-owner lifecyclePredictor @codex-trigger {"type":"interval","interval":25}
+
+// Lifecycle-based hauler replacement
+scheduler.addTask('predictHaulerLifecycle', 25, () => {
+  haulerLifecycle.run();
+}); // @codex-owner haulerLifecycle @codex-trigger {"type":"interval","interval":25}
 
 // Decision making layer feeding tasks into HTM
 scheduler.addTask("hivemind", 1, () => {
