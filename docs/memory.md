@@ -214,6 +214,7 @@ Memory.settings = {
   enableVisuals: true,
   showTaskList: false,
   energyLogs: false,
+  debugHiveGaze: false,
 };
 ```
 
@@ -273,6 +274,28 @@ Memory.stats.haulerSpawnTiming = {
 };
 ```
 
+### Expansion Vision Timestamp
+
+@codex-owner hiveGaze
+@codex-path Memory.hive.expansionVisionLastCheck
+
+Last game tick when HiveGaze evaluated exits and queued scout tasks.
+
+### Mining Route Cache
+
+@codex-owner hiveGaze
+@codex-path Memory.rooms[roomName].miningRoutes
+
+Each source stores the path length from the spawn used by lifecycle
+prediction and remote logistics.
+
+```javascript
+Memory.rooms['W1N1'].miningRoutes['src1'] = {
+  pathLength: 15,
+  lastCalculated: 12345
+};
+```
+
 ### Creep Fallback State
 
 @codex-owner role.allPurpose
@@ -285,6 +308,58 @@ room data is missing. These fields are cleared once normal behaviour resumes.
 creep.memory.fallbackReason = 'missingMiningData';
 creep.memory.fallbackSince = Game.time;
 ```
+
+### Scout Retirement Flag
+
+@codex-owner role.scout
+@codex-path creep.memory.retiring
+
+Indicates a scout has re-queued its task due to low TTL and is
+returning to base for recycling.
+
+```javascript
+creep.memory.retiring = true;
+```
+
+### Scout Cooldown
+
+@codex-owner hiveGaze
+@codex-path Memory.rooms[roomName].scoutCooldownUntil
+
+Rooms that have failed scouting multiple times will be skipped until this
+timestamp. The cooldown prevents endless re-queuing of unreachable scout tasks.
+
+### Remote Scoring
+
+@codex-owner hiveGaze
+@codex-path Memory.rooms[room].remoteScore
+@codex-path Memory.rooms[room].sources[sourceId].score
+@codex-path Memory.rooms[room].sources[sourceId].assignedPosition
+@codex-path Memory.rooms[room].sources[sourceId].reservedBy
+@codex-path Memory.hive.expansionTarget
+
+Scores computed for remote mining targets are stored per room and per source.
+`assignedPosition` and `reservedBy` track remote miner reservations. The room
+with the highest `remoteScore` is kept under `Memory.hive.expansionTarget`.
+
+### Remote Room Tracking
+
+@codex-owner hiveGaze
+@codex-path Memory.hive.claimedRemotes
+
+Active remote rooms currently mined or reserved by the hive. Entries are added
+when a remote miner is alive or a controller reservation exceeds 1000 ticks.
+Rooms are removed once no miner is present and reservation time drops below
+1000 ticks.
+
+@codex-path Memory.rooms[room].reserveAttempts
+
+Number of failed reservation attempts for a room. Resets on success.
+
+@codex-path Memory.stats.remoteRooms[roomName]
+
+Statistics for remote operations including miner and reservist spawn counts,
+successes, and failures.
 
 ### Controller Upgrade Spots
 

@@ -28,6 +28,10 @@ Haulers remain governed by the energy demand module.
   Haulers also relocate to an open tile near the spawn after depositing when
   the drop location is within the restricted area so they never idle on those
   reserved spots.
+- **Remote Miners** – Travel to pre-assigned coordinates in remote rooms and
+  harvest until death. They keep mining positions reserved via memory.
+- **Reservists** – Lightweight creeps that reserve a remote controller and sign
+  it with a Tyranid-themed message before expiring.
 
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.

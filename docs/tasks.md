@@ -64,6 +64,9 @@ taskRegistry.register('upgradeController', {
 | `buildSite` | `buildingManager` | 1 | Assign builders to a construction site. |
 | `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
 | `BUILD_LAYOUT_PART` | `buildingManager` | 1 | Construct next piece of the base layout. | @codex-owner buildingManager
+| `REMOTE_SCORE_ROOM` | `hiveGaze` | 4 | Evaluate remote sources and assign scores. |
+| `REMOTE_MINER_INIT` | `hiveGaze` | 2 | Reserve a remote mining spot and spawn a miner. |
+| `RESERVE_REMOTE_ROOM` | `hiveGaze` | 3 | Spawn a reservist to secure the controller. Tasks may be requeued automatically with origin `autoRetry`. |
 
 ### Registered Triggers
 

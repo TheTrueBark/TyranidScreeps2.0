@@ -1,5 +1,6 @@
 const htm = require('./manager.htm');
 const spawnModule = require('./manager.hivemind.spawn');
+const hiveGaze = require('./manager.hiveGaze');
 const scheduler = require('./scheduler');
 const memoryManager = require('./manager.memory');
 const roomManager = require('./manager.room');
@@ -52,6 +53,16 @@ const hivemind = {
         }
       }
     }
+
+    hiveGaze.updateClaimedRemotes();
+  },
+
+  /** Delegate expansion vision checks to HiveGaze */
+  evaluateExpansionVision() {
+    hiveGaze.evaluateExpansionVision();
+  },
+  manageScouts() {
+    hiveGaze.manageScouts();
   },
 };
 
