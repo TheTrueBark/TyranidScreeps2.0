@@ -8,6 +8,11 @@ Enable it by setting `Memory.settings.showLayoutOverlay` to `true`.
 `RoomVisual.js` is loaded in `main.js` to extend the prototype with
 `.structure` and related helpers used for ghost drawings.
 
+When the building manager plans extensions via `layoutPlanner`,
+their stamp is stored in `room.memory.baseLayout`. The ghost layer
+reads from this memory so you can preview extension locations before
+construction sites are placed.
+
 Colors indicate build status:
 
 | Color       | Meaning                        |
