@@ -34,7 +34,12 @@ its queue is empty.
   recover. The module enforces a strict initial order at RCL1: one
   allPurpose creep, two miners and two haulers must be accounted for before an
   upgrader is queued.
- - **demand** – Tracks energy deliveries. When the combined
+- **lifecycle** – Runs every 25 ticks via the scheduler to queue miner replacements before the current
+  miner expires using precomputed travel times. A second module predicts hauler
+  replacements using average roundtrip durations and only queues a new hauler
+  when demand persists and no other replacement is scheduled for the same
+  route.
+- **demand** – Tracks energy deliveries. When the combined
   `demandRate` for requesters exceeds the current `supplyRate` the Hive
   automatically queues enough haulers to close the gap. Delivery statistics are
   stored per-room under `Memory.demand.rooms` along with aggregate `totals`

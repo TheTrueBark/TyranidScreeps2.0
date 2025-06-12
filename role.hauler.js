@@ -4,6 +4,7 @@ const htm = require('manager.htm');
 const logger = require('./logger');
 const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
+const _ = require('lodash');
 
 function isRestricted(room, pos) {
   const area =
@@ -82,9 +83,24 @@ function deliverEnergy(creep, target = null) {
         s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
     });
   if (structure) {
-    if (creep.transfer(structure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+    const result = creep.transfer(structure, RESOURCE_ENERGY);
+    if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
-    } else {
+    } else if (result === OK) {
+      if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
+        const duration = Game.time - creep.memory.roundTripStartTick;
+        const routeId = creep.memory.assignment.routeId;
+        const route = _.get(Memory, ['demand', 'routes', routeId], {});
+        const count = route.roundTripCount || 0;
+        route.avgRoundTrip = ((route.avgRoundTrip || 0) * count + duration) / (count + 1);
+        route.roundTripCount = count + 1;
+        route.activeHaulers = route.activeHaulers || [];
+        if (!route.activeHaulers.includes(creep.name)) route.activeHaulers.push(creep.name);
+        route.assignmentInfo = route.assignmentInfo || creep.memory.assignment;
+        _.set(Memory, ['demand', 'routes', routeId], route);
+      }
+      creep.memory.lastDeliveryTick = Game.time;
+      creep.memory.roundTripStartTick = Game.time;
       if (structure.structureType === STRUCTURE_CONTAINER) {
         creep.memory.blockedContainerId = structure.id;
       }
@@ -102,9 +118,24 @@ function deliverEnergy(creep, target = null) {
           s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
       })[0];
   if (ctrlContainer) {
-    if (creep.transfer(ctrlContainer, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+    const result = creep.transfer(ctrlContainer, RESOURCE_ENERGY);
+    if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
-    } else {
+    } else if (result === OK) {
+      if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
+        const duration = Game.time - creep.memory.roundTripStartTick;
+        const routeId = creep.memory.assignment.routeId;
+        const route = _.get(Memory, ['demand', 'routes', routeId], {});
+        const count = route.roundTripCount || 0;
+        route.avgRoundTrip = ((route.avgRoundTrip || 0) * count + duration) / (count + 1);
+        route.roundTripCount = count + 1;
+        route.activeHaulers = route.activeHaulers || [];
+        if (!route.activeHaulers.includes(creep.name)) route.activeHaulers.push(creep.name);
+        route.assignmentInfo = route.assignmentInfo || creep.memory.assignment;
+        _.set(Memory, ['demand', 'routes', routeId], route);
+      }
+      creep.memory.lastDeliveryTick = Game.time;
+      creep.memory.roundTripStartTick = Game.time;
       creep.memory.blockedContainerId = ctrlContainer.id;
       if (isRestricted(creep.room, creep.pos)) moveToIdle(creep);
     }
@@ -112,9 +143,24 @@ function deliverEnergy(creep, target = null) {
   }
 
   if (creep.room.storage && creep.room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-    if (creep.transfer(creep.room.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+    const result = creep.transfer(creep.room.storage, RESOURCE_ENERGY);
+    if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
-    } else {
+    } else if (result === OK) {
+      if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
+        const duration = Game.time - creep.memory.roundTripStartTick;
+        const routeId = creep.memory.assignment.routeId;
+        const route = _.get(Memory, ['demand', 'routes', routeId], {});
+        const count = route.roundTripCount || 0;
+        route.avgRoundTrip = ((route.avgRoundTrip || 0) * count + duration) / (count + 1);
+        route.roundTripCount = count + 1;
+        route.activeHaulers = route.activeHaulers || [];
+        if (!route.activeHaulers.includes(creep.name)) route.activeHaulers.push(creep.name);
+        route.assignmentInfo = route.assignmentInfo || creep.memory.assignment;
+        _.set(Memory, ['demand', 'routes', routeId], route);
+      }
+      creep.memory.lastDeliveryTick = Game.time;
+      creep.memory.roundTripStartTick = Game.time;
       if (creep.room.storage.structureType === STRUCTURE_CONTAINER) {
         creep.memory.blockedContainerId = creep.room.storage.id;
       }
@@ -193,11 +239,19 @@ module.exports = {
         const source = findEnergySource(creep);
         if (source) {
           if (source.type === 'pickup') {
-            if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+            const res = creep.pickup(source.target);
+            if (res === ERR_NOT_IN_RANGE) {
               creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            } else if (res === OK) {
+              creep.memory.roundTripStartTick = Game.time;
             }
-          } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+          } else {
+            const res = creep.withdraw(source.target, RESOURCE_ENERGY);
+            if (res === ERR_NOT_IN_RANGE) {
+              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            } else if (res === OK) {
+              creep.memory.roundTripStartTick = Game.time;
+            }
           }
         }
         return;
@@ -266,11 +320,19 @@ module.exports = {
     const source = findEnergySource(creep);
     if (source) {
       if (source.type === 'pickup') {
-        if (creep.pickup(source.target) === ERR_NOT_IN_RANGE) {
+        const res = creep.pickup(source.target);
+        if (res === ERR_NOT_IN_RANGE) {
           creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+        } else if (res === OK) {
+          creep.memory.roundTripStartTick = Game.time;
         }
-      } else if (creep.withdraw(source.target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-        creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+      } else {
+        const res = creep.withdraw(source.target, RESOURCE_ENERGY);
+        if (res === ERR_NOT_IN_RANGE) {
+          creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+        } else if (res === OK) {
+          creep.memory.roundTripStartTick = Game.time;
+        }
       }
       return;
     }

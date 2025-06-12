@@ -57,6 +57,28 @@ Room initialization populates `Memory.rooms[roomName]` with:
 
 Cluster and colony memory follow the defaults in `manager.memory.js`.
 
+### Mining Positions
+
+@codex-owner manager.room
+@codex-path Memory.rooms[roomName].miningPositions
+
+Each source stores possible mining spots and the travel time from the spawn.
+
+```javascript
+Memory.rooms['W1N1'].miningPositions['src1'] = {
+  x: 10,
+  y: 20,
+  distanceFromSpawn: 15,
+  positions: {
+    best1: { x: 11, y: 20, roomName: 'W1N1', reserved: false },
+    best2: null,
+    best3: null,
+  },
+};
+```
+
+`distanceFromSpawn` is used by the lifecycle predictor to schedule miner replacements.
+
 ## Adding New Schemas
 
 When a module requires persistent storage it should register its schema and version in `memory.schemas.js` so documentation can be generated automatically.  Migration functions can read `Memory.hive.version` to upgrade data structures.
@@ -92,6 +114,54 @@ older layouts so the AI can evolve without wiping persistent data.
 are sorted by `priority` and `ticksToSpawn` when processed by
 `manager.spawnQueue`.
 
+### Miner Lifecycle Memory
+
+Expected creep memory for miners spawned by the lifecycle predictor:
+
+```javascript
+memory: {
+  role: 'miner',
+  assignment: {
+    sourceId: '...',
+    containerId: '...',
+    pos: { x: 12, y: 25, roomName: 'W1N1' }
+  },
+  spawnedBy: 'lifecyclePredictor',
+  originCreep: 'Creep1234'
+}
+```
+
+Spawn queue entries created by this system include metadata:
+
+```javascript
+{
+  role: 'miner',
+  room: 'W1N1',
+  memory: { /* see above */ },
+  assignment: { sourceId, pos },
+  origin: 'lifecyclePredictor',
+  priority: spawnManager.PRIORITY_HIGH
+}
+```
+
+### Hauler Lifecycle Memory
+
+Haulers scheduled by the lifecycle predictor clone the original creep memory and
+record spawn timing expectations:
+
+```javascript
+memory: {
+  role: 'hauler',
+  assignment: { routeId: 'r1', sourceId: 'src', destId: 'storage' },
+  spawnedBy: 'lifecyclePredictor',
+  originCreep: 'Hauler1234',
+  originDeathTick: 123456
+}
+```
+
+Spawn queue entries mirror this memory and include `origin: 'lifecyclePredictor'`
+alongside the `assignment` route id.
+
 ### Energy Demand Tracking
 
 @codex-owner hivemind.demand
@@ -116,6 +186,18 @@ Memory.demand = {
 
 The demand module updates these metrics every tick and decides when additional
 haulers should be spawned.
+
+Each hauler route stores rolling averages under `Memory.demand.routes`:
+
+```javascript
+Memory.demand.routes[routeId] = {
+  avgRoundTrip: 47,
+  roundTripCount: 3,
+  activeHaulers: ['H1'],
+  totals: { demand: 0 },
+  assignmentInfo: { sourceId: 'src', destId: 'storage', type: 'remotePull' }
+};
+```
 
 ### Runtime Settings
 
@@ -169,6 +251,27 @@ Memory.empire = {
 
 Console and task execution metrics are aggregated here.
 `Memory.stats.taskLogs` keeps the most recent task executions.
+
+Lifecycle-based miner stats are recorded under:
+
+```javascript
+Memory.stats.lifecyclePrediction.miner = {
+  replacedOnTime: 0,
+  replacedLate: 0,
+  energyMissedEstimate: 0,
+};
+```
+
+Hauler replacement accuracy is stored under:
+
+```javascript
+Memory.stats.haulerSpawnTiming = {
+  late: 0,
+  early: 0,
+  perfect: 0,
+  history: []
+};
+```
 
 ### Creep Fallback State
 

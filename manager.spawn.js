@@ -16,6 +16,9 @@ const ROLE_PRIORITY = {
   upgrader: 5,
 };
 
+// Exportable priority constants for external modules
+const PRIORITY_HIGH = ROLE_PRIORITY.miner;
+
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
   [TOP]: { x: 0, y: -1 },
@@ -189,9 +192,12 @@ const spawnManager = {
       );
 
       if (miningPositionAssigned) {
-        const distanceToSpawn = spawn.pos.getRangeTo(
-          Game.getObjectById(source.id).pos,
-        );
+        const sourceMem =
+          Memory.rooms[room.name].miningPositions[source.id] || {};
+        const distanceToSpawn =
+          sourceMem.distanceFromSpawn !== undefined
+            ? sourceMem.distanceFromSpawn
+            : spawn.pos.getRangeTo(Game.getObjectById(source.id).pos);
         const energyProducedPerTick = energyPerTick;
         const collectionTicks = calculateCollectionTicks(energyProducedPerTick);
 
@@ -646,3 +652,5 @@ const spawnManager = {
 };
 
 module.exports = spawnManager;
+module.exports.PRIORITY_HIGH = PRIORITY_HIGH;
+module.exports.ROLE_PRIORITY = ROLE_PRIORITY;
