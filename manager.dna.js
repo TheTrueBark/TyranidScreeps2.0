@@ -19,6 +19,8 @@ function getBodyParts(role, room, panic = false) {
       return buildMiner(available, panic);
     case "hauler":
       return buildHauler(available, panic);
+    case "baseDistributor":
+      return buildBaseDistributor();
     case "builder":
       return buildWorker(available, panic);
     case "upgrader":
@@ -66,6 +68,10 @@ function buildWorker(energy, panic) {
     body.push(WORK, CARRY, MOVE);
   }
   return body;
+}
+
+function buildBaseDistributor() {
+  return [CARRY, CARRY, MOVE, MOVE];
 }
 
 function buildAllPurpose(energy, panic) {

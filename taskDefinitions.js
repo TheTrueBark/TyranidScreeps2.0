@@ -72,6 +72,12 @@ taskRegistry.register('deliverEnergy', {
   trigger: { type: 'condition', conditionFn: 'structureNeedsEnergy' },
 });
 
+taskRegistry.register('DELIVER_BASE_ENERGY', {
+  owner: 'role.baseDistributor',
+  priority: 2,
+  ttl: 30,
+});
+
 taskRegistry.register('defendRoom', {
   owner: 'hivemind.spawn',
   priority: 1,

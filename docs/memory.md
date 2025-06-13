@@ -33,6 +33,14 @@ Memory.hive = {
 ```
 
 `manager.memory.js` ensures this layout exists via `initializeHiveMemory(clusterId, colonyId)`.
+The `meta` section may track additional data. Base distributors store their
+assigned creep name here:
+
+```javascript
+Memory.hive.clusters['W1N1'].colonies['W1N1'].meta = {
+  distributor: 'D1'
+};
+```
 
 ## Module Ownership
 
@@ -222,6 +230,8 @@ Memory.settings = {
   debugHiveGaze: false,
   debugBuilding: false,      // log build results and draw visual overlays
   debugLayoutProgress: false // log layout progress every 1000 ticks
+  debugVisuals: false,       // draw role and tower debug icons
+  enableTowerRepairs: true   // allow towers to repair when bucket is high
 };
 ```
 
