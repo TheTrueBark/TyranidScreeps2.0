@@ -41,7 +41,7 @@ Example of adding a colony task:
 
 ```javascript
 const htm = require('manager.htm');
-htm.addColonyTask('W1N1', 'buildExtensions', { amount: 5 }, 2);
+htm.addColonyTask('W1N1', 'BUILD_LAYOUT_PART', { x: 25, y: 25, structureType: STRUCTURE_EXTENSION }, 3);
 ```
 
 ### Claiming tasks

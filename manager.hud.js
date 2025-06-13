@@ -35,6 +35,6 @@ module.exports = {
       );
     }
 
-    layoutVisualizer.draw(room);
+    layoutVisualizer.drawLayout(room.name);
   },
 };

@@ -1,63 +1,55 @@
 const statsConsole = require('console.console');
 
 /**
- * Layout planner using simple stamps anchored near the spawn.
+ * Modular layout planner storing structure matrix per room.
  * @codex-owner layoutPlanner
  */
 
-// Compact plus shaped extension pattern
-const extensionStamp = [
-  { x: 0, y: -1 },
-  { x: -1, y: 0 },
-  { x: 0, y: 0 },
-  { x: 1, y: 0 },
-  { x: 0, y: 1 },
+const baseLayout = [
+  { dx: 0, dy: 0, type: STRUCTURE_SPAWN, rcl: 1 },
+  { dx: 1, dy: 0, type: STRUCTURE_EXTENSION, rcl: 2 },
+  { dx: -1, dy: 0, type: STRUCTURE_EXTENSION, rcl: 2 },
+  { dx: 0, dy: 1, type: STRUCTURE_EXTENSION, rcl: 2 },
+  { dx: 0, dy: -1, type: STRUCTURE_EXTENSION, rcl: 2 },
+  { dx: 1, dy: 1, type: STRUCTURE_TOWER, rcl: 3 },
+  { dx: -1, dy: -1, type: STRUCTURE_STORAGE, rcl: 4 },
+  { dx: -1, dy: 1, type: STRUCTURE_LINK, rcl: 5 },
+  { dx: 1, dy: -1, type: STRUCTURE_EXTENSION, rcl: 6 },
 ];
 
-function placeStamp(anchor, stamp, rcl, type, origin = 'starterStamp') {
-  const placed = [];
-  const terrain = Game.map.getRoomTerrain(anchor.roomName);
-  for (const off of stamp) {
-    const x = anchor.x + off.x;
-    const y = anchor.y + off.y;
-    if (terrain.get(x, y) !== 'wall') {
-      placed.push({ x, y, rcl, structureType: type, origin });
-    }
-  }
-
-  if (!Memory.rooms[anchor.roomName].baseLayout) {
-    Memory.rooms[anchor.roomName].baseLayout = {
-      anchor: { x: anchor.x, y: anchor.y },
-      stamps: {},
-      layoutUpgraded: false,
-    };
-  }
-
-  if (!Memory.rooms[anchor.roomName].baseLayout.stamps[type]) {
-    Memory.rooms[anchor.roomName].baseLayout.stamps[type] = [];
-  }
-
-  Memory.rooms[anchor.roomName].baseLayout.stamps[type].push(...placed);
+function reserve(mem, x, y, data) {
+  if (!mem.matrix[x]) mem.matrix[x] = {};
+  mem.matrix[x][y] = Object.assign(
+    { planned: true, plannedBy: 'layoutPlanner', blockedUntil: Game.time + 1500 },
+    data,
+  );
+  if (!mem.reserved[x]) mem.reserved[x] = {};
+  mem.reserved[x][y] = true;
 }
 
 const layoutPlanner = {
   /**
-   * Generate a base layout if missing or restructuring.
-   * @param {Room} room
+   * Plan layout for given room name using preset matrix.
+   * @param {string} roomName
    */
-  planBaseLayout(room) {
-    const start = Game.cpu.getUsed();
-    if (!room.controller || !room.controller.my) return;
-    if (room.memory.baseLayout && !room.memory.restructureAtRCL) return;
-
+  plan(roomName) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return;
     const spawn = room.find(FIND_MY_SPAWNS)[0];
     if (!spawn) return;
-
-    const anchor = { x: spawn.pos.x, y: spawn.pos.y, roomName: room.name };
-    placeStamp(anchor, extensionStamp, 2, STRUCTURE_EXTENSION);
-    if (room.memory.restructureAtRCL) delete room.memory.restructureAtRCL;
-
-    statsConsole.run([["layoutPlanner", Game.cpu.getUsed() - start]]);
+    const mem = Memory.rooms[roomName] || (Memory.rooms[roomName] = {});
+    if (!mem.layout) mem.layout = { matrix: {}, reserved: {} };
+    mem.layout.baseAnchor = mem.layout.baseAnchor || {
+      x: spawn.pos.x,
+      y: spawn.pos.y,
+    };
+    for (const p of baseLayout) {
+      const x = mem.layout.baseAnchor.x + p.dx;
+      const y = mem.layout.baseAnchor.y + p.dy;
+      reserve(mem.layout, x, y, { structureType: p.type, rcl: p.rcl });
+    }
+    mem.layout.planVersion = 1;
+    statsConsole.run([["layoutPlanner", Game.cpu.getUsed()]]);
   },
 };
 

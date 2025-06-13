@@ -1,41 +1,56 @@
 const statsConsole = require('console.console');
-const htm = require('./manager.htm');
-
 /**
- * Draw ghost overlays for planned structures.
+ * Draw ghost overlays for planned structures using matrix layout.
  * Toggle via Memory.settings.showLayoutOverlay.
  */
 /** @codex-owner layoutVisualizer */
+function getGlyph(type) {
+  const map = {
+    [STRUCTURE_EXTENSION]: 'E',
+    [STRUCTURE_STORAGE]: 'S',
+    [STRUCTURE_TOWER]: 'T',
+    [STRUCTURE_LINK]: 'K',
+    [STRUCTURE_SPAWN]: 'P',
+    [STRUCTURE_ROAD]: 'R',
+  };
+  return map[type] || '?';
+}
+
 const layoutVisualizer = {
-  draw(room) {
+  drawLayout(roomName) {
     if (!Memory.settings || !Memory.settings.showLayoutOverlay) return;
-    if (!room.memory.baseLayout) return;
+    const room = Game.rooms[roomName];
+    if (!room || !room.memory.layout) return;
     const start = Game.cpu.getUsed();
     const rcl = room.controller ? room.controller.level : 0;
-    const vis = new RoomVisual(room.name);
+    const vis = new RoomVisual(roomName);
 
-    for (const type in room.memory.baseLayout.stamps) {
-      room.memory.baseLayout.stamps[type].forEach((pos) => {
-        const struct = pos.structureType || type;
-        const built = room
-          .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
-          .some((s) => s.structureType === struct);
-        const queued =
-          room
-            .lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y)
-            .some((s) => s.structureType === struct) ||
-          htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
-            x: pos.x,
-            y: pos.y,
-            structureType: struct,
+    const matrix = room.memory.layout.matrix || {};
+    for (const x in matrix) {
+      for (const y in matrix[x]) {
+        const cell = matrix[x][y];
+        vis.text(getGlyph(cell.structureType), parseInt(x), parseInt(y), {
+          color: 'white',
+          font: 0.8,
+        });
+        if (cell.rcl) {
+          vis.text(String(cell.rcl), parseInt(x) + 0.3, parseInt(y) + 0.3, {
+            color: '#888888',
+            font: 0.5,
           });
-        let color = 'white';
-        if (built) color = '#00ff00';
-        else if (queued) color = '#ffff00';
-        else if (pos.rcl > rcl) color = '#555555';
+        }
+      }
+    }
 
-        vis.structure(pos.x, pos.y, struct, { opacity: 0.3, stroke: color });
-      });
+    const reserved = room.memory.layout.reserved || {};
+    for (const x in reserved) {
+      for (const y in reserved[x]) {
+        vis.rect(parseInt(x) - 0.5, parseInt(y) - 0.5, 1, 1, {
+          fill: 'red',
+          opacity: 0.1,
+          stroke: 'red',
+        });
+      }
     }
     statsConsole.run([["layoutVisualizer", Game.cpu.getUsed() - start]]);
   },

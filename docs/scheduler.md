@@ -62,7 +62,7 @@ The main loop registers several core jobs which drive the colony:
 | `initializeRoomMemory` | once          | `main`             | Prepares room and hive memory on tick 0. |
 | `clearMemory`        | 100 ticks      | `main`             | Removes dead creep memory. |
 | `updateHUD`          | 5 ticks        | `main`             | Draws HUD visuals. |
-| `layoutPlanInit`     | 500 ticks      | `layoutPlanner`    | Initialize base layout stamps. |
+| `layoutPlanningInit` | event `roomOwnershipEstablished` (once) | `layoutPlanner` | Initialize base layout when a room is claimed. |
 | `buildInfrastructure`| every tick     | `buildingManager`  | Places construction sites when needed. |
 | `hivemind`           | 1 tick         | `hivemind`         | Evaluates strategy and queues HTM tasks. |
 | `energyDemand`       | 1000 ticks     | `demand`           | Updates delivery stats. |

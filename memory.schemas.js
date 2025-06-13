@@ -18,6 +18,8 @@ const schemas = {
   roleEval: { version: 1, owner: 'hive.roles', path: 'Memory.roleEval' },
   /** @codex-path Memory.stats */
   stats: { version: 1, owner: 'logger', path: 'Memory.stats' },
+  /** @codex-path Memory.rooms[room].layout */
+  roomLayout: { version: 1, owner: 'layoutPlanner', path: 'Memory.rooms.*.layout' },
 };
 
 module.exports = schemas;
