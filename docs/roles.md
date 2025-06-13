@@ -28,6 +28,8 @@ Haulers remain governed by the energy demand module.
   Haulers also relocate to an open tile near the spawn after depositing when
   the drop location is within the restricted area so they never idle on those
   reserved spots.
+- **Base Distributor** – Small courier active once storage is built. Pulls energy
+  only from storage and keeps spawns, extensions and towers supplied.
 - **Remote Miners** – Travel to pre-assigned coordinates in remote rooms and
   harvest until death. They keep mining positions reserved via memory.
 - **Reservists** – Lightweight creeps that reserve a remote controller and sign

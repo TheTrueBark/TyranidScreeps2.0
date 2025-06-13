@@ -13,6 +13,7 @@ const ROLE_PRIORITY = {
   allPurpose: 1,
   miner: 2,
   hauler: 3,
+  baseDistributor: 3,
   builder: 4,
   upgrader: 5,
   remoteMiner: 2,
@@ -286,6 +287,24 @@ const spawnManager = {
     );
   },
 
+  spawnBaseDistributor(spawn, room) {
+    const bodyParts = dna.getBodyParts('baseDistributor', room);
+    spawnQueue.addToQueue(
+      'baseDistributor',
+      room.name,
+      bodyParts,
+      { role: 'baseDistributor', home: room.name },
+      spawn.id,
+      0,
+      ROLE_PRIORITY.baseDistributor,
+    );
+    logger.log(
+      'spawnManager',
+      `Queued base distributor for room ${room.name}`,
+      2,
+    );
+  },
+
   /**
    * Spawns a builder with the appropriate body parts based on energy.
    * @param {StructureSpawn} spawn - Spawn structure to use.
@@ -307,6 +326,22 @@ const spawnManager = {
       `Added builder creep to spawn queue in room ${room.name}`,
       2,
     );
+  },
+
+  checkStorageAndSpawnBaseDistributor(room) {
+    if (!room.storage) return;
+    const existing = _.filter(Game.creeps, c => c.memory.role === 'baseDistributor' && c.memory.home === room.name);
+    const queued = spawnQueue.queue.some(q => q.memory && q.memory.role === 'baseDistributor' && q.room === room.name);
+    if (existing.length === 0 && !queued) {
+      const spawn = room.find(FIND_MY_SPAWNS)[0];
+      if (spawn) this.spawnBaseDistributor(spawn, room);
+    }
+    if (!Memory.hive || !Memory.hive.clusters || !Memory.hive.clusters[room.name]) return;
+    const colony = Memory.hive.clusters[room.name].colonies[room.name];
+    if (colony) {
+      if (!colony.meta) colony.meta = {};
+      colony.meta.distributor = existing.length ? existing[0].name : null;
+    }
   },
 
   /**

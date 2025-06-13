@@ -12,11 +12,13 @@ const roleBuilder = require("role.builder");
 const roleHauler = require("role.hauler");
 const roleRemoteMiner = require('./role.remoteMiner');
 const roleReservist = require('./role.reservist');
+const roleBaseDistributor = require('./role.baseDistributor');
 const distanceTransform = require("algorithm.distanceTransform");
 const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
 const memoryManager = require("manager.memory");
 const hiveTravel = require("manager.hiveTravel");
+const towerManager = require('./manager.towers');
 const scheduler = require("scheduler");
 const { ONCE } = require("scheduler");
 const logger = require("./logger");
@@ -48,6 +50,12 @@ if (Memory.settings.energyLogs === undefined) {
 }
 if (Memory.settings.debugHiveGaze === undefined) {
   Memory.settings.debugHiveGaze = false;
+}
+if (Memory.settings.debugVisuals === undefined) {
+  Memory.settings.debugVisuals = false;
+}
+if (Memory.settings.enableTowerRepairs === undefined) {
+  Memory.settings.enableTowerRepairs = true;
 }
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
@@ -281,6 +289,17 @@ scheduler.addTask('verifyMiningReservations', 10, () => {
   memoryManager.cleanUpReservedPositions();
 }); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":10}
 
+scheduler.addTask('runTowers', 3, () => {
+  towerManager.run();
+}, { highPriority: true, minBucket: 5000 }); // @codex-owner towers @codex-trigger {"type":"interval","interval":3}
+
+scheduler.addTask('checkStorageAndSpawnBaseDistributor', 25, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    spawnManager.checkStorageAndSpawnBaseDistributor(room);
+  }
+}); // @codex-owner baseDistributor @codex-trigger {"type":"interval","interval":25}
+
 // Cleanup stale HTM creep containers
 scheduler.addTask('htmCleanup', 50, () => {
   htm.cleanupDeadCreeps();
@@ -339,6 +358,8 @@ module.exports.loop = function () {
       roleBuilder.run(creep);
     } else if (creep.memory.role === "hauler") {
       roleHauler.run(creep);
+    } else if (creep.memory.role === 'baseDistributor') {
+      roleBaseDistributor.run(creep);
     } else if (creep.memory.role === 'remoteMiner') {
       roleRemoteMiner.run(creep);
     } else if (creep.memory.role === 'reservist') {

@@ -58,6 +58,7 @@ taskRegistry.register('upgradeController', {
 | `spawnHauler`    | `spawnManager`   | 1               | Request a hauler creep.         |
 | `upgradeController` | `hivemind.spawn` | 3             | Encourage controller upgrades.  |
 | `deliverEnergy`  | `energyRequests` | 2               | Hauler delivery to a structure. |
+| `DELIVER_BASE_ENERGY` | `role.baseDistributor` | 2 | Distributor delivery to core structures. |
 | `defendRoom`     | `hivemind.spawn` | 1               | Spawn defenders on hostiles.    |
 | `spawnBootstrap` | `spawnManager`   | 0               | Emergency worker when none exist. |
 | `acquireMiningData` | `roomManager` | 2 | Rescan room to rebuild mining positions. |
@@ -167,6 +168,10 @@ taskRegistry.register('deliverEnergy', {
 ```
 
 Registered entries are exposed through `taskRegistry.registry` and may be exported to Codex docs.
+
+## Scheduler Tasks
+
+Additional logic runs on fixed intervals via the scheduler. `runTowers` executes every three ticks to operate defensive towers.
 
 ## Codex Metadata
 
