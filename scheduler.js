@@ -12,6 +12,8 @@
  */
 const statsConsole = require('console.console');
 
+const ONCE = 'ONCE';
+
 class Task {
   constructor(name, interval, taskFunction, options = {}) {
     this.name = name;
@@ -76,6 +78,18 @@ class Scheduler {
    * @codex-owner scheduler
    */
   addTask(name, interval, taskFunction, options = {}) {
+    if (typeof name === 'object') {
+      const cfg = name;
+      name = cfg.name;
+      interval = cfg.type === ONCE ? 0 : cfg.interval || 0;
+      taskFunction = cfg.fn;
+      options = {
+        highPriority: cfg.highPriority || false,
+        once: cfg.type === ONCE,
+        event: cfg.event || null,
+        minBucket: cfg.minBucket || 0,
+      };
+    }
     const task = new Task(name, interval, taskFunction, options);
 
     if (task.event) {
@@ -264,3 +278,4 @@ class Scheduler {
 
 module.exports = new Scheduler();
 module.exports.Scheduler = Scheduler;
+module.exports.ONCE = ONCE;

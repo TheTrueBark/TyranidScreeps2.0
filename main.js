@@ -18,6 +18,7 @@ const stampManager = require("manager.stamps");
 const memoryManager = require("manager.memory");
 const hiveTravel = require("manager.hiveTravel");
 const scheduler = require("scheduler");
+const { ONCE } = require("scheduler");
 const logger = require("./logger");
 const introspect = require('./debug.introspection');
 require('./taskDefinitions');
@@ -170,17 +171,13 @@ scheduler.addTask("updateHUD", 1, () => {
   }
 }); // @codex-owner main @codex-trigger {"type":"interval","interval":1}
 
-// Plan base layout periodically
-scheduler.addTask('layoutPlanInit', 500, () => {
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room.memory.baseLayout && room.controller && room.controller.my) {
-      const spawn = room.find(FIND_MY_SPAWNS)[0];
-      if (spawn) layoutPlanner.planBaseLayout(room);
-    }
-  }
-}); // @codex-owner layoutPlanner @codex-trigger {"type":"interval","interval":500}
-
+// Initialize layout plan when a room is claimed
+scheduler.addTask({
+  name: 'layoutPlanningInit',
+  type: ONCE,
+  event: 'roomOwnershipEstablished',
+  fn: (data) => layoutPlanner.plan(data.roomName),
+});
 
 // Add on-demand building manager task
 scheduler.addTask("buildInfrastructure", 0, () => {

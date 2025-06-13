@@ -2,9 +2,9 @@
 const roomPlanner = require("planner.room");
 const statsConsole = require("console.console");
 const scheduler = require('./scheduler');
-const layoutPlanner = require('./layoutPlanner');
 const layoutVisualizer = require('./layoutVisualizer');
 const htm = require('./manager.htm');
+const constructionBlocker = require('./constructionBlocker');
 
 // Configurable weights for different structures
 const constructionWeights = {
@@ -93,10 +93,6 @@ const buildingManager = {
 
     if (room.controller.level >= 1) {
       this.buildSourceContainers(room);
-    }
-
-    if (room.controller.level >= 2) {
-      this.buildExtensions(room);
     }
 
     if (room.controller.level >= 1) {
@@ -188,6 +184,9 @@ const buildingManager = {
       const posData = best || (room.memory.buildableAreas[source.id] || [])[0];
       if (posData) {
         const containerPos = new RoomPosition(posData.x, posData.y, room.name);
+        if (constructionBlocker.isTileBlocked(room.name, containerPos.x, containerPos.y)) {
+          continue;
+        }
         const site = containerPos
           .lookFor(LOOK_CONSTRUCTION_SITES)
           .find(s => s.structureType === STRUCTURE_CONTAINER);
@@ -225,6 +224,9 @@ const buildingManager = {
       }
       if (spots.length > 0) {
         const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
+        if (constructionBlocker.isTileBlocked(room.name, pos.x, pos.y)) {
+          return;
+        }
         const site = pos
           .lookFor(LOOK_CONSTRUCTION_SITES)
           .find(s => s.structureType === STRUCTURE_CONTAINER);
@@ -252,63 +254,56 @@ const buildingManager = {
       const spots = getOpenSpots(spawn.pos, 2);
       if (spots.length > 0) {
         const pos = new RoomPosition(spots[0].x, spots[0].y, room.name);
-        room.createConstructionSite(pos, STRUCTURE_CONTAINER);
-        statsConsole.log(`Queued spawn buffer container at ${pos}`, 6);
+        if (!constructionBlocker.isTileBlocked(room.name, pos.x, pos.y)) {
+          room.createConstructionSite(pos, STRUCTURE_CONTAINER);
+          statsConsole.log(`Queued spawn buffer container at ${pos}`, 6);
+        }
       }
     }
   },
 
-  buildExtensions: function (room) {
-    // Ensure the base layout and extension stamp exist so the
-    // layoutVisualizer can render ghost extensions. Actual
-    // construction sites are created by executeLayout().
-    if (!room.memory.baseLayout ||
-        !room.memory.baseLayout.stamps ||
-        !room.memory.baseLayout.stamps[STRUCTURE_EXTENSION]) {
-      layoutPlanner.planBaseLayout(room);
-    }
-  },
 
   executeLayout: function (room) {
-    if (!room.memory.baseLayout) return;
-    if (room.controller.level >= 6 && !room.memory.restructureAtRCL) {
-      room.memory.restructureAtRCL = true;
-      statsConsole.log(`Base restructure flagged for ${room.name}`, 5);
-    }
-    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    if (!room.memory.layout) return;
     const priority = [
       STRUCTURE_SPAWN,
       STRUCTURE_EXTENSION,
       STRUCTURE_TOWER,
       STRUCTURE_STORAGE,
-      STRUCTURE_TERMINAL,
+      STRUCTURE_LINK,
       STRUCTURE_ROAD,
     ];
+    const matrix = room.memory.layout.matrix || {};
     for (const type of priority) {
-      const list = room.memory.baseLayout.stamps[type] || [];
-      for (const pos of list) {
-        const struct = pos.structureType || type;
-        if (pos.rcl > room.controller.level) continue;
-        const hasStruct = room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y).some(s => s.structureType === struct);
-        const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y).some(s => s.structureType === struct);
-        const queued = htm.taskExistsAt(
-          htm.LEVELS.COLONY,
-          room.name,
-          'BUILD_LAYOUT_PART',
-          { x: pos.x, y: pos.y, structureType: struct },
-        );
-        if (!hasStruct && !hasSite && !queued) {
-          htm.addColonyTask(
-            room.name,
-            'BUILD_LAYOUT_PART',
-            { x: pos.x, y: pos.y, structureType: struct, rcl: pos.rcl },
-            3,
-            200,
-            1,
-            'buildingManager',
-            { module: 'layoutPlanner' },
-          );
-          return;
+      for (const x in matrix) {
+        for (const y in matrix[x]) {
+          const cell = matrix[x][y];
+          if (cell.structureType !== type) continue;
+          if (cell.rcl > room.controller.level) continue;
+          const hasStruct = room
+            .lookForAt(LOOK_STRUCTURES, x, y)
+            .some((s) => s.structureType === type);
+          const hasSite = room
+            .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
+            .some((s) => s.structureType === type);
+          const queued = htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
+            x: Number(x),
+            y: Number(y),
+            structureType: type,
+          });
+          if (!hasStruct && !hasSite && !queued) {
+            htm.addColonyTask(
+              room.name,
+              'BUILD_LAYOUT_PART',
+              { x: Number(x), y: Number(y), structureType: type, rcl: cell.rcl },
+              3,
+              200,
+              1,
+              'buildingManager',
+              { module: 'layoutPlanner' },
+            );
+            return;
+          }
         }
       }
     }

@@ -30,13 +30,13 @@ describe('buildingManager.executeLayout', function() {
     htm.init();
     Memory.rooms = {
       W1N1: {
-        baseLayout: {
-          anchor: { x: 25, y: 25 },
-          stamps: {
-            [STRUCTURE_EXTENSION]: [
-              { x: 10, y: 10, rcl: 2, structureType: STRUCTURE_EXTENSION },
-            ],
+        layout: {
+          baseAnchor: { x: 25, y: 25 },
+          matrix: {
+            10: { 10: { structureType: STRUCTURE_EXTENSION, rcl: 2, planned: true } },
           },
+          reserved: { 10: { 10: true } },
+          planVersion: 1,
         },
       },
     };

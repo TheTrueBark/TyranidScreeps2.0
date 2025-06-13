@@ -373,31 +373,34 @@ upgraders.
 ### Base Layout Plan
 
 @codex-owner layoutPlanner
-@codex-path Memory.rooms[roomName].baseLayout
+@codex-path Memory.rooms[roomName].layout
 
-Each room stores its construction plan under `baseLayout`. The object
-contains the `anchor` position (usually the first spawn) and lists of
-absolute coordinates for every stamped structure. Each entry includes
-the `rcl` when the structure becomes available as well as metadata
-about the `structureType` and `origin` of the stamp.
+The layout planner generates a matrix of planned structures. Each tile
+records the `structureType`, the `rcl` it unlocks, and reservation data.
 
 ```javascript
-Memory.rooms['W1N1'].baseLayout = {
-  anchor: { x: 25, y: 25 },
-  stamps: {
-    extension: [
-      { x: 26, y: 25, rcl: 2, structureType: STRUCTURE_EXTENSION, origin: 'starterStamp' }
-    ],
-    road: [
-      { x: 25, y: 24, rcl: 1, structureType: STRUCTURE_ROAD, origin: 'starterStamp' }
-    ],
-    tower: [
-      { x: 27, y: 25, rcl: 3, structureType: STRUCTURE_TOWER, origin: 'starterStamp' }
-    ],
+Memory.rooms['W1N1'].layout = {
+  planVersion: 1,
+  baseAnchor: { x: 25, y: 25 },
+  matrix: {
+    26: {
+      25: {
+        structureType: STRUCTURE_EXTENSION,
+        rcl: 2,
+        planned: true,
+        plannedBy: 'layoutPlanner',
+        blockedUntil: 20500
+      }
+    }
   },
-  layoutUpgraded: false
+  reserved: {
+    26: { 25: true }
+  }
 };
 ```
 
-`restructureAtRCL` is flagged when the controller reaches level 6 so the
-planner can generate a new layout.
+Tiles listed under `reserved` are blocked from other planners. Future
+versions may include `blockedUntil` timestamps for temporary holds.
+
+The helper `constructionBlocker.isTileBlocked(roomName, x, y)` returns `true`
+when a tile is reserved in the layout, preventing conflicting plans.

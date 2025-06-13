@@ -63,7 +63,7 @@ taskRegistry.register('upgradeController', {
 | `acquireMiningData` | `roomManager` | 2 | Rescan room to rebuild mining positions. |
 | `buildSite` | `buildingManager` | 1 | Assign builders to a construction site. |
 | `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
-| `BUILD_LAYOUT_PART` | `buildingManager` | 1 | Construct next piece of the base layout. | @codex-owner buildingManager
+| `BUILD_LAYOUT_PART` | `buildingManager` | 1 | Construct next piece of the base layout (placeholder for HTM integration). | @codex-owner buildingManager
 | `REMOTE_SCORE_ROOM` | `hiveGaze` | 4 | Evaluate remote sources and assign scores. |
 | `REMOTE_MINER_INIT` | `hiveGaze` | 2 | Reserve a remote mining spot and spawn a miner. |
 | `RESERVE_REMOTE_ROOM` | `hiveGaze` | 3 | Spawn a reservist to secure the controller. Tasks may be requeued automatically with origin `autoRetry`. |
@@ -93,9 +93,9 @@ structure.
 ```javascript
 htm.addColonyTask(
   'W1N1',
-  'buildExtensions',
-  {},
-  2,
+  'BUILD_LAYOUT_PART',
+  { x: 25, y: 25, structureType: STRUCTURE_EXTENSION, rcl: 2 },
+  3,
   50,
   1,
   'buildingManager',

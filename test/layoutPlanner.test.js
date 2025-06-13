@@ -1,14 +1,18 @@
+/** @codex-owner layoutPlanner */
 const { expect } = require('chai');
+global.FIND_MY_SPAWNS = 1;
+global.STRUCTURE_EXTENSION = 'extension';
+global.STRUCTURE_SPAWN = 'spawn';
+global.STRUCTURE_TOWER = 'tower';
+global.STRUCTURE_STORAGE = 'storage';
+global.STRUCTURE_LINK = 'link';
 const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
-
-global.FIND_MY_SPAWNS = 1;
-global.STRUCTURE_EXTENSION = 'extension';
 // suppress visuals
 global.RoomVisual = function () { this.structure = () => {}; };
 
-describe('layoutPlanner.planBaseLayout', function() {
+describe('layoutPlanner.plan', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
@@ -24,11 +28,14 @@ describe('layoutPlanner.planBaseLayout', function() {
 
   it('stores anchor and stamps', function() {
     const room = Game.rooms['W1N1'];
-    layoutPlanner.planBaseLayout(room);
-    expect(room.memory.baseLayout.anchor).to.deep.equal({ x: 10, y: 10 });
-    expect(room.memory.baseLayout.stamps).to.be.an('object');
-    const ext = room.memory.baseLayout.stamps[STRUCTURE_EXTENSION];
-    expect(ext).to.have.lengthOf(5);
-    expect(ext[0]).to.include({ rcl: 2, structureType: STRUCTURE_EXTENSION });
+    layoutPlanner.plan('W1N1');
+    expect(Memory.rooms['W1N1'].layout.baseAnchor).to.deep.equal({ x: 10, y: 10 });
+    const matrix = Memory.rooms['W1N1'].layout.matrix;
+    expect(matrix['10']['10'].structureType).to.equal(STRUCTURE_SPAWN);
+    expect(matrix['11']['10'].structureType).to.equal(STRUCTURE_EXTENSION);
+    const cell = matrix['10']['10'];
+    expect(cell.plannedBy).to.equal('layoutPlanner');
+    expect(cell.blockedUntil).to.equal(Game.time + 1500);
+    expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(1);
   });
 });
