@@ -9,7 +9,12 @@ const { getRandomTyranidQuote } = require('./utils.quotes');
  * HiveGaze explores exits and queues scout tasks.
  * @codex-owner hiveGaze
  */
+// Cache result for the current tick to avoid repeated terrain scans
 function scoreTerrain(roomName) {
+  const mem = Memory.rooms[roomName] || {};
+  if (mem.terrainScore && mem.terrainScore.tick === Game.time) {
+    return mem.terrainScore.score;
+  }
   const terrain = Game.map.getRoomTerrain(roomName);
   let open = 0;
   for (let x = 0; x < 50; x++) {
@@ -17,6 +22,8 @@ function scoreTerrain(roomName) {
       if (terrain.get(x, y) !== TERRAIN_MASK_WALL) open++;
     }
   }
+  if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+  Memory.rooms[roomName].terrainScore = { score: open, tick: Game.time };
   return open;
 }
 

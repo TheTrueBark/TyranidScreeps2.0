@@ -2,6 +2,11 @@
 
 This file documents the persistent memory schema used by Tyranid Screeps.  All modules interact with memory through these namespaces.  Each module owns its branch and is responsible for migrations when the schema version changes.
 
+Codex annotations such as `@codex-owner` and `@codex-path` appear throughout this
+document and the source. They specify which module maintains a memory branch and
+where it resides. The mapping is also captured in `memory.schemas.js` for
+automated reference generation.
+
 ## Schema Versions
 
 `Memory.hive.version` tracks the current hive schema.  `memory.migrations.js`
