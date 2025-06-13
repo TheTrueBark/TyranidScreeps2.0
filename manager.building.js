@@ -84,6 +84,7 @@ const buildingManager = {
 
   buildInfrastructure: function (room) {
     this.processHTMTasks(room);
+    this.monitorClusterTasks(room);
     if (this.shouldUpdateCache(room)) {
       this.cacheBuildableAreas(room);
       statsConsole.log(`Recalculated buildable areas for room ${room.name}`, 6);
@@ -134,19 +135,91 @@ const buildingManager = {
   processHTMTasks: function(room) {
     const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
     if (!container || !container.tasks) return;
-    for (const task of container.tasks) {
-      if (task.manager !== 'buildingManager' || task.name !== 'BUILD_LAYOUT_PART') continue;
-      if (Game.time < task.claimedUntil) continue;
+    const counts = {};
+    const showDebug = Memory.settings && Memory.settings.debugBuilding;
+    const vis = showDebug ? new RoomVisual(room.name) : null;
+    const terrain = room.getTerrain();
+    for (const type in CONTROLLER_STRUCTURES) {
+      const allowed = CONTROLLER_STRUCTURES[type][room.controller.level] || 0;
+      const built = room.find(FIND_STRUCTURES, { filter: s => s.structureType === type }).length;
+      const sites = room.find(FIND_CONSTRUCTION_SITES, { filter: s => s.structureType === type }).length;
+      counts[type] = { allowed, built, sites };
+    }
+    for (let i = container.tasks.length - 1; i >= 0; i--) {
+      const task = container.tasks[i];
+      if (task.name !== 'BUILD_LAYOUT_PART') continue;
       const { x, y, structureType } = task.data;
+      if (terrain.get(x, y) === TERRAIN_MASK_WALL || terrain.get(x, y) === 'wall') {
+        if (showDebug) {
+          console.log(`[BUILD] Cannot place ${structureType} at (${x}, ${y}) in ${room.name} — unwalkable terrain`);
+        }
+        if (vis) vis.text('❌', x, y, { color: 'red', font: 0.8 });
+        const cell = room.memory.layout && room.memory.layout.matrix[x] && room.memory.layout.matrix[x][y];
+        if (cell) cell.invalid = true;
+        container.tasks.splice(i, 1);
+        continue;
+      }
       const hasStruct = room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === structureType);
       const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === structureType);
-      if (!hasStruct && !hasSite) {
-        const res = room.createConstructionSite(x, y, structureType);
-        if (res === OK) {
-          htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'buildingManager');
+      const cell =
+        room.memory.layout && room.memory.layout.matrix[x] && room.memory.layout.matrix[x][y];
+      if (cell && cell.rcl > room.controller.level) continue;
+
+      if (hasStruct) {
+        container.tasks.splice(i, 1);
+        if (
+          room.memory.layout &&
+          room.memory.layout.status &&
+          room.memory.layout.status.structures &&
+          room.memory.layout.status.structures[structureType]
+        ) {
+          room.memory.layout.status.structures[structureType].built = Math.min(
+            room.memory.layout.status.structures[structureType].built + 1,
+            room.memory.layout.status.structures[structureType].total,
+          );
         }
-      } else {
-        htm.claimTask(htm.LEVELS.COLONY, room.name, task.name, 'buildingManager');
+        if (showDebug) {
+          console.log(`[build] ${room.name} ${structureType} built @${x},${y}`);
+        }
+        if (vis) vis.text('✅', x, y, { color: 'white', font: 0.8 });
+        counts[structureType].built += 1;
+        continue;
+      }
+
+      if (
+        counts[structureType] &&
+        counts[structureType].built + counts[structureType].sites >= counts[structureType].allowed
+      ) {
+        if (showDebug) {
+          console.log(`[build] Skipped ${structureType} at (${x}, ${y}): RCL limit reached`);
+        }
+        if (vis) vis.text('❌', x, y, { color: 'red', font: 0.8 });
+        continue;
+      }
+
+      if (!hasSite) {
+        if (!task.started || Game.time - task.started > 300) {
+          const res = room.createConstructionSite(x, y, structureType);
+          task.started = Game.time;
+          if (showDebug) {
+            if (res === OK) {
+              console.log(`[build] Placed ${structureType} at (${x}, ${y}) in ${room.name}`);
+            } else {
+              console.log(`[build] failed placing ${structureType} @${x},${y}: ${res}`);
+            }
+          }
+          if (res === OK) {
+            counts[structureType].sites += 1;
+            if (vis) vis.text('✅', x, y, { color: 'white', font: 0.8 });
+          } else if (vis) {
+            vis.text('❌', x, y, { color: 'red', font: 0.8 });
+          }
+          if (res !== OK) {
+            continue;
+          }
+        }
+      } else if (hasSite && showDebug) {
+        console.log(`[build] site already exists for ${structureType} @${x},${y}`);
       }
     }
   },
@@ -305,6 +378,38 @@ const buildingManager = {
             return;
           }
         }
+      }
+    }
+  },
+
+  /**
+   * Track BUILD_CLUSTER parent tasks and mark them complete when all
+   * BUILD_LAYOUT_PART subtasks finish.
+   */
+  monitorClusterTasks: function(room) {
+    if (!room.memory.layout) return;
+    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    if (!container || !container.tasks) return;
+    const clusters = container.tasks.filter(t => t.name === 'BUILD_CLUSTER');
+    for (let i = clusters.length - 1; i >= 0; i--) {
+      const t = clusters[i];
+      const cid = t.data.clusterId;
+      const subtasks = container.tasks.filter(st => st.parentTaskId === cid && st.name === 'BUILD_LAYOUT_PART');
+      const total = t.data.total || subtasks.length;
+      const built = total - subtasks.length;
+      room.memory.layout.status = room.memory.layout.status || { clusters: {} };
+      room.memory.layout.status.clusters[cid] = {
+        built,
+        total,
+        complete: subtasks.length === 0,
+      };
+      t.progress = `${built}/${total}`;
+      if (subtasks.length === 0) {
+        t.complete = true;
+        container.tasks.splice(container.tasks.indexOf(t), 1);
+      }
+      if (Memory.settings && Memory.settings.debugLayoutProgress && Game.time % 1000 === 0) {
+        console.log(`[cluster] ${room.name}:${cid} ${built}/${total}`);
       }
     }
   },
