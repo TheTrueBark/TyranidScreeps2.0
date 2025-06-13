@@ -12,6 +12,7 @@ function getGlyph(type) {
     [STRUCTURE_LINK]: 'K',
     [STRUCTURE_SPAWN]: 'P',
     [STRUCTURE_ROAD]: 'R',
+    [STRUCTURE_CONTAINER]: 'C',
   };
   return map[type] || '?';
 }

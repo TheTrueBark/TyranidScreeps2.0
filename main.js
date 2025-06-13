@@ -179,6 +179,13 @@ scheduler.addTask({
   fn: (data) => layoutPlanner.plan(data.roomName),
 });
 
+// Periodically populate dynamic layouts for owned rooms
+scheduler.addTask('dynamicLayout', 100, () => {
+  for (const roomName in Game.rooms) {
+    layoutPlanner.populateDynamicLayout(roomName);
+  }
+}); // @codex-owner layoutPlanner @codex-trigger {"type":"interval","interval":100}
+
 // Add on-demand building manager task
 scheduler.addTask("buildInfrastructure", 0, () => {
   for (const roomName in Game.rooms) {

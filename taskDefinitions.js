@@ -44,6 +44,13 @@ taskRegistry.register('BUILD_LAYOUT_PART', {
   trigger: { type: 'condition', conditionFn: 'layoutAvailable' },
 });
 
+taskRegistry.register('BUILD_CLUSTER', {
+  owner: 'layoutPlanner',
+  priority: 4,
+  ttl: 1500,
+  trigger: { type: 'condition', conditionFn: 'layoutAvailable' },
+});
+
 taskRegistry.register('repairEmergency', {
   owner: 'buildingManager',
   priority: 1,

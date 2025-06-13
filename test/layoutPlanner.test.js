@@ -20,10 +20,13 @@ describe('layoutPlanner.plan', function() {
     const spawn = { pos: { x: 10, y: 10, roomName: 'W1N1' } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
-      controller: { level: 1, my: true },
+      controller: { level: 1, my: true, pos: { x: 20, y: 20 } },
       find: type => (type === FIND_MY_SPAWNS ? [spawn] : []),
       memory: Memory.rooms['W1N1'],
+      lookForAt: () => [],
+      getTerrain: () => ({ get: () => 0 }),
     };
+    Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
   });
 
   it('stores anchor and stamps', function() {

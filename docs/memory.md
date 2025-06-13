@@ -215,6 +215,8 @@ Memory.settings = {
   showTaskList: false,
   energyLogs: false,
   debugHiveGaze: false,
+  debugBuilding: false,      // log build results and draw visual overlays
+  debugLayoutProgress: false // log layout progress every 1000 ticks
 };
 ```
 
@@ -395,6 +397,19 @@ Memory.rooms['W1N1'].layout = {
   },
   reserved: {
     26: { 25: true }
+  },
+  roadMatrix: {
+    26: { 26: { planned: true, rcl: 1, plannedBy: 'layoutPlanner' } }
+  },
+  rebuildLayout: false
+  status: {
+    clusters: {
+      extCluster1: { built: 3, total: 5, complete: false }
+    }
+    structures: {
+      extension: { built: 8, total: 10 },
+      tower: { built: 1, total: 1 }
+    }
   }
 };
 ```
@@ -402,5 +417,18 @@ Memory.rooms['W1N1'].layout = {
 Tiles listed under `reserved` are blocked from other planners. Future
 versions may include `blockedUntil` timestamps for temporary holds.
 
+`roadMatrix` mirrors the structure matrix but tracks planned road tiles.
+
+Set `rebuildLayout` to `true` if you want the planner to wipe and
+recalculate the layout on the next tick. It resets automatically after
+running.
+
+`status` tracks progress for each planned cluster. `built` counts completed
+structures, `total` is the overall size and `complete` marks when the cluster
+is done. The `structures` section provides overall build totals per structure
+type so HUD overlays and planners can show remaining work.
+
 The helper `constructionBlocker.isTileBlocked(roomName, x, y)` returns `true`
 when a tile is reserved in the layout, preventing conflicting plans.
+Tiles flagged with `invalid: true` are skipped permanently. The building manager
+marks a tile invalid when a layout task attempts to build on unwalkable terrain.

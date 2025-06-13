@@ -9,5 +9,10 @@ const { Memory, resetMemory } = require('./memory');
 // Attach mocks
 global.Game = Game;
 global.Memory = Memory;
+global.Room = {
+  Terrain: function () {
+    this.get = () => 0;
+  },
+};
 
 module.exports = { Game, Memory, resetGame, resetMemory };
