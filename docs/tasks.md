@@ -167,3 +167,10 @@ taskRegistry.register('deliverEnergy', {
 ```
 
 Registered entries are exposed through `taskRegistry.registry` and may be exported to Codex docs.
+
+## Codex Metadata
+
+Tasks listed in this file are tagged in the source using `@codex-task` along with
+`@codex-owner` and other annotations. These comments allow Codex to build
+reference tables showing which module manages each task and the memory paths
+involved.

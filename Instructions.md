@@ -101,6 +101,19 @@ If a feature provides enhanced visibility:
 - Prefer dependency injection or scheduler registration for behaviors.
 - All new logic must integrate with the existing CPU tracking and logging tools.
 
+## 🏷️ Codex Metadata
+
+Source files include comment tags used by the Codex documentation tools. When
+adding new modules or tasks be sure to annotate them with the appropriate tags:
+
+- `@codex-owner moduleName` – declares ownership of a file or memory branch.
+- `@codex-task TASK_NAME` – documents an HTM task registered in `taskRegistry`.
+- `@codex-scheduler-task` – marks scheduled jobs in `main.js` or elsewhere.
+- `@codex-path Memory.path` – specifies persisted memory locations.
+
+These annotations keep the docs in sync with the codebase and help trace task
+ownership during gameplay.
+
 ---
 
 ## 🔗 Project References (Mocks, Ideas, Tools)

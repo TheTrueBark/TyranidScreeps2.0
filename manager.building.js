@@ -38,6 +38,10 @@ function getOpenSpots(pos, range) {
 }
 
 const buildingManager = {
+  /**
+   * Store potential container spots around each source for quick reference.
+   * @param {Room} room Room to analyze.
+   */
   cacheBuildableAreas: function (room) {
     const sources = room.find(FIND_SOURCES);
     const buildableAreas = {};
@@ -60,6 +64,11 @@ const buildingManager = {
     room.memory.lastCacheUpdate = Game.time;
   },
 
+  /**
+   * Determine if the buildable area cache should be refreshed.
+   * @param {Room} room Target room.
+   * @returns {boolean} True when cache needs update.
+   */
   shouldUpdateCache: function (room) {
     if (!room.memory.buildableAreas) {
       return true; // Initial cache creation
@@ -82,6 +91,11 @@ const buildingManager = {
     return false;
   },
 
+  /**
+   * Execute construction related logic for an owned room.
+   * Places sites, processes HTM tasks and manages cache.
+   * @param {Room} room Room being processed.
+   */
   buildInfrastructure: function (room) {
     this.processHTMTasks(room);
     this.monitorClusterTasks(room);
@@ -105,6 +119,10 @@ const buildingManager = {
     this.executeLayout(room);
   },
 
+  /**
+   * Generate and sort the building queue based on construction sites present.
+   * @param {Room} room Room being processed.
+   */
   manageBuildingQueue: function (room) {
     const buildingQueue = [];
     const prevLength = (room.memory.buildingQueue || []).length;

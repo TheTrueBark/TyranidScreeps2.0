@@ -1,3 +1,4 @@
+/** @codex-owner lifecyclePredictor */
 const spawnQueue = require('./manager.spawnQueue');
 const spawnManager = require('./manager.spawn');
 const _ = require('lodash');
@@ -31,6 +32,10 @@ function recordSpawnTiming(creep) {
 }
 
 const lifecycle = {
+  /**
+   * Evaluate haulers in a room and queue replacements when TTL is low.
+   * @param {Room} room Owned room to monitor.
+   */
   runRoom(room) {
     const spawns = room.find(FIND_MY_SPAWNS);
     if (spawns.length === 0) return;
@@ -89,6 +94,9 @@ const lifecycle = {
     }
   },
 
+  /**
+   * Iterate all owned rooms and process hauler lifecycle prediction.
+   */
   run() {
     for (const roomName in Game.rooms) {
       const room = Game.rooms[roomName];

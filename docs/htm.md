@@ -63,3 +63,17 @@ Stale creep containers are purged every 50 ticks so the `Memory.htm.creeps`
 section only tracks currently living units.
 
 This flexible core allows modules to schedule work without direct coupling and provides the backbone of the hive mind.
+
+## Codex Metadata
+
+HTM handlers and task containers include Codex annotations to aid discovery.
+
+- `@codex-owner` identifies the module responsible for a task or memory branch.
+- `@codex-task` documents task names and default settings in `taskRegistry`.
+- `@codex-path` marks the memory path used by each HTM level.
+
+Example:
+
+```javascript
+htm.addColonyTask('W1N1', 'BUILD_LAYOUT_PART', {x:25,y:25,structureType:STRUCTURE_EXTENSION}, 3, 1000, 1, 'layoutPlanner'); // @codex-task BUILD_LAYOUT_PART
+```

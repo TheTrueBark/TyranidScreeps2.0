@@ -82,3 +82,15 @@ Use `scheduler.listTasks()` to see current timers and next execution tick for ea
 
 `consoleDisplay` only executes when the CPU bucket exceeds 1000 thanks to its `minBucket` setting. Likewise `showScheduled` respects `Memory.settings.showTaskList` before printing.
 
+## Codex Metadata
+
+Scheduler jobs are annotated in the source with `@codex-scheduler-task` and
+`@codex-trigger` comments. These tags capture ownership and trigger details so
+documentation can be automatically generated.
+
+Example entry:
+
+```javascript
+scheduler.addTask('htmRun', 1, () => htm.run()); // @codex-owner htm @codex-trigger {"type":"interval","interval":1}
+```
+
