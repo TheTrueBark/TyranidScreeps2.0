@@ -6,6 +6,19 @@ const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
 const _ = require('lodash');
 
+if (!Memory.energyReserves) Memory.energyReserves = {};
+
+function reserveEnergy(id, amount) {
+  if (!Memory.energyReserves[id]) Memory.energyReserves[id] = 0;
+  Memory.energyReserves[id] += amount;
+}
+
+function releaseEnergy(id, amount) {
+  if (!Memory.energyReserves[id]) return;
+  Memory.energyReserves[id] = Math.max(0, Memory.energyReserves[id] - amount);
+  if (Memory.energyReserves[id] === 0) delete Memory.energyReserves[id];
+}
+
 function isRestricted(room, pos) {
   const area =
     Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].restrictedArea;
@@ -36,17 +49,29 @@ function findEnergySource(creep) {
   const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   });
-  if (dropped) candidates.push({ type: 'pickup', target: dropped });
+  if (dropped) {
+    const reserved = Memory.energyReserves[dropped.id] || 0;
+    const available = dropped.amount - reserved;
+    if (available > 0) candidates.push({ type: 'pickup', target: dropped, available });
+  }
 
   const ruin = creep.pos.findClosestByPath(FIND_RUINS, {
     filter: r => r.store && r.store[RESOURCE_ENERGY] > 0,
   });
-  if (ruin) candidates.push({ type: 'withdraw', target: ruin });
+  if (ruin) {
+    const reserved = Memory.energyReserves[ruin.id] || 0;
+    const available = ruin.store[RESOURCE_ENERGY] - reserved;
+    if (available > 0) candidates.push({ type: 'withdraw', target: ruin, available });
+  }
 
   const tomb = creep.pos.findClosestByPath(FIND_TOMBSTONES, {
     filter: t => t.store && t.store[RESOURCE_ENERGY] > 0,
   });
-  if (tomb) candidates.push({ type: 'withdraw', target: tomb });
+  if (tomb) {
+    const reserved = Memory.energyReserves[tomb.id] || 0;
+    const available = tomb.store[RESOURCE_ENERGY] - reserved;
+    if (available > 0) candidates.push({ type: 'withdraw', target: tomb, available });
+  }
 
   const avoid = creep.memory.blockedContainerId;
   const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
@@ -55,17 +80,24 @@ function findEnergySource(creep) {
       s.store[RESOURCE_ENERGY] > 0 &&
       s.id !== avoid,
   });
-  if (container) candidates.push({ type: 'withdraw', target: container });
+  if (container) {
+    const reserved = Memory.energyReserves[container.id] || 0;
+    const available = container.store[RESOURCE_ENERGY] - reserved;
+    if (available > 0) candidates.push({ type: 'withdraw', target: container, available });
+  }
 
   if (creep.room.storage && creep.room.storage.store[RESOURCE_ENERGY] > 0) {
-    candidates.push({ type: 'withdraw', target: creep.room.storage });
+    const reserved = Memory.energyReserves[creep.room.storage.id] || 0;
+    const available = creep.room.storage.store[RESOURCE_ENERGY] - reserved;
+    if (available > 0) candidates.push({ type: 'withdraw', target: creep.room.storage, available });
   }
 
   if (candidates.length === 0) return null;
 
-  candidates.sort(
-    (a, b) => creep.pos.getRangeTo(a.target) - creep.pos.getRangeTo(b.target),
-  );
+  candidates.sort((a, b) => {
+    if (b.available !== a.available) return b.available - a.available;
+    return creep.pos.getRangeTo(a.target) - creep.pos.getRangeTo(b.target);
+  });
   return candidates[0];
 }
 
@@ -238,21 +270,44 @@ module.exports = {
       } else {
         const source = findEnergySource(creep);
         if (source) {
-          if (source.type === 'pickup') {
-            const res = creep.pickup(source.target);
-            if (res === ERR_NOT_IN_RANGE) {
-              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            } else if (res === OK) {
-              creep.memory.roundTripStartTick = Game.time;
-            }
-          } else {
-            const res = creep.withdraw(source.target, RESOURCE_ENERGY);
-            if (res === ERR_NOT_IN_RANGE) {
-              creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-            } else if (res === OK) {
-              creep.memory.roundTripStartTick = Game.time;
-            }
+          const amount = Math.min(
+            creep.store.getFreeCapacity(RESOURCE_ENERGY),
+            source.available || creep.store.getFreeCapacity(RESOURCE_ENERGY),
+          );
+          reserveEnergy(source.target.id, amount);
+          creep.memory.reserving = { id: source.target.id, amount, type: source.type };
+          const action =
+            source.type === 'pickup'
+              ? creep.pickup(source.target)
+              : creep.withdraw(source.target, RESOURCE_ENERGY);
+          if (action === ERR_NOT_IN_RANGE) {
+            creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+          } else if (action === OK) {
+            releaseEnergy(source.target.id, amount);
+            delete creep.memory.reserving;
+            creep.memory.roundTripStartTick = Game.time;
           }
+        }
+        return;
+      }
+    }
+
+    if (creep.memory.reserving) {
+      const target = Game.getObjectById(creep.memory.reserving.id);
+      if (!target) {
+        releaseEnergy(creep.memory.reserving.id, creep.memory.reserving.amount);
+        delete creep.memory.reserving;
+      } else {
+        const action =
+          creep.memory.reserving.type === 'pickup'
+            ? creep.pickup(target)
+            : creep.withdraw(target, RESOURCE_ENERGY);
+        if (action === ERR_NOT_IN_RANGE) {
+          creep.travelTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
+        } else if (action === OK) {
+          releaseEnergy(creep.memory.reserving.id, creep.memory.reserving.amount);
+          delete creep.memory.reserving;
+          creep.memory.roundTripStartTick = Game.time;
         }
         return;
       }
@@ -319,23 +374,26 @@ module.exports = {
 
     const source = findEnergySource(creep);
     if (source) {
-      if (source.type === 'pickup') {
-        const res = creep.pickup(source.target);
-        if (res === ERR_NOT_IN_RANGE) {
-          creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-        } else if (res === OK) {
-          creep.memory.roundTripStartTick = Game.time;
-        }
-      } else {
-        const res = creep.withdraw(source.target, RESOURCE_ENERGY);
-        if (res === ERR_NOT_IN_RANGE) {
-          creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
-        } else if (res === OK) {
-          creep.memory.roundTripStartTick = Game.time;
-        }
+      const amount = Math.min(
+        creep.store.getFreeCapacity(RESOURCE_ENERGY),
+        source.available || creep.store.getFreeCapacity(RESOURCE_ENERGY),
+      );
+      reserveEnergy(source.target.id, amount);
+      creep.memory.reserving = { id: source.target.id, amount, type: source.type };
+      const action =
+        source.type === 'pickup'
+          ? creep.pickup(source.target)
+          : creep.withdraw(source.target, RESOURCE_ENERGY);
+      if (action === ERR_NOT_IN_RANGE) {
+        creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
+      } else if (action === OK) {
+        releaseEnergy(source.target.id, amount);
+        delete creep.memory.reserving;
+        creep.memory.roundTripStartTick = Game.time;
       }
       return;
     }
+
 
     const spawn = creep.room.find ? creep.room.find(FIND_MY_SPAWNS)[0] : null;
     if (creep.store[RESOURCE_ENERGY] === 0) {

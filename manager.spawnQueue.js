@@ -39,6 +39,7 @@ const spawnQueue = {
     spawnId,
     ticksToSpawn = 0,
     priority = 5,
+    options = {},
   ) {
     // Combine current tick with an incrementing counter to avoid collisions
     const requestId = `${Game.time}-${Memory.nextSpawnRequestId++}`;
@@ -82,6 +83,11 @@ const spawnQueue = {
       ticksToSpawn,
       energyRequired,
       priority,
+      parentTaskId: options.parentTaskId || null,
+      subOrder:
+        options.subOrder !== undefined ? options.subOrder : Number.POSITIVE_INFINITY,
+      parentTick:
+        options.parentTick !== undefined ? options.parentTick : Number.POSITIVE_INFINITY,
     });
     logger.log(
       "spawnQueue",
@@ -102,6 +108,8 @@ const spawnQueue = {
     const sortedQueue = this.queue
       .filter((req) => req.spawnId === spawnId)
       .sort((a, b) => {
+        if (a.parentTick !== b.parentTick) return a.parentTick - b.parentTick;
+        if (a.subOrder !== b.subOrder) return a.subOrder - b.subOrder;
         if (a.priority !== b.priority) return a.priority - b.priority;
         return a.ticksToSpawn - b.ticksToSpawn;
       });
@@ -172,8 +180,10 @@ const spawnQueue = {
       `Sorting queue for room ${room.name} by priority and ticksToSpawn`,
       2,
     );
-    // Priority is primary key, ticksToSpawn secondary
+    // Sort by parent group then subtask order then priority
     this.queue.sort((a, b) => {
+      if (a.parentTick !== b.parentTick) return a.parentTick - b.parentTick;
+      if (a.subOrder !== b.subOrder) return a.subOrder - b.subOrder;
       if (a.priority !== b.priority) return a.priority - b.priority;
       return a.ticksToSpawn - b.ticksToSpawn;
     });

@@ -17,7 +17,11 @@ Each task object contains:
   origin: { module: 'hive.roles', createdBy: 'evaluateRoom', tickCreated: 123 }
   parentTaskId: null,
   subtaskIds: [],
+  subOrder: null,
 }
+
+`subOrder` specifies the position of the task within its parent when multiple
+subtasks should be executed sequentially.
 ```
 
 `origin` records which module queued the task, the function that created it and

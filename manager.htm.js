@@ -352,6 +352,7 @@ const htm = {
       },
       parentTaskId: options.parentTaskId || null,
       subtaskIds: options.subtaskIds || [],
+      subOrder: options.subOrder !== undefined ? options.subOrder : null,
     };
     const container = this._getContainer(level, id);
     if (!this.hasTask(level, id, name, manager)) {

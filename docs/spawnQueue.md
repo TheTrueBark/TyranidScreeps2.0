@@ -32,6 +32,7 @@ spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id, 0, 
 
 Requests can include a `ticksToSpawn` delay, allowing future scheduling.
 The optional `priority` parameter (default `5`) lets high priority creeps spawn sooner.
+An additional `options` object may define `parentTaskId`, `subOrder` and `parentTick` for subtask sorting.
 
 ### Positional memory requirements
 
@@ -51,7 +52,7 @@ room.
 HTM tasks may schedule multiple spawn requests as subtasks. For example
 `spawnStarterCouple` spawns a miner and then a hauler. Each subtask results in a
 normal spawn queue entry but the parent task is only completed once all
-subtasks have finished.
+subtasks have finished. Queue sorting first compares the parent task tick and the `subOrder` value before falling back to priority.
 
 ### Memory Layout
 
