@@ -61,6 +61,7 @@ taskRegistry.register('upgradeController', {
 | `DELIVER_BASE_ENERGY` | `role.baseDistributor` | 2 | Distributor delivery to core structures. |
 | `defendRoom`     | `hivemind.spawn` | 1               | Spawn defenders on hostiles.    |
 | `spawnBootstrap` | `spawnManager`   | 0               | Emergency worker when none exist. |
+| `spawnStarterCouple` | `spawnManager`   | 0 | Spawn a miner then a hauler as subtasks. |
 | `acquireMiningData` | `roomManager` | 2 | Rescan room to rebuild mining positions. |
 | `buildSite` | `buildingManager` | 1 | Assign builders to a construction site. |
 | `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
@@ -77,6 +78,7 @@ taskRegistry.register('upgradeController', {
 | `spawnMiner`      | condition via `hive.roles` evaluation          |
 | `spawnHauler`     | condition via energy demand analysis           |
 | `spawnBootstrap`  | condition when no workers are present          |
+| `spawnStarterCouple` | condition via `hive.roles` evaluation |
 | `upgradeController` | event `roleUpdate` or energy surplus check    |
 | `defendRoom`      | event `hostilesDetected`                       |
 | `deliverEnergy`   | condition when structure free capacity > 0     |

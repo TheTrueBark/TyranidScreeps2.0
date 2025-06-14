@@ -26,16 +26,19 @@ const PRIORITY_RESERVIST = ROLE_PRIORITY.reservist;
 // Exportable priority constants for external modules
 const PRIORITY_HIGH = ROLE_PRIORITY.miner;
 
+// HTM task name for sequential miner+hauler spawning
+const TASK_STARTER_COUPLE = 'spawnStarterCouple';
+
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
-  [TOP]: { x: 0, y: -1 },
-  [TOP_RIGHT]: { x: 1, y: -1 },
-  [RIGHT]: { x: 1, y: 0 },
-  [BOTTOM_RIGHT]: { x: 1, y: 1 },
-  [BOTTOM]: { x: 0, y: 1 },
-  [BOTTOM_LEFT]: { x: -1, y: 1 },
-  [LEFT]: { x: -1, y: 0 },
-  [TOP_LEFT]: { x: -1, y: -1 },
+  [(typeof TOP !== 'undefined' ? TOP : 1)]: { x: 0, y: -1 },
+  [(typeof TOP_RIGHT !== 'undefined' ? TOP_RIGHT : 2)]: { x: 1, y: -1 },
+  [(typeof RIGHT !== 'undefined' ? RIGHT : 3)]: { x: 1, y: 0 },
+  [(typeof BOTTOM_RIGHT !== 'undefined' ? BOTTOM_RIGHT : 4)]: { x: 1, y: 1 },
+  [(typeof BOTTOM !== 'undefined' ? BOTTOM : 5)]: { x: 0, y: 1 },
+  [(typeof BOTTOM_LEFT !== 'undefined' ? BOTTOM_LEFT : 6)]: { x: -1, y: 1 },
+  [(typeof LEFT !== 'undefined' ? LEFT : 7)]: { x: -1, y: 0 },
+  [(typeof TOP_LEFT !== 'undefined' ? TOP_LEFT : 8)]: { x: -1, y: -1 },
 };
 
 // Determine the best spawn direction based on available space
@@ -126,7 +129,8 @@ function calculateRequiredMiners(room, source) {
   const bodyParts = dna.getBodyParts('miner', room);
   const energyPerTick =
     bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
-  return Math.min(availablePositions, Math.ceil(10 / energyPerTick));
+  // Cap miner count by available positions and a maximum of five per source
+  return Math.min(availablePositions, 5, Math.ceil(10 / energyPerTick));
 }
 
 const spawnManager = {
@@ -384,6 +388,63 @@ const spawnManager = {
     return bodyParts.length;
   },
 
+  /**
+   * Handle a spawnStarterCouple HTM task. Adds spawnMiner and spawnHauler
+   * subtasks sequentially and removes the parent when finished.
+   * @param {Room} room - Room context for the task.
+   * @param {object} task - Parent task object with progress state in data.phase.
+   */
+  handleStarterCouple(room, task) {
+    const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+    if (!container || !container.tasks) return;
+
+    const minerSub = container.tasks.find(
+      t => t.parentTaskId === task.id && t.name === 'spawnMiner',
+    );
+    const haulerSub = container.tasks.find(
+      t => t.parentTaskId === task.id && t.name === 'spawnHauler',
+    );
+
+    if (!task.data.phase) {
+      htm.addColonyTask(
+        room.name,
+        'spawnMiner',
+        { role: 'miner' },
+        ROLE_PRIORITY.miner,
+        30,
+        1,
+        'spawnManager',
+        {},
+        { parentTaskId: task.id },
+      );
+      task.data.phase = 'miner';
+      return;
+    }
+
+    if (task.data.phase === 'miner') {
+      if (!minerSub) {
+        htm.addColonyTask(
+          room.name,
+          'spawnHauler',
+          { role: 'hauler' },
+          ROLE_PRIORITY.hauler,
+          30,
+          1,
+          'spawnManager',
+          {},
+          { parentTaskId: task.id },
+        );
+        task.data.phase = 'hauler';
+      }
+      return;
+    }
+
+    if (task.data.phase === 'hauler' && !haulerSub) {
+      const idx = container.tasks.indexOf(task);
+      if (idx !== -1) container.tasks.splice(idx, 1);
+    }
+  },
+
 
   /**
    * Processes the spawn queue for a given spawn structure.
@@ -559,6 +620,9 @@ const spawnManager = {
       }
 
       switch (task.name) {
+        case TASK_STARTER_COUPLE:
+          this.handleStarterCouple(room, task);
+          break;
         case 'spawnMiner': {
           const size = this.spawnMiner(spawn, room, energyCapacityAvailable);
           if (size > 0) {
@@ -651,4 +715,5 @@ module.exports.PRIORITY_SCOUT = ROLE_PRIORITY.scout;
 module.exports.PRIORITY_REMOTE_MINER = PRIORITY_REMOTE_MINER;
 module.exports.PRIORITY_RESERVIST = PRIORITY_RESERVIST;
 module.exports.ROLE_PRIORITY = ROLE_PRIORITY;
+module.exports.TASK_STARTER_COUPLE = TASK_STARTER_COUPLE;
 module.exports.calculateRequiredMiners = calculateRequiredMiners;

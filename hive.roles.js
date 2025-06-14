@@ -3,6 +3,7 @@ const spawnQueue = require('./manager.spawnQueue');
 const dna = require('./manager.dna');
 const statsConsole = require('console.console');
 const _ = require('lodash');
+const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 
 /**
  * Evaluate workforce requirements for a room and queue HTM spawn tasks.
@@ -33,7 +34,8 @@ const roles = {
           ? Memory.rooms[roomName].miningPositions[source.id].positions
           : null;
       if (!positions) continue;
-      const maxMiners = Math.min(Object.keys(positions).length, 3);
+      // Limit miners by available positions with a hard cap of five per source
+      const maxMiners = Math.min(Object.keys(positions).length, 5);
       desiredMiners += maxMiners;
 
       const liveCreeps = _.filter(
@@ -59,24 +61,47 @@ const roles = {
       minersNeeded += Math.min(minersByWork, minersBySlots);
     }
     const minerTask = tasks.find(t => t.name === 'spawnMiner' && t.manager === 'spawnManager');
+    const coupleTask = tasks.find(t => t.name === TASK_STARTER_COUPLE && t.manager === 'spawnManager');
     const minerTaskAmount = minerTask ? minerTask.amount || 0 : 0;
-    const minersToQueue = Math.max(0, minersNeeded - minerTaskAmount);
+    const coupleAmount = coupleTask ? coupleTask.amount || 0 : 0;
+    const minersToQueue = Math.max(0, minersNeeded - minerTaskAmount - coupleAmount);
     if (minersToQueue > 0) {
-      if (minerTask) minerTask.amount += minersToQueue;
-      else
-        htm.addColonyTask(
-          roomName,
-          'spawnMiner',
-          { role: 'miner' },
-          1,
-          30,
-          minersToQueue,
-          'spawnManager',
-        );
-      statsConsole.log(`RoleEval queued ${minersToQueue} miner(s) for ${roomName}`, 2);
-    } else if (minerTask && minersNeeded === 0) {
-      const idx = container.tasks.indexOf(minerTask);
-      if (idx !== -1) container.tasks.splice(idx, 1);
+      if (room.energyCapacityAvailable < 550) {
+        if (coupleTask) coupleTask.amount += minersToQueue;
+        else
+          htm.addColonyTask(
+            roomName,
+            TASK_STARTER_COUPLE,
+            {},
+            0,
+            50,
+            minersToQueue,
+            'spawnManager',
+          );
+        statsConsole.log(`RoleEval queued ${minersToQueue} starter couple(s) for ${roomName}`, 2);
+      } else {
+        if (minerTask) minerTask.amount += minersToQueue;
+        else
+          htm.addColonyTask(
+            roomName,
+            'spawnMiner',
+            { role: 'miner' },
+            1,
+            30,
+            minersToQueue,
+            'spawnManager',
+          );
+        statsConsole.log(`RoleEval queued ${minersToQueue} miner(s) for ${roomName}`, 2);
+      }
+    } else if ((minerTask || coupleTask) && minersNeeded === 0) {
+      if (minerTask) {
+        const idx = container.tasks.indexOf(minerTask);
+        if (idx !== -1) container.tasks.splice(idx, 1);
+      }
+      if (coupleTask) {
+        const idx = container.tasks.indexOf(coupleTask);
+        if (idx !== -1) container.tasks.splice(idx, 1);
+      }
     }
 
     // --- Upgrader calculation ---
