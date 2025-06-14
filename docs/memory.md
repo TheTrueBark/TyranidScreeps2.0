@@ -200,6 +200,20 @@ Memory.demand = {
 The demand module updates these metrics every tick and decides when additional
 haulers should be spawned.
 
+### Manual Spawn Limits
+
+@codex-owner hive.roles
+@codex-path Memory.rooms[roomName].manualSpawnLimits
+
+`manualSpawnLimits` allows per-room overrides for desired creep counts.
+Each role key can be a number or the string `'auto'`. `'auto'` (the default)
+means the evaluator calculates the limit normally. Any numeric value overrides
+the dynamic result. The console displays the manual limit alongside each role.
+
+```javascript
+Memory.rooms['W1N1'].manualSpawnLimits = { builders: 'auto', miners: 2 };
+```
+
 Each hauler route stores rolling averages under `Memory.demand.routes`:
 
 ```javascript

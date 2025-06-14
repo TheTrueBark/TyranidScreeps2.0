@@ -18,6 +18,8 @@ const roles = {
     const roomName = room.name;
     const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
     const tasks = container && container.tasks ? container.tasks : [];
+    const manualLimits =
+      (Memory.rooms && Memory.rooms[roomName] && Memory.rooms[roomName].manualSpawnLimits) || {};
 
     // --- Miner calculation ---
     const minerBody = dna.getBodyParts('miner', room);
@@ -25,6 +27,8 @@ const roles = {
     const sources = room.find(FIND_SOURCES);
     let minersNeeded = 0;
     let desiredMiners = 0;
+    let liveMinersTotal = 0;
+    let queuedMinersTotal = 0;
     for (const source of sources) {
       const positions =
         Memory.rooms &&
@@ -42,6 +46,7 @@ const roles = {
         Game.creeps,
         c => c.memory.role === 'miner' && c.memory.source === source.id,
       );
+      liveMinersTotal += liveCreeps.length;
       const liveWork = _.sum(liveCreeps, c =>
         typeof c.getActiveBodyparts === 'function'
           ? c.getActiveBodyparts(WORK)
@@ -50,6 +55,7 @@ const roles = {
       const queued = spawnQueue.queue.filter(
         q => q.memory.role === 'miner' && q.memory.source === source.id && q.room === roomName,
       );
+      queuedMinersTotal += queued.length;
       const queuedWork = _.sum(queued, q => q.bodyParts.filter(p => p === WORK).length);
       const requiredWork = Math.ceil(
         (source.energyCapacity / ENERGY_REGEN_TIME) / HARVEST_POWER,
@@ -59,6 +65,11 @@ const roles = {
       const minersByWork = Math.ceil(workShortage / minerWorkParts);
       const minersBySlots = Math.max(0, maxMiners - (liveCreeps.length + queued.length));
       minersNeeded += Math.min(minersByWork, minersBySlots);
+    }
+    if (manualLimits.miners !== undefined && manualLimits.miners !== 'auto') {
+      const target = manualLimits.miners;
+      minersNeeded = Math.max(0, target - (liveMinersTotal + queuedMinersTotal));
+      desiredMiners = target;
     }
     const minerTask = tasks.find(t => t.name === 'spawnMiner' && t.manager === 'spawnManager');
     const coupleTask = tasks.find(t => t.name === TASK_STARTER_COUPLE && t.manager === 'spawnManager');
@@ -121,7 +132,13 @@ const roles = {
     ).length;
     const upgraderTask = tasks.find(t => t.name === 'spawnUpgrader' && t.manager === 'spawnManager');
     const upgraderTaskAmount = upgraderTask ? upgraderTask.amount || 0 : 0;
-    const upgradersNeeded = Math.max(0, desiredUpgraders - liveUpgraders - queuedUpgraders - upgraderTaskAmount);
+    if (manualLimits.upgraders !== undefined && manualLimits.upgraders !== 'auto') {
+      desiredUpgraders = manualLimits.upgraders;
+    }
+    const upgradersNeeded = Math.max(
+      0,
+      desiredUpgraders - liveUpgraders - queuedUpgraders - upgraderTaskAmount,
+    );
     if (upgradersNeeded > 0) {
       if (upgraderTask) upgraderTask.amount += upgradersNeeded;
       else
@@ -149,7 +166,14 @@ const roles = {
     ).length;
     const builderTask = tasks.find(t => t.name === 'spawnBuilder' && t.manager === 'spawnManager');
     const builderTaskAmount = builderTask ? builderTask.amount || 0 : 0;
-    const buildersNeeded = Math.max(0, desiredBuilders - liveBuilders - queuedBuilders - builderTaskAmount);
+    const manualBuilders = manualLimits.builders;
+    if (manualBuilders !== undefined && manualBuilders !== 'auto') {
+      desiredBuilders = manualBuilders;
+    }
+    const buildersNeeded = Math.max(
+      0,
+      desiredBuilders - liveBuilders - queuedBuilders - builderTaskAmount,
+    );
     if (buildersNeeded > 0) {
       if (builderTask) builderTask.amount += buildersNeeded;
       else
@@ -174,6 +198,12 @@ const roles = {
     Memory.rooms[roomName].spawnLimits.miners = desiredMiners;
     Memory.rooms[roomName].spawnLimits.upgraders = desiredUpgraders;
     Memory.rooms[roomName].spawnLimits.builders = desiredBuilders;
+    if (manualLimits.miners !== undefined || manualLimits.builders !== undefined || manualLimits.upgraders !== undefined) {
+      if (!Memory.rooms[roomName].manualSpawnLimits) Memory.rooms[roomName].manualSpawnLimits = {};
+      if (manualLimits.miners !== undefined) Memory.rooms[roomName].manualSpawnLimits.miners = manualLimits.miners;
+      if (manualLimits.builders !== undefined) Memory.rooms[roomName].manualSpawnLimits.builders = manualLimits.builders;
+      if (manualLimits.upgraders !== undefined) Memory.rooms[roomName].manualSpawnLimits.upgraders = manualLimits.upgraders;
+    }
 
     Memory.roleEval.lastRun = Game.time;
   },
