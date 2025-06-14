@@ -60,4 +60,21 @@ describe('roomManager.scanRoom container placement', function() {
     const pos = Memory.rooms.W1N1.miningPositions.s1.positions.best1;
     expect(pos).to.deep.equal({ x: 11, y: 10, roomName: 'W1N1', reserved: false });
   });
+
+  it('handles rooms without spawns gracefully', function() {
+    Game.rooms['W1N1'].find = function(type) {
+      if (type === FIND_SOURCES) {
+        return [{ id: 's1', pos: { x: 10, y: 10 } }];
+      }
+      if (type === FIND_MY_SPAWNS) {
+        return [];
+      }
+      if (type === FIND_STRUCTURES) return [];
+      return [];
+    };
+
+    expect(() => roomManager.scanRoom(Game.rooms['W1N1'])).to.not.throw();
+    const pos = Memory.rooms.W1N1.miningPositions.s1.positions.best1;
+    expect(pos).to.deep.equal({ x: 11, y: 10, roomName: 'W1N1', reserved: false });
+  });
 });

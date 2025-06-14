@@ -46,9 +46,12 @@ const roomManager = {
         distanceFromSpawn = result.path ? result.path.length : 0;
       }
 
-      potential.sort((a, b) =>
-        spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
-      );
+      // Sort potential positions by proximity to spawn when available
+      if (spawn) {
+        potential.sort(
+          (a, b) => spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
+        );
+      }
 
       const containers = room.find(FIND_STRUCTURES, {
         filter: s => s.structureType === STRUCTURE_CONTAINER && s.pos.inRangeTo(source, 1),
