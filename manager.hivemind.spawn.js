@@ -3,6 +3,7 @@ const logger = require('./logger');
 const spawnQueue = require('./manager.spawnQueue');
 const dna = require('./manager.dna');
 const memoryManager = require('./manager.memory');
+const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 
 const taskExists = (roomName, name, manager = null) => {
   const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
@@ -105,46 +106,40 @@ const spawnModule = {
 
   // Initial spawn sequence at RCL1 using strict role counts
   const initialSteps = [
-    { task: 'spawnBootstrap', role: 'miner', priority: 0, count: 1 },
-    { task: 'spawnBootstrap', role: 'hauler', priority: 1, count: 1 },
+    { task: TASK_STARTER_COUPLE, priority: 0, count: 1 },
   ];
 
   if (room.controller.level === 1) {
-    for (const step of initialSteps) {
-      const alive = myCreeps.filter(c => c.memory.role === step.role).length;
-      const spawningCount = room
-        .find(FIND_MY_SPAWNS)
-        .filter(s => s.memory && s.memory.currentSpawnRole === step.role).length;
-      const queued = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === step.role,
-      ).length;
-      const task =
-        container && container.tasks
-          ? container.tasks.find(
-              t => t.name === step.task && t.manager === 'spawnManager',
-            )
-          : null;
-      const taskAmount = task ? task.amount || 0 : 0;
-      const total = alive + spawningCount + queued + taskAmount;
-      if (total < step.count) {
-        if (task) task.amount += 1;
-        else
-          htm.addColonyTask(
-            roomName,
-            step.task,
-            { role: step.role },
-            step.priority,
-            20,
-            1,
-            'spawnManager',
-          );
-        logger.log(
-          'hivemind.spawn',
-          `Queued initial ${step.role} for ${roomName}`,
-          2,
+    const alive = myCreeps.filter(
+      c => c.memory.role === 'miner' || c.memory.role === 'hauler',
+    ).length;
+    const queued = spawnQueue.queue.filter(
+      q =>
+        q.room === roomName &&
+        (q.memory.role === 'miner' || q.memory.role === 'hauler'),
+    ).length;
+    const task =
+      container && container.tasks
+        ? container.tasks.find(
+            t => t.name === TASK_STARTER_COUPLE && t.manager === 'spawnManager',
+          )
+        : null;
+    const taskAmount = task ? task.amount || 0 : 0;
+    const total = alive + queued + taskAmount;
+    if (total < 2) {
+      if (task) task.amount += 1;
+      else
+        htm.addColonyTask(
+          roomName,
+          TASK_STARTER_COUPLE,
+          {},
+          0,
+          50,
+          1,
+          'spawnManager',
         );
-        return; // queue one step per tick
-      }
+      logger.log('hivemind.spawn', `Queued starter couple for ${roomName}`, 2);
+      return;
     }
   }
 

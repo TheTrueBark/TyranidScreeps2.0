@@ -11,8 +11,10 @@ Haulers remain governed by the energy demand module.
    source is saturated. Mining power is based on the miner DNA returned by
    `manager.dna`. The required miner count is calculated from the available
    positions and WORK parts – typically a single 5&nbsp;WORK miner can fully
-   saturate a standard source. Miners with at least five WORK parts automatically
-   relocate onto the nearby container so they can empty the source without moving.
+   saturate a standard source. The miner count for each source never exceeds the
+   number of available spots and is capped at five miners. Miners with at least
+   five WORK parts automatically relocate onto the nearby container so they can
+   empty the source without moving.
  - **Upgraders** – Simplified workers that gather the closest available energy
    on their own and then move within range&nbsp;3 of the controller to upgrade
    it. They no longer rely on assigned containers or hauler deliveries but

@@ -46,6 +46,13 @@ In panic situations the HiveMind may purge all pending requests for a room. Use
 `spawnQueue.clearRoom(roomName)` to remove every queued entry belonging to that
 room.
 
+### Subtasks
+
+HTM tasks may schedule multiple spawn requests as subtasks. For example
+`spawnStarterCouple` spawns a miner and then a hauler. Each subtask results in a
+normal spawn queue entry but the parent task is only completed once all
+subtasks have finished.
+
 ### Memory Layout
 
 @codex-owner spawnQueue

@@ -23,6 +23,12 @@ taskRegistry.register('spawnBootstrap', {
   trigger: { type: 'condition', conditionFn: 'hivemind.spawn.bootstrap' },
 });
 
+taskRegistry.register('spawnStarterCouple', {
+  owner: 'spawnManager',
+  priority: 0,
+  ttl: 50,
+});
+
 taskRegistry.register('acquireMiningData', {
   owner: 'roomManager',
   priority: 2,

@@ -54,7 +54,9 @@ describe('hive.roles evaluateRoom', function() {
   it('queues miners for unsaturated source', function() {
     roles.evaluateRoom(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
-    const t = tasks.find(x => x.name === 'spawnMiner');
+    const miner = tasks.find(x => x.name === 'spawnMiner');
+    const couple = tasks.find(x => x.name === 'spawnStarterCouple');
+    const t = miner || couple;
     expect(t).to.exist;
     expect(t.amount).to.equal(3);
   });
