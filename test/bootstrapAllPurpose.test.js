@@ -10,7 +10,7 @@ global.FIND_HOSTILE_CREEPS = 0;
 global.FIND_SOURCES = 1;
 global.FIND_MY_SPAWNS = 2;
 
-describe('initial spawn uses allPurpose', function() {
+describe('initial spawn uses miner bootstrap', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory({ stats: { logs: [] } });
@@ -33,10 +33,10 @@ describe('initial spawn uses allPurpose', function() {
     htm.init();
   });
 
-  it('queues spawnBootstrap with role allPurpose', function() {
+  it('queues spawnBootstrap with role miner', function() {
     spawnModule.run(Game.rooms['W1N1']);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     expect(tasks[0].name).to.equal('spawnBootstrap');
-    expect(tasks[0].data.role).to.equal('allPurpose');
+    expect(tasks[0].data.role).to.equal('miner');
   });
 });

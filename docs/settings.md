@@ -28,6 +28,7 @@ controls debug output from `manager.energyRequests` and
 * `debug.showSchedule()` – show the current scheduler queue once
 * `debug.showHTM()` – list active HTM tasks
 * `debug.memoryStatus()` – display memory schema versions
+* `startFresh()` – wipe all persistent memory and logs
 
 Energy request and demand logs are disabled by default. Enable them via:
 

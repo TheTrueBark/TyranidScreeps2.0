@@ -65,7 +65,7 @@
 - [x] Spawn request validation for positional roomName
 - [x] Direction-aware spawning to keep spawn exits clear
 - [x] Builder spawn logic driven by HiveMind
-- [x] Deterministic bootstrap order: allPurpose → miner → miner → hauler → hauler → upgrader
+- [x] Deterministic bootstrap order: miner → hauler paired spawning
 - [ ] Visual/debug marker for pending spawn queue – *Prio 2*
 
 ### ✅ Building Manager (Prio 3)
@@ -82,14 +82,14 @@
 - [x] Reserves mining positions for miners
 - [x] Recalculate mining spots and prefer container positions
 - [x] Replacement miners requested before predecessors expire
-- [x] Reserved positions cleared on miner/allPurpose death
+- [x] Reserved positions cleared on miner death
 - [x] Miners with 5 WORK parts reposition onto containers
 
 ### 🔄 Energy Demand Module (Prio 3)
 - [x] Record delivery performance for requesters
 - [x] Evaluate metrics to spawn extra haulers when throughput is low
 - [x] Maintain at least two haulers and spawn emergency collector when none remain
-- [x] Initial spawn order enforces allPurpose, miners and haulers before upgraders
+- [x] Initial spawn order enforces miner/hauler pair before upgraders
 - [x] Persist aggregated demand and hauler supply metrics
 - [x] Global demand totals aggregate per room and supply rate only counts hauler deliveries
 - [x] Haulers prioritise ruins and tombstones when closer than containers
@@ -181,6 +181,7 @@
 - [ ] `console.command('scan')` for room diagnostics
 - [ ] Live creep debug (e.g. display current task)
 - [ ] Visualize HTM task tree (`console.taskTree()`)
+- [x] `startFresh()` console helper to wipe all memory
 
 ---
 

@@ -257,7 +257,7 @@ const demandModule = {
       roomMem.totals.demand = demandAmount;
       Memory.demand.globalTotals.demand += demandAmount;
 
-      const delivererRoles = ['hauler', 'miner', 'allPurpose'];
+      const delivererRoles = ['hauler', 'miner'];
       const deliverers = _.filter(
         Game.creeps,
         c => delivererRoles.includes(c.memory.role) && c.room.name === roomName,
