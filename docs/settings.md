@@ -28,7 +28,7 @@ controls debug output from `manager.energyRequests` and
 * `debug.showSchedule()` – show the current scheduler queue once
 * `debug.showHTM()` – list active HTM tasks
 * `debug.memoryStatus()` – display memory schema versions
-* `debug.setSpawnLimit(room, role, amount)` – override or reset creep limits
+* `debug.setSpawnLimit(room, role, amount)` – override or reset creep limits for `miner`, `hauler`, `builder` and `upgrader` roles
 * `startFresh()` – wipe all persistent memory and logs
 
 Energy request and demand logs are disabled by default. Enable them via:
