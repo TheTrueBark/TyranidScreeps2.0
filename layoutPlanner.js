@@ -67,6 +67,19 @@ const layoutPlanner = {
   },
 
   /**
+   * Ensure a layout plan exists for the room. Creates one if missing.
+   * @param {string} roomName
+   */
+  ensurePlan(roomName) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return;
+    const mem = Memory.rooms[roomName];
+    if (!mem || !mem.layout || mem.layout.planVersion !== 1) {
+      this.plan(roomName);
+    }
+  },
+
+  /**
    * Generate dynamic layout positions based on terrain and spawn anchor.
    * @param {string} roomName
    * @codex-owner layoutPlanner

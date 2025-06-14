@@ -189,6 +189,13 @@ scheduler.addTask({
   fn: (data) => layoutPlanner.plan(data.roomName),
 });
 
+// Ensure each owned room has a layout plan
+scheduler.addTask('ensureLayoutPlan', 20, () => {
+  for (const roomName in Game.rooms) {
+    layoutPlanner.ensurePlan(roomName);
+  }
+}); // @codex-owner layoutPlanner @codex-trigger {"type":"interval","interval":20}
+
 // Periodically populate dynamic layouts for owned rooms
 scheduler.addTask('dynamicLayout', 100, () => {
   for (const roomName in Game.rooms) {
