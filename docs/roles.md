@@ -41,6 +41,13 @@ Haulers remain governed by the energy demand module.
 The module updates `Memory.roleEval.lastRun` so a fallback task can throttle
 itself when CPU is scarce.
 
+### Manual Limits
+
+Set `Memory.rooms[roomName].manualSpawnLimits` to override miner, builder or
+upgrader counts for a room. Each value may be `'auto'` (use the calculated
+limit) or a number to enforce. The console displays these values and the
+evaluator won't request additional creeps beyond the manual limits.
+
 ## Triggers
 
 Role evaluation runs whenever:

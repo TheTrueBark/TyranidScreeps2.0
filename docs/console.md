@@ -15,5 +15,9 @@ The scheduler feeds data into the console module every tick. Use `statsConsole.d
 
 Each room section shows the stored energy along with workforce counts. The numbers are
 displayed as `current/max` for miners, haulers, builders and upgraders based on
-the latest spawn evaluation. This helps track whether the colony is meeting its
-target creep limits at a glance.
+the latest spawn evaluation. When a manual spawn limit is set for a role, the
+value is appended as `manual limit: X` so rooms can be throttled for testing.
+Use `debug.setSpawnLimit(room, role, amount)` where `amount` can be a number or
+`'auto'` to clear the override.
+This helps track whether the colony is meeting its target creep limits at a
+glance.

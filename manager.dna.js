@@ -31,9 +31,6 @@ function getBodyParts(role, room, panic = false) {
 }
 
 function buildMiner(energy, panic) {
-  if (energy < 550) {
-    return [WORK, MOVE];
-  }
   const body = [];
   const moveCost = BODYPART_COST[MOVE];
   let availableEnergy = energy - moveCost;
@@ -49,9 +46,6 @@ function buildMiner(energy, panic) {
 }
 
 function buildHauler(energy, panic) {
-  if (energy < 550) {
-    return [CARRY, MOVE];
-  }
   const body = [];
   const pairCost = BODYPART_COST[CARRY] + BODYPART_COST[MOVE];
   let pairs = panic ? 1 : Math.floor(energy / pairCost);

@@ -114,6 +114,26 @@ global.debug = {
   memoryStatus() {
     introspect.printMemoryStatus();
   },
+  setSpawnLimit(room, role, amount = 'auto') {
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[room]) Memory.rooms[room] = {};
+    if (!Memory.rooms[room].manualSpawnLimits)
+      Memory.rooms[room].manualSpawnLimits = {};
+
+    if (amount === 'auto') {
+      delete Memory.rooms[room].manualSpawnLimits[role];
+      statsConsole.log(
+        `Manual spawn limit for ${role} in ${room} reset to auto`,
+        2,
+      );
+    } else {
+      Memory.rooms[room].manualSpawnLimits[role] = amount;
+      statsConsole.log(
+        `Manual spawn limit for ${role} in ${room} set to ${amount}`,
+        2,
+      );
+    }
+  },
 };
 
 const startFresh = require('./startFresh');
