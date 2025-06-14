@@ -31,9 +31,9 @@ its queue is empty.
   colony grows. Upgraders and builders are now evaluated by `hive.roles.js` which
   monitors controller containers and construction sites. When no creeps remain
   the queue is purged and a bootstrap worker is scheduled so the colony can
-  recover. The module enforces a strict initial order at RCL1: one
-  allPurpose creep, two miners and two haulers must be accounted for before an
-  upgrader is queued.
+  recover. The module enforces a strict initial order at RCL1: a
+  minimal miner followed by a hauler must be spawned before other
+  roles are considered.
 - **lifecycle** – Runs every 25 ticks via the scheduler to queue miner replacements before the current
   miner expires using precomputed travel times. A second module predicts hauler
   replacements using average roundtrip durations and only queues a new hauler
@@ -64,7 +64,7 @@ its queue is empty.
     containers.
   - Mining positions are freed when miners approach expiry so replacements
     can claim the same spot. Any leftover reservations are cleared when
-    miners or allPurpose creeps die.
+    miners die.
   - Restricted tiles around the spawn are stored in room memory so creeps avoid
     blocking it.
 

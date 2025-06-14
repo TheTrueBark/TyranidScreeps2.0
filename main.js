@@ -5,7 +5,6 @@ const spawnManager = require("manager.spawn");
 const buildingManager = require("manager.building");
 const layoutPlanner = require('./layoutPlanner');
 const roomPlanner = require("planner.room");
-const roleAllPurpose = require("role.allPurpose");
 const roleUpgrader = require("role.upgrader");
 const roleMiner = require("role.miner");
 const roleBuilder = require("role.builder");
@@ -117,6 +116,10 @@ global.debug = {
   },
 };
 
+const startFresh = require('./startFresh');
+global.startFresh = startFresh;
+
+
 // High priority initialization tasks - run once at start of tick 0
 scheduler.addTask(
   "initializeRoomMemory",
@@ -134,7 +137,6 @@ scheduler.addTask(
 
 scheduler.addTask("clearMemory", 100, () => {
   const roleMap = {
-    allPurpose: roleAllPurpose,
     upgrader: roleUpgrader,
     miner: roleMiner,
     builder: roleBuilder,
@@ -348,9 +350,7 @@ module.exports.loop = function () {
     const creep = Game.creeps[name];
     const creepStartCPU = Game.cpu.getUsed();
 
-    if (creep.memory.role === "allPurpose") {
-      roleAllPurpose.run(creep);
-    } else if (creep.memory.role === "upgrader") {
+    if (creep.memory.role === "upgrader") {
       roleUpgrader.run(creep);
     } else if (creep.memory.role === "miner") {
       roleMiner.run(creep);

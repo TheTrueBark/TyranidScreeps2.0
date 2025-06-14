@@ -313,19 +313,6 @@ Memory.rooms['W1N1'].miningRoutes['src1'] = {
 };
 ```
 
-### Creep Fallback State
-
-@codex-owner role.allPurpose
-@codex-path creep.memory.fallbackReason
-
-All-purpose creeps temporarily record fallback information when required
-room data is missing. These fields are cleared once normal behaviour resumes.
-
-```javascript
-creep.memory.fallbackReason = 'missingMiningData';
-creep.memory.fallbackSince = Game.time;
-```
-
 ### Scout Retirement Flag
 
 @codex-owner role.scout

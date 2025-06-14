@@ -14,7 +14,6 @@ const movementUtils = {
     const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
     if (
       creep.memory.role !== 'miner' &&
-      creep.memory.role !== 'allPurpose' &&
       roomMemory &&
       roomMemory.restrictedArea
     ) {

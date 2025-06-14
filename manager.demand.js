@@ -1,4 +1,6 @@
 const logger = require("./logger");
+const spawnManager = require("./manager.spawn");
+const spawnQueue = require('./manager.spawnQueue');
 
 const demandManager = {
   /**
@@ -6,19 +8,20 @@ const demandManager = {
    * @param {Room} room - The room to evaluate.
    */
   evaluateRoomNeeds(room) {
-    const allPurposeCreeps = _.filter(
-      Game.creeps,
-      (creep) =>
-        creep.memory.role === "allPurpose" && creep.room.name === room.name,
-    ).length;
     const miners = _.filter(
       Game.creeps,
       (creep) => creep.memory.role === "miner" && creep.room.name === room.name,
+    ).length;
+    const queuedMiners = spawnQueue.queue.filter(
+      q => q.memory.role === 'miner' && q.room === room.name,
     ).length;
     const haulers = _.filter(
       Game.creeps,
       (creep) =>
         creep.memory.role === "hauler" && creep.room.name === room.name,
+    ).length;
+    const queuedHaulers = spawnQueue.queue.filter(
+      q => q.memory.role === 'hauler' && q.room === room.name,
     ).length;
     const upgraders = _.filter(
       Game.creeps,
@@ -27,16 +30,19 @@ const demandManager = {
     ).length;
 
     const sources = room.find(FIND_SOURCES);
-    const requiredMiners = sources.length * 3; // 3 miners per source
+    let requiredMiners = 0;
+    for (const source of sources) {
+      requiredMiners += spawnManager.calculateRequiredMiners(room, source);
+    }
+
+    const totalMiners = miners + queuedMiners;
+    const totalHaulers = haulers + queuedHaulers;
 
     let inDemand = "none";
 
-    if (allPurposeCreeps === 0) {
-      inDemand = "allPurpose";
-    } else if (miners < requiredMiners) {
-      inDemand = miners % 2 === 0 ? "miner" : "hauler";
-    } else if (haulers < 6) {
-      // Set maximum number of haulers
+    if (totalMiners < requiredMiners) {
+      inDemand = totalMiners <= totalHaulers ? "miner" : "hauler";
+    } else if (totalHaulers < totalMiners) {
       inDemand = "hauler";
     } else if (upgraders < 2) {
       // Adjust this number as needed

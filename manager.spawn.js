@@ -10,9 +10,8 @@ const energyRequests = require("./manager.energyRequests");
 // Default spawn priorities per role
 const ROLE_PRIORITY = {
   scout: 0,
-  allPurpose: 1,
-  miner: 2,
-  hauler: 3,
+  miner: 1,
+  hauler: 2,
   baseDistributor: 3,
   builder: 4,
   upgrader: 5,
@@ -104,6 +103,27 @@ const calculateEffectiveEnergyCapacity = (room) => {
   return effectiveEnergyCapacity;
 };
 
+/**
+ * Determine how many miners are required to saturate a source.
+ * Mirrors the logic used when actually spawning miners so other
+ * modules can calculate consistent workforce needs.
+ *
+ * @param {Room} room - Room containing the source.
+ * @param {Source} source - The source to evaluate.
+ * @returns {number} Required miner count for the source.
+ */
+function calculateRequiredMiners(room, source) {
+  const sourceMem =
+    Memory.rooms?.[room.name]?.miningPositions?.[source.id];
+  if (!sourceMem) return 0;
+
+  const availablePositions = Object.keys(sourceMem.positions || {}).length;
+  const bodyParts = dna.getBodyParts('miner', room);
+  const energyPerTick =
+    bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
+  return Math.min(availablePositions, Math.ceil(10 / energyPerTick));
+}
+
 const spawnManager = {
   /**
    * Main function called each tick to manage spawning in the given room.
@@ -168,9 +188,6 @@ const spawnManager = {
         continue;
       }
 
-      const availablePositions = Object.keys(
-        Memory.rooms[room.name].miningPositions[source.id].positions,
-      ).length;
       const minersAtSource = _.filter(
         Game.creeps,
         (creep) =>
@@ -184,10 +201,7 @@ const spawnManager = {
       const bodyParts = dna.getBodyParts("miner", room);
       const energyPerTick =
         bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
-      const requiredMiners = Math.min(
-        availablePositions,
-        Math.ceil(10 / energyPerTick),
-      );
+      const requiredMiners = calculateRequiredMiners(room, source);
 
       if (minersAtSource + queuedMiners >= requiredMiners) {
         continue;
@@ -345,77 +359,7 @@ const spawnManager = {
   },
 
   /**
-   * Spawn an allPurpose worker and pre-assign a mining position if possible.
-   * @param {StructureSpawn} spawn - The spawn to create the request for.
-   * @param {Room} room - The room context.
-   * @param {boolean} panic - Whether to use panic sized body.
-   * @returns {number} Body size spawned or 0 on failure.
-   */
-  spawnAllPurpose(spawn, room, panic = false) {
-    const bodyParts = dna.getBodyParts("allPurpose", room, panic);
-    const sources = room.find(FIND_SOURCES);
-    if (sources.length === 0) return 0;
-
-    for (const source of sources) {
-      const creepMemory = {
-        role: "allPurpose",
-        source: source.id,
-        working: false,
-        desiredPosition: {},
-      };
-      if (memoryManager.assignMiningPosition(creepMemory, room)) {
-        creepMemory.sourcePosition = {
-          x: source.pos.x,
-          y: source.pos.y,
-          roomName: source.pos.roomName,
-        };
-        creepMemory.desiredPosition = {
-          x: creepMemory.miningPosition.x,
-          y: creepMemory.miningPosition.y,
-          roomName: creepMemory.miningPosition.roomName,
-        };
-        spawnQueue.addToQueue(
-          "allPurpose",
-          room.name,
-          bodyParts,
-          creepMemory,
-          spawn.id,
-          0,
-          ROLE_PRIORITY.allPurpose,
-        );
-        return bodyParts.length;
-      }
-    }
-
-    const fallback = sources[0];
-    spawnQueue.addToQueue(
-      "allPurpose",
-      room.name,
-      bodyParts,
-      {
-        role: "allPurpose",
-        source: fallback.id,
-        working: false,
-        desiredPosition: {
-          x: fallback.pos.x,
-          y: fallback.pos.y,
-          roomName: fallback.pos.roomName,
-        },
-        sourcePosition: {
-          x: fallback.pos.x,
-          y: fallback.pos.y,
-          roomName: fallback.pos.roomName,
-        },
-      },
-      spawn.id,
-      0,
-      ROLE_PRIORITY.allPurpose,
-    );
-    return bodyParts.length;
-  },
-
-  /**
-   * Spawn a minimal allPurpose creep using currently available energy.
+   * Spawn a minimal hauler using currently available energy.
    * Used when haulers are absent but energy is on the ground.
    * @param {StructureSpawn} spawn - Spawn structure to use.
    * @param {Room} room - Room context.
@@ -424,13 +368,13 @@ const spawnManager = {
     if (room.energyAvailable < BODYPART_COST[CARRY] + BODYPART_COST[MOVE]) return 0;
     const bodyParts = [CARRY, MOVE];
     spawnQueue.addToQueue(
-      "allPurpose",
+      'hauler',
       room.name,
       bodyParts,
-      { role: "allPurpose", emergency: true },
+      { role: 'hauler', emergency: true },
       spawn.id,
       0,
-      ROLE_PRIORITY.allPurpose,
+      ROLE_PRIORITY.hauler,
     );
     return bodyParts.length;
   },
@@ -658,10 +602,13 @@ const spawnManager = {
           );
           break;
         case 'spawnBootstrap':
-          const role = task.data.role || 'allPurpose';
+          const role = task.data.role || 'miner';
           let size = 0;
-          if (role === 'allPurpose') {
-            size = this.spawnAllPurpose(spawn, room, task.data.panic);
+          if (role === 'miner') {
+            size = this.spawnMiner(spawn, room, energyCapacityAvailable);
+          } else if (role === 'hauler') {
+            this.spawnHauler(spawn, room, energyCapacityAvailable);
+            size = dna.getBodyParts('hauler', room).length;
           } else {
             const body = dna.getBodyParts(role, room, task.data.panic);
             spawnQueue.addToQueue(
@@ -699,3 +646,4 @@ module.exports.PRIORITY_SCOUT = ROLE_PRIORITY.scout;
 module.exports.PRIORITY_REMOTE_MINER = PRIORITY_REMOTE_MINER;
 module.exports.PRIORITY_RESERVIST = PRIORITY_RESERVIST;
 module.exports.ROLE_PRIORITY = ROLE_PRIORITY;
+module.exports.calculateRequiredMiners = calculateRequiredMiners;

@@ -28,12 +28,13 @@ describe('spawnManager.spawnEmergencyCollector', function () {
     Game.rooms['W1N1'] = { name: 'W1N1', energyAvailable: 100 };
   });
 
-  it('queues minimal allPurpose creep', function () {
+  it('queues minimal hauler creep', function () {
     const spawn = { id: 's1', room: Game.rooms['W1N1'] };
     spawnManager.spawnEmergencyCollector(spawn, Game.rooms['W1N1']);
     expect(spawnQueue.queue.length).to.equal(1);
     const req = spawnQueue.queue[0];
     expect(req.bodyParts).to.deep.equal([CARRY, MOVE]);
+    expect(req.memory.role).to.equal('hauler');
     expect(req.memory.emergency).to.be.true;
   });
 });

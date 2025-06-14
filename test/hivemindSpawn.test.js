@@ -83,7 +83,7 @@ describe('hivemind spawn module', function () {
     spawnModule.run(Game.rooms['W1N1']);
     Memory.htm.colonies['W1N1'].tasks = [];
     spawnQueue.queue = [];
-    const spawnObj = { id: 's1', pos: { getRangeTo: () => 5 }, memory: { currentSpawnRole: 'allPurpose' }, spawning: { name: 'ap1' } };
+    const spawnObj = { id: 's1', pos: { getRangeTo: () => 5 }, memory: { currentSpawnRole: 'miner' }, spawning: { name: 'm1' } };
     Game.rooms['W1N1'].find = (type) => {
       if (type === FIND_HOSTILE_CREEPS) return [];
       if (type === FIND_SOURCES) {
@@ -107,9 +107,8 @@ describe('hivemind spawn module', function () {
   it('adjusts hauler amount based on non-hauler ratio', function () {
     const order = [
       'spawnBootstrap',
+      'spawnBootstrap',
       'spawnMiner',
-      'spawnMiner',
-      'spawnHauler',
       'spawnHauler',
       'spawnUpgrader',
     ];
@@ -131,9 +130,8 @@ describe('hivemind spawn module', function () {
     ];
     const order = [
       'spawnBootstrap',
+      'spawnBootstrap',
       'spawnMiner',
-      'spawnMiner',
-      'spawnHauler',
       'spawnHauler',
       'spawnUpgrader',
     ];
