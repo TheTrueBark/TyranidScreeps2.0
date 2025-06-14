@@ -16,6 +16,7 @@ const distanceTransform = require("algorithm.distanceTransform");
 const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
 const memoryManager = require("manager.memory");
+const spawnQueue = require("manager.spawnQueue");
 const hiveTravel = require("manager.hiveTravel");
 const towerManager = require('./manager.towers');
 const scheduler = require("scheduler");
@@ -317,6 +318,15 @@ scheduler.addTask('verifyMiningReservations', 10, () => {
   // Also clean up legacy reservation entries
   memoryManager.cleanUpReservedPositions();
 }); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":10}
+
+// Periodically prune stale energy reservations and spawn requests
+scheduler.addTask('cleanEnergyReserves', 50, () => {
+  memoryManager.cleanUpEnergyReserves();
+}); // @codex-owner memoryManager @codex-trigger {"type":"interval","interval":50}
+
+scheduler.addTask('pruneSpawnQueue', 50, () => {
+  spawnQueue.cleanUp();
+}); // @codex-owner spawnQueue @codex-trigger {"type":"interval","interval":50}
 
 scheduler.addTask('runTowers', 3, () => {
   towerManager.run();

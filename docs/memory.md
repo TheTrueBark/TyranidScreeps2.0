@@ -233,6 +233,8 @@ Memory.demand.routes[routeId] = {
 
 Records temporary energy reservations for pickup targets. Each key is a resource or
 structure id and the value is the amount currently reserved by haulers.
+`memoryManager.cleanUpEnergyReserves` periodically removes entries when the
+target no longer exists or contains no energy.
 
 ### Runtime Settings
 

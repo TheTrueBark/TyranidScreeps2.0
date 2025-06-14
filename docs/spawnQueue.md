@@ -63,3 +63,6 @@ subtasks have finished. Queue sorting first compares the parent task tick and th
 `Memory.spawnQueue` is an array containing the request objects shown above.
 `Memory.nextSpawnRequestId` increments each tick to guarantee unique ids.
 Requests are removed once the spawn succeeds or they are explicitly cleared.
+`spawnQueue.cleanUp(maxAge)` can be used to prune entries older than `maxAge`
+ticks to prevent unbounded growth.
+

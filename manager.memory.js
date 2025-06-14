@@ -120,6 +120,21 @@ const memoryManager = {
   },
 
   /**
+   * Remove stale entries from Memory.energyReserves.
+   * Objects that no longer exist or contain no energy are cleared.
+   */
+  cleanUpEnergyReserves() {
+    if (!Memory.energyReserves) return;
+    for (const id in Memory.energyReserves) {
+      const obj = Game.getObjectById(id);
+      const hasEnergy = obj && ((obj.amount || (obj.store && obj.store[RESOURCE_ENERGY])) > 0);
+      if (!obj || !hasEnergy) {
+        delete Memory.energyReserves[id];
+      }
+    }
+  },
+
+  /**
    * Assigns an available mining position to a creep.
    *
    * @param {Object} creepMemory - The creep's memory object.
