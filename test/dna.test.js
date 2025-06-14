@@ -14,9 +14,8 @@ describe('dna.getBodyParts', function() {
     Game.rooms['W1N1'] = { energyCapacityAvailable: 300 };
   });
 
-  it('builds miner with one move part', function() {
+  it('builds miner based on available energy', function() {
     const parts = dna.getBodyParts('miner', Game.rooms['W1N1']);
-    const moveCount = parts.filter(p => p === MOVE).length;
-    expect(moveCount).to.equal(1);
+    expect(parts).to.deep.equal(['work', 'work', 'move']);
   });
 });

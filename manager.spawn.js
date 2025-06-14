@@ -175,7 +175,7 @@ const spawnManager = {
    */
   // Spawn a single miner if any source lacks the required workforce.
   // Returns body size or 0 when nothing was queued.
-  spawnMiner(spawn, room, energyCapacityAvailable, task = null) {
+  spawnMiner(spawn, room, energyCapacityAvailable, task = null, starter = false) {
     const sources = room.find(FIND_SOURCES);
     if (!Array.isArray(sources)) {
       logger.log("spawnManager", `No sources found in room ${room.name}`, 3);
@@ -207,7 +207,7 @@ const spawnManager = {
           req.memory.role === "miner" && req.memory.source === source.id && req.room === room.name,
       ).length;
 
-      const bodyParts = dna.getBodyParts("miner", room);
+      const bodyParts = starter ? [WORK, MOVE] : dna.getBodyParts("miner", room);
       const energyPerTick =
         bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
       const requiredMiners = calculateRequiredMiners(room, source);
@@ -276,8 +276,8 @@ const spawnManager = {
    * @param {Room} room - The room object to check state for.
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
-  spawnHauler(spawn, room, energyCapacityAvailable, task = null) {
-    const bodyParts = dna.getBodyParts("hauler", room);
+  spawnHauler(spawn, room, energyCapacityAvailable, task = null, starter = false) {
+    const bodyParts = starter ? [CARRY, MOVE] : dna.getBodyParts("hauler", room);
     spawnQueue.addToQueue(
       "hauler",
       room.name,
@@ -423,7 +423,7 @@ const spawnManager = {
       htm.addColonyTask(
         room.name,
         'spawnMiner',
-        { role: 'miner' },
+        { role: 'miner', starter: true },
         ROLE_PRIORITY.miner,
         30,
         1,
@@ -440,7 +440,7 @@ const spawnManager = {
         htm.addColonyTask(
           room.name,
           'spawnHauler',
-          { role: 'hauler' },
+          { role: 'hauler', starter: true },
           ROLE_PRIORITY.hauler,
           30,
           1,
@@ -638,7 +638,13 @@ const spawnManager = {
           this.handleStarterCouple(room, task);
           break;
         case 'spawnMiner': {
-          const size = this.spawnMiner(spawn, room, energyCapacityAvailable, task);
+          const size = this.spawnMiner(
+            spawn,
+            room,
+            energyCapacityAvailable,
+            task,
+            task.data && task.data.starter,
+          );
           if (size > 0) {
             htm.claimTask(
               htm.LEVELS.COLONY,
@@ -652,7 +658,13 @@ const spawnManager = {
           break;
         }
         case 'spawnHauler':
-          this.spawnHauler(spawn, room, energyCapacityAvailable, task);
+          this.spawnHauler(
+            spawn,
+            room,
+            energyCapacityAvailable,
+            task,
+            task.data && task.data.starter,
+          );
           htm.claimTask(
             htm.LEVELS.COLONY,
             room.name,
