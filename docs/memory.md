@@ -212,6 +212,14 @@ Memory.demand.routes[routeId] = {
 };
 ```
 
+### Energy Reserves
+
+@codex-owner role.hauler
+@codex-path Memory.energyReserves
+
+Records temporary energy reservations for pickup targets. Each key is a resource or
+structure id and the value is the amount currently reserved by haulers.
+
 ### Runtime Settings
 
 @codex-owner main

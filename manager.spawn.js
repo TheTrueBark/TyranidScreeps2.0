@@ -175,7 +175,7 @@ const spawnManager = {
    */
   // Spawn a single miner if any source lacks the required workforce.
   // Returns body size or 0 when nothing was queued.
-  spawnMiner(spawn, room, energyCapacityAvailable) {
+  spawnMiner(spawn, room, energyCapacityAvailable, task = null) {
     const sources = room.find(FIND_SOURCES);
     if (!Array.isArray(sources)) {
       logger.log("spawnManager", `No sources found in room ${room.name}`, 3);
@@ -255,6 +255,13 @@ const spawnManager = {
             spawn.id,
             0,
             ROLE_PRIORITY.miner,
+            task
+              ? {
+                  parentTaskId: task.parentTaskId,
+                  subOrder: task.subOrder,
+                  parentTick: task.origin && task.origin.tickCreated,
+                }
+              : {}
           );
           return bodyParts.length;
         }
@@ -269,7 +276,7 @@ const spawnManager = {
    * @param {Room} room - The room object to check state for.
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
-  spawnHauler(spawn, room, energyCapacityAvailable) {
+  spawnHauler(spawn, room, energyCapacityAvailable, task = null) {
     const bodyParts = dna.getBodyParts("hauler", room);
     spawnQueue.addToQueue(
       "hauler",
@@ -279,6 +286,13 @@ const spawnManager = {
       spawn.id,
       0,
       ROLE_PRIORITY.hauler,
+      task
+        ? {
+            parentTaskId: task.parentTaskId,
+            subOrder: task.subOrder,
+            parentTick: task.origin && task.origin.tickCreated,
+          }
+        : {}
     );
     logger.log(
       "spawnManager",
@@ -415,7 +429,7 @@ const spawnManager = {
         1,
         'spawnManager',
         {},
-        { parentTaskId: task.id },
+        { parentTaskId: task.id, subOrder: 0 },
       );
       task.data.phase = 'miner';
       return;
@@ -432,7 +446,7 @@ const spawnManager = {
           1,
           'spawnManager',
           {},
-          { parentTaskId: task.id },
+          { parentTaskId: task.id, subOrder: 1 },
         );
         task.data.phase = 'hauler';
       }
@@ -624,7 +638,7 @@ const spawnManager = {
           this.handleStarterCouple(room, task);
           break;
         case 'spawnMiner': {
-          const size = this.spawnMiner(spawn, room, energyCapacityAvailable);
+          const size = this.spawnMiner(spawn, room, energyCapacityAvailable, task);
           if (size > 0) {
             htm.claimTask(
               htm.LEVELS.COLONY,
@@ -638,7 +652,7 @@ const spawnManager = {
           break;
         }
         case 'spawnHauler':
-          this.spawnHauler(spawn, room, energyCapacityAvailable);
+          this.spawnHauler(spawn, room, energyCapacityAvailable, task);
           htm.claimTask(
             htm.LEVELS.COLONY,
             room.name,
