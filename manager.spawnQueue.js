@@ -218,6 +218,23 @@ const spawnQueue = {
       }
     }
   },
+
+  /**
+   * Remove spawn requests older than the provided age in ticks.
+   * @param {number} maxAge - Maximum age to keep (default 1000).
+   */
+  cleanUp(maxAge = 1000) {
+    const cutoff = Game.time - maxAge;
+    const before = this.queue.length;
+    this.queue = this.queue.filter((req) => {
+      const created = parseInt(req.requestId.split('-')[0], 10);
+      return created >= cutoff;
+    });
+    const removed = before - this.queue.length;
+    if (removed > 0) {
+      logger.log('spawnQueue', `Pruned ${removed} stale spawn requests`, 2);
+    }
+  },
 };
 
 module.exports = spawnQueue;
