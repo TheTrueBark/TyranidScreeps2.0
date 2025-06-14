@@ -113,8 +113,13 @@ const calculateEffectiveEnergyCapacity = (room) => {
  * @returns {number} Required miner count for the source.
  */
 function calculateRequiredMiners(room, source) {
+  // Safely access mining position data without optional chaining to avoid
+  // compatibility issues with older runtimes
   const sourceMem =
-    Memory.rooms?.[room.name]?.miningPositions?.[source.id];
+    Memory.rooms &&
+    Memory.rooms[room.name] &&
+    Memory.rooms[room.name].miningPositions &&
+    Memory.rooms[room.name].miningPositions[source.id];
   if (!sourceMem) return 0;
 
   const availablePositions = Object.keys(sourceMem.positions || {}).length;
