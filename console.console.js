@@ -298,6 +298,10 @@ var statsConsole = {
           Memory.rooms && Memory.rooms[room.name]
             ? Memory.rooms[room.name].spawnLimits || {}
             : {};
+        const manual =
+          Memory.rooms && Memory.rooms[room.name]
+            ? Memory.rooms[room.name].manualSpawnLimits || {}
+            : {};
         const minersAlive = _.filter(
           Game.creeps,
           c => c.memory.role === 'miner' && c.room.name === room.name,
@@ -307,7 +311,10 @@ var statsConsole = {
         ).length;
         secondLineName = secondLineName.concat(['Miners']);
         secondLineStat = secondLineStat.concat([
-          `${minersAlive + queuedMiners}/${limits.miners || 0}`,
+          `${minersAlive + queuedMiners}/${limits.miners || 0}` +
+            (manual.miners !== undefined && manual.miners !== 'auto'
+              ? ` manual limit: ${manual.miners}`
+              : ''),
         ]);
 
         const haulersAlive = _.filter(
@@ -319,7 +326,10 @@ var statsConsole = {
         ).length;
         secondLineName = secondLineName.concat(['Haulers']);
         secondLineStat = secondLineStat.concat([
-          `${haulersAlive + queuedHaulers}/${limits.haulers || 0}`,
+          `${haulersAlive + queuedHaulers}/${limits.haulers || 0}` +
+            (manual.haulers !== undefined && manual.haulers !== 'auto'
+              ? ` manual limit: ${manual.haulers}`
+              : ''),
         ]);
 
         const buildersAlive = _.filter(
@@ -331,7 +341,10 @@ var statsConsole = {
         ).length;
         secondLineName = secondLineName.concat(['Builders']);
         secondLineStat = secondLineStat.concat([
-          `${buildersAlive + queuedBuilders}/${limits.builders || 0}`,
+          `${buildersAlive + queuedBuilders}/${limits.builders || 0}` +
+            (manual.builders !== undefined && manual.builders !== 'auto'
+              ? ` manual limit: ${manual.builders}`
+              : ''),
         ]);
 
         const upgradersAlive = _.filter(
@@ -343,7 +356,10 @@ var statsConsole = {
         ).length;
         secondLineName = secondLineName.concat(['Upgraders']);
         secondLineStat = secondLineStat.concat([
-          `${upgradersAlive + queuedUpgraders}/${limits.upgraders || 0}`,
+          `${upgradersAlive + queuedUpgraders}/${limits.upgraders || 0}` +
+            (manual.upgraders !== undefined && manual.upgraders !== 'auto'
+              ? ` manual limit: ${manual.upgraders}`
+              : ''),
         ]);
       }
     }

@@ -387,6 +387,12 @@ const demandModule = {
         2,
         Math.min(MAX_HAULERS_PER_ROOM, targetCalc),
       );
+      const manual =
+        Memory.rooms &&
+        Memory.rooms[roomName] &&
+        Memory.rooms[roomName].manualSpawnLimits &&
+        Memory.rooms[roomName].manualSpawnLimits.haulers;
+      if (manual !== undefined && manual !== 'auto') target = manual;
       if (!Memory.rooms) Memory.rooms = {};
       if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
       if (!Memory.rooms[roomName].spawnLimits)
