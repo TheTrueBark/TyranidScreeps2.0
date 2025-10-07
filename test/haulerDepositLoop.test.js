@@ -1,4 +1,4 @@
-const { expect } = require('chai');
+﻿const { expect } = require('chai');
 const globals = require('./mocks/globals');
 
 const roleHauler = require('../role.hauler');
@@ -15,25 +15,50 @@ describe('hauler avoids withdrawing from deposit container', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
-    Game.rooms['W1N1'] = { name: 'W1N1', find: () => [], controller: { pos: { findInRange: () => [] } } };
+    Game.rooms['W1N1'] = {
+      name: 'W1N1',
+      storage: null,
+      find: () => [],
+      controller: { pos: { findInRange: () => [] } },
+    };
   });
 
-  it('does not withdraw from container it just filled', function() {
-    const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 2000 }, pos: { x:5, y:5, roomName:'W1N1' } };
-    Game.getObjectById = id => container;
-    Game.rooms['W1N1'].controller.pos.findInRange = () => [container];
-    let withdrawCalled = false;
-    const creep = {
+  function createCreep() {
+    return {
       name: 'h1',
       room: Game.rooms['W1N1'],
       store: { [RESOURCE_ENERGY]: 50, getFreeCapacity: () => 0 },
-      pos: { x:5, y:5, roomName:'W1N1', findClosestByPath: () => null, getRangeTo: () => 1 },
+      pos: {
+        x: 5,
+        y: 5,
+        roomName: 'W1N1',
+        findClosestByPath: () => null,
+        getRangeTo(target) {
+          const pos = target.pos || target;
+          return Math.abs(pos.x - this.x) + Math.abs(pos.y - this.y);
+        },
+      },
       travelTo: () => {},
-      transfer: () => { container.store[RESOURCE_ENERGY] += 50; creep.store[RESOURCE_ENERGY] = 0; return OK; },
       pickup: () => OK,
-      withdraw: () => { withdrawCalled = true; return OK; },
+      withdraw: () => OK,
       memory: {},
     };
+  }
+
+  it('does not withdraw from container it just filled', function() {
+    const container = {
+      id: 'c1',
+      structureType: STRUCTURE_CONTAINER,
+      store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 2000 },
+      pos: { x: 5, y: 5, roomName: 'W1N1' },
+    };
+    Game.getObjectById = () => container;
+    Game.rooms['W1N1'].controller.pos.findInRange = () => [container];
+    let withdrawCalled = false;
+    const creep = createCreep();
+    creep.transfer = () => { container.store[RESOURCE_ENERGY] += 50; creep.store[RESOURCE_ENERGY] = 0; return OK; };
+    creep.withdraw = () => { withdrawCalled = true; return OK; };
+
     roleHauler.run(creep); // deposit
     expect(creep.memory.blockedContainerId).to.equal('c1');
     roleHauler.run(creep); // attempt to withdraw
@@ -41,21 +66,19 @@ describe('hauler avoids withdrawing from deposit container', function() {
   });
 
   it('keeps container blocked after leaving the container', function() {
-    const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 2000 }, pos: { x:5, y:5, roomName:'W1N1' } };
-    Game.getObjectById = id => container;
+    const container = {
+      id: 'c1',
+      structureType: STRUCTURE_CONTAINER,
+      store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 2000 },
+      pos: { x: 5, y: 5, roomName: 'W1N1' },
+    };
+    Game.getObjectById = () => container;
     Game.rooms['W1N1'].controller.pos.findInRange = () => [container];
     let withdrawCalled = false;
-    const creep = {
-      name: 'h1',
-      room: Game.rooms['W1N1'],
-      store: { [RESOURCE_ENERGY]: 50, getFreeCapacity: () => 0 },
-      pos: { x:5, y:5, roomName:'W1N1', findClosestByPath: () => null, getRangeTo: () => 1 },
-      travelTo: () => {},
-      transfer: () => { container.store[RESOURCE_ENERGY] += 50; creep.store[RESOURCE_ENERGY] = 0; return OK; },
-      pickup: () => OK,
-      withdraw: () => { withdrawCalled = true; return OK; },
-      memory: {},
-    };
+    const creep = createCreep();
+    creep.transfer = () => { container.store[RESOURCE_ENERGY] += 50; creep.store[RESOURCE_ENERGY] = 0; return OK; };
+    creep.withdraw = () => { withdrawCalled = true; return OK; };
+
     roleHauler.run(creep); // deposit
     creep.pos.getRangeTo = () => 3; // moved away
     Game.time += 10;

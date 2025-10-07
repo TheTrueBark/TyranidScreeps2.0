@@ -1,4 +1,4 @@
-# 🐣 Spawn Queue
+﻿# ðŸ£ Spawn Queue
 
 The spawn queue decouples creep requests from immediate spawning. Managers or HTM tasks push requests and each spawn processes its own queue.
 
@@ -14,11 +14,11 @@ The spawn queue decouples creep requests from immediate spawning. Managers or HT
   spawnId: '5abc123',
   ticksToSpawn: 0, // lower means sooner
   energyRequired: 300,
-  priority: 2
+  priority: 20
 }
 ```
 
-`requestId` combines the current tick with an incrementing counter to ensure uniqueness. The queue is sorted by `priority` (lower is higher priority) and then `ticksToSpawn`, so urgent entries spawn first.
+Priorities now use a 1-100 scale where emergency creeps sit in the single digits, starters in the teens, and background workers land closer to 60+. Immediate requests (ticksToSpawn <= 0) are grouped by their parentTaskId and compared using the lowest priority in that group so coupled subtasks stay together; once no immediate requests remain, the queue falls back to sorting by ticksToSpawn.
 
 ## Processing
 
@@ -27,11 +27,12 @@ Use `spawnQueue.processQueue(spawn)` each tick. It checks energy and spawns the 
 ## Adding requests
 
 ```
-spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id, 0, 2);
+const priority = spawnManager.resolvePriority('miner', { starter: true });
+spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id, 0, priority);
 ```
 
 Requests can include a `ticksToSpawn` delay, allowing future scheduling.
-The optional `priority` parameter (default `5`) lets high priority creeps spawn sooner.
+The optional `priority` parameter (default `70`) lets high priority creeps spawn sooner.
 An additional `options` object may define `parentTaskId`, `subOrder` and `parentTick` for subtask sorting.
 
 ### Positional memory requirements
@@ -64,5 +65,8 @@ subtasks have finished. Queue sorting first compares the parent task tick and th
 `Memory.nextSpawnRequestId` increments each tick to guarantee unique ids.
 Requests are removed once the spawn succeeds or they are explicitly cleared.
 `spawnQueue.cleanUp(maxAge)` can be used to prune entries older than `maxAge`
-ticks to prevent unbounded growth.
+ticks to prevent unbounded growth. During cleanup orphaned requests that target
+spawns which no longer exist are also purged so demand metrics stay accurate
+after a respawn or manual structure removal.
+
 

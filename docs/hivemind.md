@@ -33,7 +33,9 @@ its queue is empty.
   the queue is purged and a bootstrap worker is scheduled so the colony can
   recover. The module enforces a strict initial order at RCL1: a
   minimal miner followed by a hauler must be spawned before other
-  roles are considered.
+  roles are considered. When available energy drops below the ideal DNA
+  cost the manager automatically downgrades miners and haulers to their
+  starter bodies so bootstrap creeps can still be produced.
 - **lifecycle** – Runs every 25 ticks via the scheduler to queue miner replacements before the current
   miner expires using precomputed travel times. A second module predicts hauler
   replacements using average roundtrip durations and only queues a new hauler

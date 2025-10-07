@@ -1,4 +1,4 @@
-// role.hauler.js
+﻿// role.hauler.js
 
 const htm = require('manager.htm');
 const logger = require('./logger');
@@ -9,12 +9,17 @@ const _ = require('lodash');
 if (!Memory.energyReserves) Memory.energyReserves = {};
 
 function reserveEnergy(id, amount) {
+  if (!id || amount <= 0) return;
   if (!Memory.energyReserves[id]) Memory.energyReserves[id] = 0;
   Memory.energyReserves[id] += amount;
 }
 
-function releaseEnergy(id, amount) {
-  if (!Memory.energyReserves[id]) return;
+function releaseEnergy(id, amount = 0) {
+  if (!id || !Memory.energyReserves[id]) return;
+  if (amount <= 0) {
+    delete Memory.energyReserves[id];
+    return;
+  }
   Memory.energyReserves[id] = Math.max(0, Memory.energyReserves[id] - amount);
   if (Memory.energyReserves[id] === 0) delete Memory.energyReserves[id];
 }
@@ -43,61 +48,67 @@ function moveToIdle(creep) {
  */
 function findEnergySource(creep) {
   const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  if (needed === 0) return null;
+  if (needed <= 0) return null;
+
+  const room = creep.room;
+  if (!room || typeof room.find !== "function") return null;
 
   const candidates = [];
-  const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, {
-    filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+  const pushCandidate = (type, target, amount) => {
+    if (!target) return;
+    const reserved = Memory.energyReserves[target.id] || 0;
+    const available = amount - reserved;
+    if (available <= 0) return;
+    const range = creep.pos.getRangeTo(target);
+    candidates.push({ type, target, available, range });
+  };
+
+  const dropped = room.find(FIND_DROPPED_RESOURCES, {
+    filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
   });
-  if (dropped) {
-    const reserved = Memory.energyReserves[dropped.id] || 0;
-    const available = dropped.amount - reserved;
-    if (available > 0) candidates.push({ type: 'pickup', target: dropped, available });
+  for (const res of dropped) {
+    pushCandidate('pickup', res, res.amount);
   }
 
-  const ruin = creep.pos.findClosestByPath(FIND_RUINS, {
-    filter: r => r.store && r.store[RESOURCE_ENERGY] > 0,
+  const ruins = room.find(FIND_RUINS, {
+    filter: (r) => r.store && r.store[RESOURCE_ENERGY] > 0,
   });
-  if (ruin) {
-    const reserved = Memory.energyReserves[ruin.id] || 0;
-    const available = ruin.store[RESOURCE_ENERGY] - reserved;
-    if (available > 0) candidates.push({ type: 'withdraw', target: ruin, available });
+  for (const structure of ruins) {
+    pushCandidate('withdraw', structure, structure.store[RESOURCE_ENERGY]);
   }
 
-  const tomb = creep.pos.findClosestByPath(FIND_TOMBSTONES, {
-    filter: t => t.store && t.store[RESOURCE_ENERGY] > 0,
+  const tombstones = room.find(FIND_TOMBSTONES, {
+    filter: (t) => t.store && t.store[RESOURCE_ENERGY] > 0,
   });
-  if (tomb) {
-    const reserved = Memory.energyReserves[tomb.id] || 0;
-    const available = tomb.store[RESOURCE_ENERGY] - reserved;
-    if (available > 0) candidates.push({ type: 'withdraw', target: tomb, available });
+  for (const tomb of tombstones) {
+    pushCandidate('withdraw', tomb, tomb.store[RESOURCE_ENERGY]);
   }
 
   const avoid = creep.memory.blockedContainerId;
-  const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-    filter: s =>
+  const containers = room.find(FIND_STRUCTURES, {
+    filter: (s) =>
       s.structureType === STRUCTURE_CONTAINER &&
       s.store[RESOURCE_ENERGY] > 0 &&
       s.id !== avoid,
   });
-  if (container) {
-    const reserved = Memory.energyReserves[container.id] || 0;
-    const available = container.store[RESOURCE_ENERGY] - reserved;
-    if (available > 0) candidates.push({ type: 'withdraw', target: container, available });
+  for (const container of containers) {
+    pushCandidate('withdraw', container, container.store[RESOURCE_ENERGY]);
   }
 
-  if (creep.room.storage && creep.room.storage.store[RESOURCE_ENERGY] > 0) {
-    const reserved = Memory.energyReserves[creep.room.storage.id] || 0;
-    const available = creep.room.storage.store[RESOURCE_ENERGY] - reserved;
-    if (available > 0) candidates.push({ type: 'withdraw', target: creep.room.storage, available });
+  if (room.storage && room.storage.store[RESOURCE_ENERGY] > 0) {
+    pushCandidate('withdraw', room.storage, room.storage.store[RESOURCE_ENERGY]);
   }
 
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
     if (b.available !== a.available) return b.available - a.available;
-    return creep.pos.getRangeTo(a.target) - creep.pos.getRangeTo(b.target);
+    if (a.range !== b.range) return a.range - b.range;
+    const aId = a.target.id || '';
+    const bId = b.target.id || '';
+    return aId.localeCompare(bId);
   });
+
   return candidates[0];
 }
 
@@ -293,21 +304,31 @@ module.exports = {
     }
 
     if (creep.memory.reserving) {
-      const target = Game.getObjectById(creep.memory.reserving.id);
-      if (!target) {
-        releaseEnergy(creep.memory.reserving.id, creep.memory.reserving.amount);
+      const reservation = creep.memory.reserving;
+      const target = Game.getObjectById(reservation.id);
+      const available =
+        target && reservation.type === 'pickup'
+          ? target.amount || 0
+          : target && target.store
+            ? target.store[RESOURCE_ENERGY] || 0
+            : 0;
+      if (!target || available <= 0) {
+        releaseEnergy(reservation.id, reservation.amount);
         delete creep.memory.reserving;
       } else {
         const action =
-          creep.memory.reserving.type === 'pickup'
+          reservation.type === 'pickup'
             ? creep.pickup(target)
             : creep.withdraw(target, RESOURCE_ENERGY);
         if (action === ERR_NOT_IN_RANGE) {
           creep.travelTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
         } else if (action === OK) {
-          releaseEnergy(creep.memory.reserving.id, creep.memory.reserving.amount);
+          releaseEnergy(reservation.id, reservation.amount);
           delete creep.memory.reserving;
           creep.memory.roundTripStartTick = Game.time;
+        } else if (action !== ERR_TIRED) {
+          releaseEnergy(reservation.id, reservation.amount);
+          delete creep.memory.reserving;
         }
         return;
       }
@@ -378,6 +399,7 @@ module.exports = {
         creep.store.getFreeCapacity(RESOURCE_ENERGY),
         source.available || creep.store.getFreeCapacity(RESOURCE_ENERGY),
       );
+      if (amount <= 0) return;
       reserveEnergy(source.target.id, amount);
       creep.memory.reserving = { id: source.target.id, amount, type: source.type };
       const action =
@@ -390,12 +412,17 @@ module.exports = {
         releaseEnergy(source.target.id, amount);
         delete creep.memory.reserving;
         creep.memory.roundTripStartTick = Game.time;
+      } else if (action !== ERR_TIRED) {
+        releaseEnergy(source.target.id, amount);
+        delete creep.memory.reserving;
       }
       return;
     }
 
 
-    const spawn = creep.room.find ? creep.room.find(FIND_MY_SPAWNS)[0] : null;
+    const spawn = creep.room && typeof creep.room.find === 'function'
+      ? creep.room.find(FIND_MY_SPAWNS)[0]
+      : null;
     if (creep.store[RESOURCE_ENERGY] === 0) {
       const miners = Object.values(Game.creeps).filter(
         c => c.memory && c.memory.role === 'miner' && c.room.name === creep.room.name,

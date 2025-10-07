@@ -8,24 +8,47 @@ const { calculateCollectionTicks } = require("utils.energy");
 const logger = require("./logger");
 const energyRequests = require("./manager.energyRequests");
 
+const bodyCost = (parts) =>
+  _.reduce(parts, (total, part) => total + (BODYPART_COST[part] || 0), 0);
+
 // Default spawn priorities per role
+const PRIORITY_DEFAULT = 70;
 const ROLE_PRIORITY = {
-  scout: 0,
-  miner: 1,
-  hauler: 2,
-  baseDistributor: 3,
-  builder: 4,
-  upgrader: 5,
-  remoteMiner: 2,
-  reservist: 3,
+  scout: 80,
+  miner: 20,
+  hauler: 30,
+  baseDistributor: 40,
+  builder: 60,
+  upgrader: 65,
+  remoteMiner: 35,
+  reservist: 50,
+};
+const STARTER_PRIORITY = {
+  miner: 5,
+  hauler: 12,
+};
+const EMERGENCY_PRIORITY = 3;
+
+const resolvePriority = (role, opts = {}) => {
+  const { starter = false, emergency = false } = opts;
+  if (emergency) {
+    return EMERGENCY_PRIORITY;
+  }
+  if (starter && STARTER_PRIORITY[role] !== undefined) {
+    return STARTER_PRIORITY[role];
+  }
+  if (ROLE_PRIORITY[role] !== undefined) {
+    return ROLE_PRIORITY[role];
+  }
+  return PRIORITY_DEFAULT;
 };
 
 // Exportable priority shortcuts for remote roles
-const PRIORITY_REMOTE_MINER = ROLE_PRIORITY.remoteMiner;
-const PRIORITY_RESERVIST = ROLE_PRIORITY.reservist;
+const PRIORITY_REMOTE_MINER = resolvePriority('remoteMiner');
+const PRIORITY_RESERVIST = resolvePriority('reservist');
 
 // Exportable priority constants for external modules
-const PRIORITY_HIGH = ROLE_PRIORITY.miner;
+const PRIORITY_HIGH = resolvePriority('miner');
 
 // HTM task name for sequential miner+hauler spawning
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
@@ -208,9 +231,36 @@ const spawnManager = {
           req.memory.role === "miner" && req.memory.source === source.id && req.room === room.name,
       ).length;
 
-      const bodyParts = starter ? [WORK, MOVE] : dna.getBodyParts("miner", room);
-      const energyPerTick =
+      let bodyParts = starter ? [WORK, MOVE] : dna.getBodyParts("miner", room);
+      let energyPerTick =
         bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
+      let energyCost = bodyCost(bodyParts);
+      let usedFallback = false;
+
+      if (!starter && energyCost > room.energyAvailable) {
+        const fallbackBody = dna.getBodyParts("miner", room, true);
+        const fallbackCost = bodyCost(fallbackBody);
+        if (fallbackCost <= room.energyAvailable) {
+          bodyParts = fallbackBody;
+          energyPerTick =
+            bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
+          energyCost = fallbackCost;
+          usedFallback = true;
+          logger.log(
+            "spawnManager",
+            `Downgraded miner body for ${room.name} due to low energy (${energyCost}/${room.energyAvailable})`,
+            3,
+          );
+        } else {
+          logger.log(
+            "spawnManager",
+            `Skipping miner request for ${room.name}: only ${room.energyAvailable} energy available`,
+            3,
+          );
+          continue;
+        }
+      }
+
       const requiredMiners = calculateRequiredMiners(room, source);
 
       if (minersAtSource + queuedMiners >= requiredMiners) {
@@ -240,6 +290,10 @@ const spawnManager = {
               JSON.stringify(req.bodyParts) === JSON.stringify(bodyParts),
           )
         ) {
+          const priority = resolvePriority('miner', {
+            starter: starter || usedFallback,
+            emergency: Boolean(task && task.data && task.data.panic),
+          });
           spawnQueue.addToQueue(
             "miner",
             room.name,
@@ -252,10 +306,11 @@ const spawnManager = {
               distanceToSpawn,
               energyProducedPerTick,
               collectionTicks,
+              starter: starter || usedFallback,
             },
             spawn.id,
             0,
-            ROLE_PRIORITY.miner,
+            priority,
             task
               ? {
                   parentTaskId: task.parentTaskId,
@@ -278,15 +333,44 @@ const spawnManager = {
    * @param {number} energyCapacityAvailable - The available energy capacity.
    */
   spawnHauler(spawn, room, energyCapacityAvailable, task = null, starter = false) {
-    const bodyParts = starter ? [CARRY, MOVE] : dna.getBodyParts("hauler", room);
+    let bodyParts = starter ? [CARRY, MOVE] : dna.getBodyParts("hauler", room);
+    let energyCost = bodyCost(bodyParts);
+    let usedFallback = false;
+
+    if (!starter && energyCost > room.energyAvailable) {
+      const fallbackBody = dna.getBodyParts("hauler", room, true);
+      const fallbackCost = bodyCost(fallbackBody);
+      if (fallbackCost <= room.energyAvailable) {
+        bodyParts = fallbackBody;
+        energyCost = fallbackCost;
+        usedFallback = true;
+        logger.log(
+          "spawnManager",
+          `Downgraded hauler body for ${room.name} due to low energy (${energyCost}/${room.energyAvailable})`,
+          3,
+        );
+      } else {
+        logger.log(
+          "spawnManager",
+          `Skipping hauler request for ${room.name}: only ${room.energyAvailable} energy available`,
+          3,
+        );
+        return 0;
+      }
+    }
+
+    const priority = resolvePriority('hauler', {
+      starter: starter || usedFallback,
+      emergency: Boolean(task && task.data && task.data.panic),
+    });
     spawnQueue.addToQueue(
       "hauler",
       room.name,
       bodyParts,
-      { role: "hauler" },
+      { role: "hauler", starter: starter || usedFallback },
       spawn.id,
       0,
-      ROLE_PRIORITY.hauler,
+      priority,
       task
         ? {
             parentTaskId: task.parentTaskId,
@@ -300,15 +384,17 @@ const spawnManager = {
       `Added hauler creep to spawn queue in room ${room.name}`,
       2,
     );
+    return bodyParts.length;
   },
 
   /**
    * Spawns an upgrader with the appropriate body parts based on energy.
    * @param {StructureSpawn} spawn - Spawn structure to use.
    * @param {Room} room - Room context for calculations.
-   */
+  */
   spawnUpgrader(spawn, room) {
     const bodyParts = dna.getBodyParts("upgrader", room);
+    const priority = resolvePriority('upgrader');
     spawnQueue.addToQueue(
       "upgrader",
       room.name,
@@ -316,7 +402,7 @@ const spawnManager = {
       { role: "upgrader" },
       spawn.id,
       0,
-      ROLE_PRIORITY.upgrader,
+      priority,
     );
     logger.log(
       "spawnManager",
@@ -327,6 +413,7 @@ const spawnManager = {
 
   spawnBaseDistributor(spawn, room) {
     const bodyParts = dna.getBodyParts('baseDistributor', room);
+    const priority = resolvePriority('baseDistributor');
     spawnQueue.addToQueue(
       'baseDistributor',
       room.name,
@@ -334,7 +421,7 @@ const spawnManager = {
       { role: 'baseDistributor', home: room.name },
       spawn.id,
       0,
-      ROLE_PRIORITY.baseDistributor,
+      priority,
     );
     logger.log(
       'spawnManager',
@@ -350,6 +437,7 @@ const spawnManager = {
    */
   spawnBuilder(spawn, room) {
     const bodyParts = dna.getBodyParts("builder", room);
+    const priority = resolvePriority('builder');
     spawnQueue.addToQueue(
       "builder",
       room.name,
@@ -357,7 +445,7 @@ const spawnManager = {
       { role: "builder" },
       spawn.id,
       0,
-      ROLE_PRIORITY.builder,
+      priority,
     );
     logger.log(
       "spawnManager",
@@ -391,6 +479,7 @@ const spawnManager = {
   spawnEmergencyCollector(spawn, room) {
     if (room.energyAvailable < BODYPART_COST[CARRY] + BODYPART_COST[MOVE]) return 0;
     const bodyParts = [CARRY, MOVE];
+    const priority = resolvePriority('hauler', { emergency: true });
     spawnQueue.addToQueue(
       'hauler',
       room.name,
@@ -398,7 +487,7 @@ const spawnManager = {
       { role: 'hauler', emergency: true },
       spawn.id,
       0,
-      ROLE_PRIORITY.hauler,
+      priority,
     );
     return bodyParts.length;
   },
@@ -413,6 +502,9 @@ const spawnManager = {
     const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
     if (!container || !container.tasks) return;
 
+    if (!task.data) task.data = {};
+    if (task.amount === undefined) task.amount = 1;
+
     const minerSub = container.tasks.find(
       t => t.parentTaskId === task.id && t.name === 'spawnMiner',
     );
@@ -425,7 +517,7 @@ const spawnManager = {
         room.name,
         'spawnMiner',
         { role: 'miner', starter: true },
-        ROLE_PRIORITY.miner,
+        resolvePriority('miner', { starter: true }),
         30,
         1,
         'spawnManager',
@@ -442,7 +534,7 @@ const spawnManager = {
           room.name,
           'spawnHauler',
           { role: 'hauler', starter: true },
-          ROLE_PRIORITY.hauler,
+          resolvePriority('hauler', { starter: true }),
           30,
           1,
           'spawnManager',
@@ -455,6 +547,11 @@ const spawnManager = {
     }
 
     if (task.data.phase === 'hauler' && !haulerSub) {
+      task.amount = Math.max(0, (task.amount || 1) - 1);
+      if (task.amount > 0) {
+        task.data = {};
+        return;
+      }
       const idx = container.tasks.indexOf(task);
       if (idx !== -1) container.tasks.splice(idx, 1);
     }
@@ -658,23 +755,26 @@ const spawnManager = {
           }
           break;
         }
-        case 'spawnHauler':
-          this.spawnHauler(
+        case 'spawnHauler': {
+          const haulerSize = this.spawnHauler(
             spawn,
             room,
             energyCapacityAvailable,
             task,
             task.data && task.data.starter,
           );
-          htm.claimTask(
-            htm.LEVELS.COLONY,
-            room.name,
-            task.name,
-            'spawnManager',
-            DEFAULT_CLAIM_COOLDOWN,
-            dna.getBodyParts('hauler', room).length * CREEP_SPAWN_TIME,
-          );
+          if (haulerSize > 0) {
+            htm.claimTask(
+              htm.LEVELS.COLONY,
+              room.name,
+              task.name,
+              'spawnManager',
+              DEFAULT_CLAIM_COOLDOWN,
+              haulerSize * CREEP_SPAWN_TIME,
+            );
+          }
           break;
+        }
         case 'spawnUpgrader':
           this.spawnUpgrader(spawn, room);
           htm.claimTask(
@@ -700,13 +800,30 @@ const spawnManager = {
         case 'spawnBootstrap':
           const role = task.data.role || 'miner';
           let size = 0;
+          const isStarter = Boolean(task.data && (task.data.starter || task.data.panic));
+          const emergency = Boolean(task.data && task.data.panic);
           if (role === 'miner') {
-            size = this.spawnMiner(spawn, room, energyCapacityAvailable);
+            size = this.spawnMiner(
+              spawn,
+              room,
+              energyCapacityAvailable,
+              task,
+              isStarter,
+            );
           } else if (role === 'hauler') {
-            this.spawnHauler(spawn, room, energyCapacityAvailable);
-            size = dna.getBodyParts('hauler', room).length;
+            size = this.spawnHauler(
+              spawn,
+              room,
+              energyCapacityAvailable,
+              task,
+              isStarter,
+            );
           } else {
             const body = dna.getBodyParts(role, room, task.data.panic);
+            const priority = resolvePriority(role, {
+              starter: isStarter,
+              emergency,
+            });
             spawnQueue.addToQueue(
               role,
               room.name,
@@ -714,7 +831,7 @@ const spawnManager = {
               { role },
               spawn.id,
               0,
-              ROLE_PRIORITY[role] || 5,
+              priority,
             );
             size = body.length;
           }
@@ -738,9 +855,13 @@ const spawnManager = {
 
 module.exports = spawnManager;
 module.exports.PRIORITY_HIGH = PRIORITY_HIGH;
-module.exports.PRIORITY_SCOUT = ROLE_PRIORITY.scout;
+module.exports.PRIORITY_SCOUT = resolvePriority('scout');
 module.exports.PRIORITY_REMOTE_MINER = PRIORITY_REMOTE_MINER;
 module.exports.PRIORITY_RESERVIST = PRIORITY_RESERVIST;
 module.exports.ROLE_PRIORITY = ROLE_PRIORITY;
+module.exports.STARTER_PRIORITY = STARTER_PRIORITY;
+module.exports.PRIORITY_DEFAULT = PRIORITY_DEFAULT;
+module.exports.EMERGENCY_PRIORITY = EMERGENCY_PRIORITY;
+module.exports.resolvePriority = resolvePriority;
 module.exports.TASK_STARTER_COUPLE = TASK_STARTER_COUPLE;
 module.exports.calculateRequiredMiners = calculateRequiredMiners;

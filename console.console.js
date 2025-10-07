@@ -89,11 +89,19 @@ var statsConsole = {
       addSpace = 1;
     }
 
-    let cpuAverage = 0;
-    for (let i = cpuAvgCount; i > 0; i--) {
-      cpuAverage = cpuAverage + (Memory.stats.__cpu[i] || 0);
+    if (!Array.isArray(Memory.stats.__cpu)) {
+      Memory.stats.__cpu = [];
     }
-    cpuAverage = cpuAverage / cpuAvgCount;
+
+    const cpuHistory = Memory.stats.__cpu;
+    let cpuAverage = 0;
+    if (cpuHistory.length > 0) {
+      const samples = Math.min(cpuAvgCount, cpuHistory.length);
+      for (let i = 0; i < samples; i++) {
+        cpuAverage += cpuHistory[i] || 0;
+      }
+      cpuAverage /= samples;
+    }
 
     var spacesToEnd = function (count, len) {
       return _.repeat(" ", len - count.length);
@@ -106,9 +114,12 @@ var statsConsole = {
       cpuBucket.toFixed(0).toString(),
     ];
 
-    for (let i = 0; i < Memory.stats.cpu.length; i++) {
-      let name = [Memory.stats.cpu[i][0]];
-      let stat = [Memory.stats.cpu[i][1].toFixed(0)];
+    const cpuEntries = Array.isArray(Memory.stats.cpu) ? Memory.stats.cpu : [];
+    for (let i = 0; i < cpuEntries.length; i++) {
+      const entry = cpuEntries[i];
+      if (!entry || entry.length < 2) continue;
+      let name = [entry[0]];
+      let stat = [Number(entry[1] || 0).toFixed(0)];
       lineName.push(name);
       lineStat.push(stat);
     }
@@ -307,7 +318,9 @@ var statsConsole = {
           c => c.memory.role === 'miner' && c.room.name === room.name,
         ).length;
         const queuedMiners = (Memory.spawnQueue || []).filter(
-          q => q.room === room.name && q.memory.role === 'miner',
+          q =>
+            q.room === room.name &&
+            (q.category === 'miner' || (q.memory && q.memory.role === 'miner')),
         ).length;
         secondLineName = secondLineName.concat(['Miners']);
         secondLineStat = secondLineStat.concat([
@@ -322,7 +335,9 @@ var statsConsole = {
           c => c.memory.role === 'hauler' && c.room.name === room.name,
         ).length;
         const queuedHaulers = (Memory.spawnQueue || []).filter(
-          q => q.room === room.name && q.memory.role === 'hauler',
+          q =>
+            q.room === room.name &&
+            (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
         ).length;
         secondLineName = secondLineName.concat(['Haulers']);
         secondLineStat = secondLineStat.concat([
@@ -337,7 +352,9 @@ var statsConsole = {
           c => c.memory.role === 'builder' && c.room.name === room.name,
         ).length;
         const queuedBuilders = (Memory.spawnQueue || []).filter(
-          q => q.room === room.name && q.memory.role === 'builder',
+          q =>
+            q.room === room.name &&
+            (q.category === 'builder' || (q.memory && q.memory.role === 'builder')),
         ).length;
         secondLineName = secondLineName.concat(['Builders']);
         secondLineStat = secondLineStat.concat([
@@ -352,7 +369,9 @@ var statsConsole = {
           c => c.memory.role === 'upgrader' && c.room.name === room.name,
         ).length;
         const queuedUpgraders = (Memory.spawnQueue || []).filter(
-          q => q.room === room.name && q.memory.role === 'upgrader',
+          q =>
+            q.room === room.name &&
+            (q.category === 'upgrader' || (q.memory && q.memory.role === 'upgrader')),
         ).length;
         secondLineName = secondLineName.concat(['Upgraders']);
         secondLineStat = secondLineStat.concat([

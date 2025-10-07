@@ -13,7 +13,9 @@ const demandManager = {
       (creep) => creep.memory.role === "miner" && creep.room.name === room.name,
     ).length;
     const queuedMiners = spawnQueue.queue.filter(
-      q => q.memory.role === 'miner' && q.room === room.name,
+      (q) =>
+        q.room === room.name &&
+        (q.category === 'miner' || (q.memory && q.memory.role === 'miner')),
     ).length;
     const haulers = _.filter(
       Game.creeps,
@@ -21,7 +23,9 @@ const demandManager = {
         creep.memory.role === "hauler" && creep.room.name === room.name,
     ).length;
     const queuedHaulers = spawnQueue.queue.filter(
-      q => q.memory.role === 'hauler' && q.room === room.name,
+      (q) =>
+        q.room === room.name &&
+        (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
     ).length;
     const upgraders = _.filter(
       Game.creeps,

@@ -1,4 +1,4 @@
-const _ = require('lodash');
+﻿const _ = require('lodash');
 const logger = require("./logger");
 const scheduler = require('./scheduler');
 
@@ -9,6 +9,100 @@ if (!Memory.spawnQueue) {
 if (Memory.nextSpawnRequestId === undefined) {
   Memory.nextSpawnRequestId = 0;
 }
+
+const DEFAULT_PRIORITY = 70;
+const IMMEDIATE_THRESHOLD = 0;
+
+const toNumber = (value, fallback) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const getPriority = (req) => toNumber(req.priority, DEFAULT_PRIORITY);
+const hasParent = (req) =>
+  req.parentTaskId !== undefined && req.parentTaskId !== null;
+const getTicks = (req) => (
+  typeof req.ticksToSpawn === "number" && Number.isFinite(req.ticksToSpawn)
+    ? req.ticksToSpawn
+    : 0
+);
+const isImmediate = (req) => getTicks(req) <= IMMEDIATE_THRESHOLD;
+const getParentTick = (req) => toNumber(req.parentTick, Number.POSITIVE_INFINITY);
+const getSubOrder = (req) => toNumber(req.subOrder, Number.POSITIVE_INFINITY);
+const getRequestId = (req) => (req.requestId || '');
+
+const buildGroupPriorityMap = (requests) => {
+  const map = new Map();
+  for (const req of requests) {
+    if (!hasParent(req)) continue;
+    const priority =
+      typeof req.groupPriorityHint === 'number'
+        ? req.groupPriorityHint
+        : getPriority(req);
+    const current = map.get(req.parentTaskId);
+    if (current === undefined || priority < current) {
+      map.set(req.parentTaskId, priority);
+    }
+  }
+  return map;
+};
+
+const resolveGroupPriority = (req, priorityMap) => {
+  if (hasParent(req) && priorityMap.has(req.parentTaskId)) {
+    return priorityMap.get(req.parentTaskId);
+  }
+  if (typeof req.groupPriorityHint === 'number') {
+    return req.groupPriorityHint;
+  }
+  return getPriority(req);
+};
+
+const compareRequestsFactory = (priorityMap) => (a, b) => {
+  const aImmediate = isImmediate(a);
+  const bImmediate = isImmediate(b);
+  if (aImmediate !== bImmediate) return aImmediate ? -1 : 1;
+
+  const aTicks = getTicks(a);
+  const bTicks = getTicks(b);
+  const aGroupPriority = resolveGroupPriority(a, priorityMap);
+  const bGroupPriority = resolveGroupPriority(b, priorityMap);
+  const aParentTick = getParentTick(a);
+  const bParentTick = getParentTick(b);
+  const aPriority = getPriority(a);
+  const bPriority = getPriority(b);
+
+  if (aImmediate) {
+    if (aGroupPriority !== bGroupPriority) return aGroupPriority - bGroupPriority;
+    if (aParentTick !== bParentTick) return aParentTick - bParentTick;
+
+    if (hasParent(a) && hasParent(b)) {
+      if (a.parentTaskId !== b.parentTaskId) {
+        return String(a.parentTaskId).localeCompare(String(b.parentTaskId));
+      }
+      const aSub = getSubOrder(a);
+      const bSub = getSubOrder(b);
+      if (aSub !== bSub) return aSub - bSub;
+    }
+
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    if (aTicks !== bTicks) return aTicks - bTicks;
+  } else {
+    if (aTicks !== bTicks) return aTicks - bTicks;
+    if (aGroupPriority !== bGroupPriority) return aGroupPriority - bGroupPriority;
+    if (aParentTick !== bParentTick) return aParentTick - bParentTick;
+
+    if (hasParent(a) && hasParent(b)) {
+      if (a.parentTaskId !== b.parentTaskId) {
+        return String(a.parentTaskId).localeCompare(String(b.parentTaskId));
+      }
+      const aSub = getSubOrder(a);
+      const bSub = getSubOrder(b);
+      if (aSub !== bSub) return aSub - bSub;
+    }
+
+    if (aPriority !== bPriority) return aPriority - bPriority;
+  }
+
+  return getRequestId(a).localeCompare(getRequestId(b));
+};
 
 const spawnQueue = {
   get queue() {
@@ -39,12 +133,16 @@ const spawnQueue = {
     memory,
     spawnId,
     ticksToSpawn = 0,
-    priority = 5,
+    priority = DEFAULT_PRIORITY,
     options = {},
   ) {
     // Combine current tick with an incrementing counter to avoid collisions
     const requestId = `${Game.time}-${Memory.nextSpawnRequestId++}`;
-    const energyRequired = _.sum(bodyParts, (part) => BODYPART_COST[part]);
+    const energyRequired = _.reduce(
+      bodyParts,
+      (total, part) => total + (BODYPART_COST[part] || 0),
+      0,
+    );
 
     // Validate positional data includes roomName to avoid undefined errors later
     if (
@@ -74,7 +172,7 @@ const spawnQueue = {
       return;
     }
 
-    this.queue.push({
+    const entry = {
       requestId,
       category,
       room,
@@ -89,7 +187,17 @@ const spawnQueue = {
         options.subOrder !== undefined ? options.subOrder : Number.POSITIVE_INFINITY,
       parentTick:
         options.parentTick !== undefined ? options.parentTick : Number.POSITIVE_INFINITY,
-    });
+      groupPriorityHint: priority,
+    };
+    this.queue.push(entry);
+
+    if (entry.parentTaskId) {
+      const members = this.queue.filter((req) => req.parentTaskId === entry.parentTaskId);
+      const minPriority = Math.min(...members.map(getPriority));
+      for (const member of members) {
+        member.groupPriorityHint = minPriority;
+      }
+    }
     logger.log(
       "spawnQueue",
       `Added to spawn queue: category=${category}, room=${room}, bodyParts=${JSON.stringify(
@@ -106,26 +214,20 @@ const spawnQueue = {
    * @returns {object|null} - The next spawn request or null if the queue is empty.
    */
   getNextSpawn(spawnId) {
-    const sortedQueue = this.queue
-      .filter((req) => req.spawnId === spawnId)
-      .sort((a, b) => {
-        if (a.parentTick !== b.parentTick) return a.parentTick - b.parentTick;
-        if (a.subOrder !== b.subOrder) return a.subOrder - b.subOrder;
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return a.ticksToSpawn - b.ticksToSpawn;
-      });
-    if (sortedQueue.length > 0) {
-      const nextSpawn = sortedQueue[0];
-      if (!nextSpawn.memory) {
-        logger.log(
-          "spawnQueue",
-          `Warning: Memory object missing for spawn request: ${JSON.stringify(nextSpawn)}`,
-          4,
-        );
-      }
-      return nextSpawn;
+    const filtered = this.queue.filter((req) => req.spawnId === spawnId);
+    if (filtered.length === 0) return null;
+    const priorityMap = buildGroupPriorityMap(filtered);
+    const comparator = compareRequestsFactory(priorityMap);
+    filtered.sort(comparator);
+    const nextSpawn = filtered[0];
+    if (!nextSpawn.memory) {
+      logger.log(
+        "spawnQueue",
+        `Warning: Memory object missing for spawn request: ${JSON.stringify(nextSpawn)}`,
+        4,
+      );
     }
-    return null;
+    return nextSpawn;
   },
 
   /**
@@ -181,13 +283,9 @@ const spawnQueue = {
       `Sorting queue for room ${room.name} by priority and ticksToSpawn`,
       2,
     );
-    // Sort by parent group then subtask order then priority
-    this.queue.sort((a, b) => {
-      if (a.parentTick !== b.parentTick) return a.parentTick - b.parentTick;
-      if (a.subOrder !== b.subOrder) return a.subOrder - b.subOrder;
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.ticksToSpawn - b.ticksToSpawn;
-    });
+    const priorityMap = buildGroupPriorityMap(this.queue);
+    const comparator = compareRequestsFactory(priorityMap);
+    this.queue.sort(comparator);
   },
 
   /**
@@ -227,15 +325,42 @@ const spawnQueue = {
   cleanUp(maxAge = 1000) {
     const cutoff = Game.time - maxAge;
     const before = this.queue.length;
+    let staleRemoved = 0;
+    let orphanRemoved = 0;
     this.queue = this.queue.filter((req) => {
       const created = parseInt(req.requestId.split('-')[0], 10);
-      return created >= cutoff;
+      if (created < cutoff) {
+        staleRemoved += 1;
+        return false;
+      }
+      if (
+        req.spawnId &&
+        typeof Game.getObjectById === 'function' &&
+        !Game.getObjectById(req.spawnId)
+      ) {
+        orphanRemoved += 1;
+        logger.log(
+          'spawnQueue',
+          `Removed orphaned spawn request ${req.requestId} for missing spawn ${req.spawnId}`,
+          3,
+        );
+        return false;
+      }
+      return true;
     });
     const removed = before - this.queue.length;
-    if (removed > 0) {
+    if (staleRemoved > 0) {
+      logger.log('spawnQueue', `Pruned ${staleRemoved} stale spawn requests`, 2);
+    }
+    if (orphanRemoved > 0) {
+      logger.log('spawnQueue', `Removed ${orphanRemoved} orphaned spawn requests`, 3);
+    }
+    if (removed === 0) return;
+    if (removed > staleRemoved + orphanRemoved) {
       logger.log('spawnQueue', `Pruned ${removed} stale spawn requests`, 2);
     }
   },
 };
 
 module.exports = spawnQueue;
+

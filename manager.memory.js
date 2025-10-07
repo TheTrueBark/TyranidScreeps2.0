@@ -82,8 +82,14 @@ const memoryManager = {
         version: MEMORY_VERSION,
         clusters: {},
       };
+    } else if (Memory.hive.version === undefined) {
+      Memory.hive.version = MEMORY_VERSION;
     } else if (Memory.hive.version < MEMORY_VERSION) {
       runMigrations(Memory.hive.version);
+    }
+
+    if (!Memory.hive.clusters) {
+      Memory.hive.clusters = {};
     }
 
     if (!Memory.hive.clusters[clusterId]) {

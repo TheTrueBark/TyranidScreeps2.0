@@ -90,7 +90,7 @@ const spawnModule = {
         htm.addColonyTask(
           roomName,
           'spawnBootstrap',
-          { role: 'miner', panic: true },
+          { role: 'miner', panic: true, starter: true },
           0,
           20,
           1,
@@ -114,9 +114,13 @@ const spawnModule = {
       c => c.memory.role === 'miner' || c.memory.role === 'hauler',
     ).length;
     const queued = spawnQueue.queue.filter(
-      q =>
+      (q) =>
         q.room === roomName &&
-        (q.memory.role === 'miner' || q.memory.role === 'hauler'),
+        (
+          q.category === 'miner' ||
+          q.category === 'hauler' ||
+          (q.memory && (q.memory.role === 'miner' || q.memory.role === 'hauler'))
+        ),
     ).length;
     const task =
       container && container.tasks
@@ -159,7 +163,9 @@ const spawnModule = {
       c => c.memory.role === 'hauler' && c.room.name === roomName,
     ).length;
     const queuedHaulers = spawnQueue.queue.filter(
-      q => q.room === roomName && q.memory.role === 'hauler',
+      (q) =>
+        q.room === roomName &&
+        (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
     ).length;
     const totalHaulers =
       haulersAlive + queuedHaulers + (haulerTask ? haulerTask.amount || 0 : 0);
@@ -176,7 +182,9 @@ const spawnModule = {
         c => c.memory.role === 'miner' && c.room.name === roomName,
       ).length;
       const queuedMiners = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === 'miner',
+        (q) =>
+          q.room === roomName &&
+          (q.category === 'miner' || (q.memory && q.memory.role === 'miner')),
       ).length;
       const totalMiners =
         minersAlive + queuedMiners + (minerTask ? minerTask.amount || 0 : 0);
@@ -186,7 +194,7 @@ const spawnModule = {
           htm.addColonyTask(
             roomName,
             'spawnBootstrap',
-            { role: 'miner' },
+            { role: 'miner', starter: true },
             0,
             20,
             1,

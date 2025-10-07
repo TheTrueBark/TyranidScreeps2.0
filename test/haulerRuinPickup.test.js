@@ -1,4 +1,4 @@
-const { expect } = require('chai');
+﻿const { expect } = require('chai');
 const globals = require('./mocks/globals');
 
 const roleHauler = require('../role.hauler');
@@ -12,45 +12,44 @@ global.FIND_STRUCTURES = 4;
 global.STRUCTURE_CONTAINER = 'container';
 global.OK = 0;
 
-function createHauler(name) {
-  return {
-    name,
-    store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 50 },
-    room: { name: 'W1N1', storage: null },
-    pos: {
-      x: 10,
-      y: 10,
-      roomName: 'W1N1',
-      getRangeTo(pos) {
-        return Math.abs(this.x - pos.x) + Math.abs(this.y - pos.y);
-      },
-      findClosestByPath: function(type, opts) {
-        if (type === FIND_RUINS) return this._ruin;
-        if (type === FIND_STRUCTURES) return this._container;
-        return null;
-      }
-    },
-    travelTo: () => {},
-    pickup: () => OK,
-    withdraw(target) { this.target = target; return OK; },
-    memory: {},
-  };
-}
-
 describe('hauler prefers nearby ruin', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
     Memory.energyReserves = {};
-    Game.rooms['W1N1'] = { name: 'W1N1', find: () => [] };
+    Game.rooms['W1N1'] = { name: 'W1N1', storage: null, find: () => [] };
   });
 
   it('withdraws from ruin when closer than container', function() {
-    const creep = createHauler('h1');
-    const ruin = { id:'ru1', store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 11, y: 10, roomName: 'W1N1' } };
-    const container = { id:'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 20, y: 20, roomName: 'W1N1' } };
-    creep.pos._ruin = ruin;
-    creep.pos._container = container;
+    const ruin = { id: 'ru1', store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 11, y: 10, roomName: 'W1N1' } };
+    const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 20, y: 20, roomName: 'W1N1' } };
+
+    const room = Game.rooms['W1N1'];
+    room.find = (type) => {
+      if (type === FIND_RUINS) return [ruin];
+      if (type === FIND_STRUCTURES) return [container];
+      return [];
+    };
+
+    const creep = {
+      name: 'h1',
+      store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 50 },
+      room,
+      pos: {
+        x: 10,
+        y: 10,
+        roomName: 'W1N1',
+        getRangeTo(target) {
+          const pos = target.pos || target;
+          return Math.abs(pos.x - this.x) + Math.abs(pos.y - this.y);
+        },
+      },
+      travelTo: () => {},
+      pickup: () => OK,
+      withdraw(target) { this.target = target; return OK; },
+      memory: {},
+    };
+
     roleHauler.run(creep);
     expect(creep.target).to.equal(ruin);
   });

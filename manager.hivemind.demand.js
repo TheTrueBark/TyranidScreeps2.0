@@ -333,19 +333,26 @@ const demandModule = {
         c => c.memory.role === 'miner' && c.room.name === roomName,
       ).length;
       const queuedMiners = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === 'miner',
+        q =>
+          q.room === roomName &&
+          (q.category === 'miner' || (q.memory && q.memory.role === 'miner')),
       ).length;
       const haulersAlive = _.filter(
         Game.creeps,
         c => c.memory.role === 'hauler' && c.room.name === roomName,
       ).length;
       const queuedHaulers = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === 'hauler',
+        q =>
+          q.room === roomName &&
+          (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
       ).length;
       const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
-      const task = container && container.tasks
-        ? container.tasks.find(t => t.name === 'spawnHauler' && t.manager === 'spawnManager')
-        : null;
+      const task =
+        container && container.tasks
+          ? container.tasks.find(
+              t => t.name === 'spawnHauler' && t.manager === 'spawnManager',
+            )
+          : null;
       const totalMiners = minersAlive + queuedMiners;
       const totalHaulers = haulersAlive + queuedHaulers + (task ? task.amount || 0 : 0);
       if (totalHaulers < 2) {
@@ -356,9 +363,12 @@ const demandModule = {
     for (const roomName of roomsNeedingHaulers) {
       htm.init();
       const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
-      const existing = container.tasks.find(
-        t => t.name === 'spawnHauler' && t.manager === 'spawnManager',
-      );
+      const existing =
+        container && container.tasks
+          ? container.tasks.find(
+              t => t.name === 'spawnHauler' && t.manager === 'spawnManager',
+            )
+          : null;
       const haulersAlive = _.filter(
         Game.creeps,
         c => c.memory.role === 'hauler' && c.room.name === roomName,
@@ -368,7 +378,9 @@ const demandModule = {
         c => c.memory.role === 'miner' && c.room.name === roomName,
       ).length;
       const queuedHaulers = spawnQueue.queue.filter(
-        q => q.room === roomName && q.memory.role === 'hauler',
+        q =>
+          q.room === roomName &&
+          (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
       ).length;
       const currentAmount =
         haulersAlive + queuedHaulers + (existing ? existing.amount || 0 : 0);

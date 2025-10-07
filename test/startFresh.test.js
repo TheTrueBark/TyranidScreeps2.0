@@ -29,4 +29,19 @@ describe('startFresh command', function() {
       expect(Memory).to.not.have.property(k);
     }
   });
+
+  it('pauses bot when requested', function() {
+    startFresh(true);
+    expect(Memory.settings).to.have.property('pauseBot', true);
+  });
+
+  it('rebuilds hive memory after fresh start', function() {
+    const memoryManager = require('../manager.memory');
+    startFresh(true);
+    Memory.settings.pauseBot = false;
+    const room = { name: 'W8N3' };
+    expect(() => memoryManager.initializeRoomMemory(room)).to.not.throw();
+    expect(Memory.hive).to.have.property('clusters');
+    expect(Memory.hive.clusters).to.have.property('W8N3');
+  });
 });

@@ -34,6 +34,8 @@ const energyDemand = require("./manager.hivemind.demand");
 const hiveRoles = require('./hive.roles');
 // HiveTravel installs travelTo on creeps
 
+global.spawnQueue = spawnQueue;
+
 let myStats = [];
 global.visualizeDT = false;
 
@@ -54,8 +56,14 @@ if (Memory.settings.debugHiveGaze === undefined) {
 if (Memory.settings.debugVisuals === undefined) {
   Memory.settings.debugVisuals = false;
 }
+if (Memory.settings.showSpawnQueueHud === undefined) {
+  Memory.settings.showSpawnQueueHud = false;
+}
 if (Memory.settings.enableTowerRepairs === undefined) {
   Memory.settings.enableTowerRepairs = true;
+}
+if (Memory.settings.pauseBot === undefined) {
+  Memory.settings.pauseBot = false;
 }
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
@@ -88,6 +96,21 @@ global.visual = {
     } else {
       statsConsole.log(
         "Usage: visual.overlay(1) to show, visual.overlay(0) to hide",
+        3,
+      );
+    }
+  },
+  spawnQueue: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.showSpawnQueueHud = true;
+      statsConsole.log("Spawn queue HUD: ON", 2);
+    } else if (toggle === 0) {
+      Memory.settings.showSpawnQueueHud = false;
+      statsConsole.log("Spawn queue HUD: OFF", 2);
+    } else {
+      statsConsole.log(
+        "Usage: visual.spawnQueue(1) to show, visual.spawnQueue(0) to hide",
         3,
       );
     }
@@ -359,10 +382,35 @@ scheduler.addTask(
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();
 
+  if (Memory.settings.pauseBot) {
+    if (!Memory.stats) Memory.stats = {};
+    if (
+      Memory.settings.pauseNotice === undefined ||
+      Game.time - Memory.settings.pauseNotice >= 10
+    ) {
+      statsConsole.log(
+        "Bot paused. Set Memory.settings.pauseBot = false to resume.",
+        2,
+      );
+      Memory.settings.pauseNotice = Game.time;
+    }
+    statsConsole.run([], false);
+    return;
+  }
+  if (Memory.settings.pauseNotice !== undefined) {
+    delete Memory.settings.pauseNotice;
+  }
+
+  // Ensure room memory is populated before scheduled tasks run
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    roomManager.scanRoom(room);
+  }
+
   scheduler.run();
 
   const initCPUUsage = Game.cpu.getUsed() - startCPU;
-  const totalCPUUsage = initCPUUsage;
+  let totalCPUUsage = initCPUUsage;
 
   // Initialize CPU usage variables
   let CreepsCPUUsage = 0;
@@ -373,13 +421,13 @@ module.exports.loop = function () {
   let statsCPUUsage = 0;
 
   // Run room managers
+  const roomManagersStartCPU = Game.cpu.getUsed();
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     spawnManager.run(room);
-    roomManager.scanRoom(room);
   }
 
-  const roomManagersCPUUsage = Game.cpu.getUsed() - totalCPUUsage;
+  const roomManagersCPUUsage = Game.cpu.getUsed() - roomManagersStartCPU;
   CreepManagersCPUUsage = roomManagersCPUUsage;
 
   // Run creep roles
@@ -420,11 +468,13 @@ module.exports.loop = function () {
 
   const lateTickCPUUsage =
     Game.cpu.getUsed() -
-    (totalCPUUsage + CreepManagersCPUUsage + CreepsCPUUsage);
+    (initCPUUsage + CreepManagersCPUUsage + CreepsCPUUsage);
   towersCPUUsage = lateTickCPUUsage;
   linksCPUUsage = lateTickCPUUsage;
   SetupRolesCPUUsage = lateTickCPUUsage;
   statsCPUUsage = lateTickCPUUsage;
+
+  totalCPUUsage = Game.cpu.getUsed() - startCPU;
 
   myStats = [
     ["Creep Managers", CreepManagersCPUUsage],

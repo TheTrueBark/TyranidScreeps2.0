@@ -47,16 +47,28 @@ const roles = {
         c => c.memory.role === 'miner' && c.memory.source === source.id,
       );
       liveMinersTotal += liveCreeps.length;
-      const liveWork = _.sum(liveCreeps, c =>
-        typeof c.getActiveBodyparts === 'function'
-          ? c.getActiveBodyparts(WORK)
-          : _.filter(c.body, p => p.type === WORK || p === WORK).length,
+      const liveWork = _.reduce(
+        liveCreeps,
+        (total, creep) =>
+          total +
+          (typeof creep.getActiveBodyparts === 'function'
+            ? creep.getActiveBodyparts(WORK)
+            : _.filter(
+                creep.body,
+                (p) => p.type === WORK || p === WORK,
+              ).length),
+        0,
       );
       const queued = spawnQueue.queue.filter(
         q => q.memory.role === 'miner' && q.memory.source === source.id && q.room === roomName,
       );
       queuedMinersTotal += queued.length;
-      const queuedWork = _.sum(queued, q => q.bodyParts.filter(p => p === WORK).length);
+      const queuedWork = _.reduce(
+        queued,
+        (total, request) =>
+          total + request.bodyParts.filter((p) => p === WORK).length,
+        0,
+      );
       const requiredWork = Math.ceil(
         (source.energyCapacity / ENERGY_REGEN_TIME) / HARVEST_POWER,
       );
