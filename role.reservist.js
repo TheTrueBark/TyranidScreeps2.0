@@ -67,8 +67,19 @@ const roleReservist = {
       return;
     }
     const res = creep.reserveController(controller);
-    if (res === OK && controller.sign) {
-      controller.sign(creep, getRandomTyranidQuote());
+    if (res === OK) {
+      const quote = getRandomTyranidQuote();
+      if (typeof creep.signController === 'function') {
+        const currentSign = controller.sign;
+        const username = Memory.username || '';
+        if (
+          !currentSign ||
+          currentSign.username !== username ||
+          currentSign.text !== quote
+        ) {
+          creep.signController(controller, quote);
+        }
+      }
       _.set(Memory, ['rooms', roomName, 'reserveAttempts'], 0);
       stats.reservistSuccesses++;
     } else if (res !== OK) {
