@@ -1,3 +1,4 @@
+const _ = require('lodash');
 const memoryManager = require("manager.memory");
 const dna = require("./manager.dna");
 const spawnQueue = require("manager.spawnQueue");

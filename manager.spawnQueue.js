@@ -1,3 +1,4 @@
+const _ = require('lodash');
 const logger = require("./logger");
 const scheduler = require('./scheduler');
 
