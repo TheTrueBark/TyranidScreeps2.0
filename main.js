@@ -23,6 +23,7 @@ const scheduler = require("scheduler");
 const { ONCE } = require("scheduler");
 const logger = require("./logger");
 const introspect = require('./debug.introspection');
+const savestate = require('./debug.savestate');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
@@ -64,6 +65,9 @@ if (Memory.settings.enableTowerRepairs === undefined) {
 }
 if (Memory.settings.pauseBot === undefined) {
   Memory.settings.pauseBot = false;
+}
+if (Memory.settings.allowSavestateRestore === undefined) {
+  Memory.settings.allowSavestateRestore = false;
 }
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
@@ -147,6 +151,18 @@ global.debug = {
   },
   memoryStatus() {
     introspect.printMemoryStatus();
+  },
+  saveSavestate(id, note = '') {
+    return savestate.saveSavestate(id, note);
+  },
+  restoreSavestate(id, options = {}) {
+    return savestate.restoreSavestate(id, options);
+  },
+  listSavestates() {
+    return savestate.listSavestates();
+  },
+  inspectSavestate(id) {
+    return savestate.inspectSavestate(id);
   },
   setSpawnLimit(room, role, amount = 'auto') {
     if (!Memory.rooms) Memory.rooms = {};
