@@ -40,6 +40,9 @@ const getRoomIntel = (roomName) => {
 };
 
 const pickAutoScoutTarget = (creep) => {
+  if (!Memory.settings || Memory.settings.enableAutoScout !== true) {
+    return null;
+  }
   const home = creep.memory.homeRoom || creep.room.name;
   const visitedRecently = (creep.memory.recentTargets || []).slice(-6);
   const neighbors = gatherNearbyRooms(home, SCOUT_MAX_DEPTH);
@@ -80,12 +83,17 @@ const recordRoomIntel = (creep) => {
   if (!room) return;
   const intel = getRoomIntel(room.name);
 
-  const sources = room.find(FIND_SOURCES) || [];
+  const sources = typeof FIND_SOURCES !== 'undefined' && typeof room.find === 'function'
+    ? room.find(FIND_SOURCES) || []
+    : [];
   intel.sources = {};
   for (const s of sources) {
     intel.sources[s.id] = { pos: { x: s.pos.x, y: s.pos.y } };
   }
-  const mineral = room.find(FIND_MINERALS) || [];
+  const mineral =
+    typeof FIND_MINERALS !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_MINERALS) || []
+      : [];
   if (mineral.length > 0) {
     intel.mineral = {
       type: mineral[0].mineralType,
@@ -93,14 +101,20 @@ const recordRoomIntel = (creep) => {
     };
   }
 
-  const structures = room.find(FIND_STRUCTURES) || [];
+  const structures =
+    typeof FIND_STRUCTURES !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_STRUCTURES) || []
+      : [];
   const structureCounts = {};
   for (const structure of structures) {
     const type = structure.structureType;
     structureCounts[type] = (structureCounts[type] || 0) + 1;
   }
 
-  const hostiles = room.find(FIND_HOSTILE_CREEPS) || [];
+  const hostiles =
+    typeof FIND_HOSTILE_CREEPS !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_HOSTILE_CREEPS) || []
+      : [];
   const hostileSummary = {
     count: hostiles.length,
     owners: _.uniq(hostiles.map((c) => c.owner && c.owner.username).filter(Boolean)),

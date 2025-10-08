@@ -231,7 +231,7 @@ const energyRequests = {
       activeIds.add(extension.id);
     }
 
-    const controllerContainers = room.find
+    let controllerContainers = room.find
       ? room.find(FIND_STRUCTURES, {
           filter: (structure) =>
             structure &&
@@ -244,6 +244,22 @@ const energyRequests = {
             structure.pos.inRangeTo(room.controller.pos, 3),
         })
       : [];
+
+    if (
+      (!controllerContainers || controllerContainers.length === 0) &&
+      room.controller &&
+      room.controller.pos &&
+      typeof room.controller.pos.findInRange === 'function'
+    ) {
+      controllerContainers = room.controller.pos.findInRange(FIND_STRUCTURES, 3, {
+        filter: (structure) =>
+          structure &&
+          structure.structureType === STRUCTURE_CONTAINER &&
+          structure.store &&
+          structure.store[RESOURCE_ENERGY] !== undefined &&
+          structure.store.getCapacity(RESOURCE_ENERGY),
+      });
+    }
 
     for (const container of controllerContainers || []) {
       const capacity =
