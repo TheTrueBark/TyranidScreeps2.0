@@ -20,6 +20,8 @@ const schemas = {
   stats: { version: 1, owner: 'logger', path: 'Memory.stats' },
   /** @codex-path Memory.rooms[room].layout */
   roomLayout: { version: 1, owner: 'layoutPlanner', path: 'Memory.rooms.*.layout' },
+  /** @codex-path Memory.debug.savestates */
+  debugSavestates: { version: 1, owner: 'debugSavestate', path: 'Memory.debug.savestates' },
 };
 
 module.exports = schemas;
