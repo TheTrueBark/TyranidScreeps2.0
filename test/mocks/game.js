@@ -27,6 +27,8 @@ function resetGame(overrides = {}) {
     },
     map: {
       getRoomTerrain: () => ({ get: () => 'plain' }),
+      describeExits: () => ({}),
+      getRoomLinearDistance: () => 1,
     },
   }, overrides);
 }

@@ -4,7 +4,13 @@ const htm = require('manager.htm');
 const logger = require('./logger');
 const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
+const energyRequests = require('./manager.energyRequests');
+const Traveler = require('./manager.hiveTravel');
 const _ = require('lodash');
+
+const MAX_PICKUP_CANDIDATES = 6;
+const PICKUP_PLAN_VERSION = 1;
+const PICKUP_PLAN_EXPIRY = 10;
 
 if (!Memory.energyReserves) Memory.energyReserves = {};
 
@@ -31,7 +37,7 @@ function isRestricted(room, pos) {
 }
 
 function moveToIdle(creep) {
-  const idle = movementUtils.findIdlePosition(creep.room);
+  const idle = movementUtils.findIdlePosition(creep.room, 'hauler', creep.name);
   if (idle && !creep.pos.isEqualTo(idle)) creep.travelTo(idle, { range: 0 });
 }
 
@@ -258,105 +264,362 @@ function isPreferredTarget(assignment, target) {
   return false;
 }
 
-// Remember the last container a hauler deposited into so it doesn't
-// immediately withdraw the energy again. The block persists until
-// a different container is used.
-/**
- * Determine the optimal nearby energy source for the hauler.
- * Considers dropped resources, ruins, tombstones, containers and storage
- * then selects the closest option by range.
- *
- * @param {Creep} creep - The hauler seeking energy.
- * @returns {{type: string, target: any}|null} Pickup/withdraw instruction.
- */
-function findEnergySource(creep) {
-  const needed = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  if (needed <= 0) return null;
-
+const gatherEnergyCandidates = (creep) => {
   const room = creep.room;
-  if (!room || typeof room.find !== "function") return null;
+  if (!room || typeof room.find !== 'function') return [];
 
   const assignment = creep.memory.assignment || null;
-  const candidates = [];
+  const avoid = creep.memory.blockedContainerId;
+  const results = [];
+  const seen = new Set();
+
   const pushCandidate = (type, target, amount) => {
-    if (!target) return;
+    if (!target || !target.id || seen.has(target.id)) return;
     const reserved = Memory.energyReserves[target.id] || 0;
     const available = amount - reserved;
     if (available <= 0) return;
-    const range = creep.pos.getRangeTo(target);
+    const pos = extractPos(target);
+    if (!pos) return;
     const preferred = isPreferredTarget(assignment, target);
-    candidates.push({ type, target, available, range, preferred });
+    seen.add(target.id);
+    results.push({
+      id: target.id,
+      type,
+      target,
+      available,
+      preferred,
+      pos: new RoomPosition(pos.x, pos.y, pos.roomName || (target.room && target.room.name) || room.name),
+      range: type === 'pickup' ? 1 : 1,
+    });
   };
+
+  const spawns = room.find(FIND_MY_SPAWNS, {
+    filter: (s) =>
+      s &&
+      s.store &&
+      typeof s.store.getFreeCapacity === 'function' &&
+      s.store.getFreeCapacity(RESOURCE_ENERGY) < s.store.getCapacity(RESOURCE_ENERGY),
+  }) || [];
+  for (const spawn of spawns) {
+    const stored = spawn.store[RESOURCE_ENERGY] || 0;
+    if (stored > 0) pushCandidate('withdraw', spawn, stored);
+  }
 
   const dropped = room.find(FIND_DROPPED_RESOURCES, {
     filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
-  });
+  }) || [];
   for (const res of dropped) {
     pushCandidate('pickup', res, res.amount);
   }
 
   const ruins = room.find(FIND_RUINS, {
     filter: (r) => r.store && r.store[RESOURCE_ENERGY] > 0,
-  });
+  }) || [];
   for (const structure of ruins) {
     pushCandidate('withdraw', structure, structure.store[RESOURCE_ENERGY]);
   }
 
   const tombstones = room.find(FIND_TOMBSTONES, {
     filter: (t) => t.store && t.store[RESOURCE_ENERGY] > 0,
-  });
+  }) || [];
   for (const tomb of tombstones) {
     pushCandidate('withdraw', tomb, tomb.store[RESOURCE_ENERGY]);
   }
 
-  const avoid = creep.memory.blockedContainerId;
   const containers = room.find(FIND_STRUCTURES, {
     filter: (s) =>
       s.structureType === STRUCTURE_CONTAINER &&
+      s.store &&
       s.store[RESOURCE_ENERGY] > 0 &&
       s.id !== avoid,
-  });
+  }) || [];
   for (const container of containers) {
     pushCandidate('withdraw', container, container.store[RESOURCE_ENERGY]);
+  }
+
+  const links = room.find(FIND_STRUCTURES, {
+    filter: (s) =>
+      s.structureType === STRUCTURE_LINK &&
+      s.store &&
+      s.store[RESOURCE_ENERGY] > 0,
+  }) || [];
+  for (const link of links) {
+    pushCandidate('withdraw', link, link.store[RESOURCE_ENERGY]);
+  }
+
+  const terminal = room.terminal && room.terminal.store
+    ? room.terminal
+    : null;
+  if (terminal && terminal.store[RESOURCE_ENERGY] > 0) {
+    pushCandidate('withdraw', terminal, terminal.store[RESOURCE_ENERGY]);
   }
 
   if (room.storage && room.storage.store[RESOURCE_ENERGY] > 0) {
     pushCandidate('withdraw', room.storage, room.storage.store[RESOURCE_ENERGY]);
   }
 
-  if (candidates.length === 0) return null;
+  return results;
+};
 
-  candidates.sort((a, b) => {
-    if (a.preferred && !b.preferred) return -1;
-    if (!a.preferred && b.preferred) return 1;
-    if (b.available !== a.available) return b.available - a.available;
-    if (a.range !== b.range) return a.range - b.range;
-    const aId = a.target.id || '';
-    const bId = b.target.id || '';
-    return aId.localeCompare(bId);
+const evaluateCandidate = (creep, startPos, candidate, remaining) => {
+  const amount = Math.min(candidate.available, remaining);
+  if (amount <= 0) return null;
+
+  const options = movementUtils.preparePlannerOptions(creep, candidate.target, {
+    range: candidate.range,
+    ignoreCreeps: true,
+    maxOps: 4000,
+    ensurePath: true,
   });
+  const result = Traveler.findTravelPath(startPos, candidate.pos, options);
+  if (!result || !Array.isArray(result.path) || result.path.length === 0) return null;
+  const distance = result.path.length;
+  const travelCost = distance + 1; // include pickup tick
+  const efficiency = travelCost / Math.max(1, amount);
+  return {
+    candidate,
+    amount,
+    distance,
+    travelCost,
+    efficiency,
+  };
+};
 
-  return candidates[0];
+const updatePickupPlanTotals = (plan) => {
+  if (!plan) return;
+  if (!Array.isArray(plan.steps)) {
+    plan.remaining = 0;
+    return;
+  }
+  plan.remaining = plan.steps.reduce(
+    (sum, step) =>
+      sum +
+      Math.max(
+        0,
+        step.remaining !== undefined
+          ? step.remaining
+          : step.amount !== undefined
+            ? step.amount
+            : 0,
+      ),
+    0,
+  );
+};
+
+function buildPickupPlan(creep) {
+  const capacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (capacity <= 0) return null;
+  const candidates = gatherEnergyCandidates(creep);
+  if (!candidates.length) return null;
+
+  const plan = {
+    version: PICKUP_PLAN_VERSION,
+    tick: Game.time,
+    steps: [],
+    remaining: capacity,
+  };
+
+  let remaining = capacity;
+  let currentPos = creep.pos;
+  const used = new Set();
+
+  while (remaining > 0 && plan.steps.length < MAX_PICKUP_CANDIDATES) {
+    const scored = candidates
+      .filter((c) => !used.has(c.id))
+      .map((c) => evaluateCandidate(creep, currentPos, c, remaining))
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.candidate.preferred !== b.candidate.preferred) {
+          return a.candidate.preferred ? -1 : 1;
+        }
+        if (a.efficiency !== b.efficiency) return a.efficiency - b.efficiency;
+        return a.distance - b.distance;
+      });
+
+    const best = scored[0];
+    if (!best) break;
+
+    used.add(best.candidate.id);
+    plan.steps.push({
+      id: best.candidate.id,
+      type: best.candidate.type,
+      amount: best.amount,
+      remaining: best.amount,
+      preferred: Boolean(best.candidate.preferred),
+      pos: {
+        x: best.candidate.pos.x,
+        y: best.candidate.pos.y,
+        roomName: best.candidate.pos.roomName,
+      },
+    });
+    remaining -= best.amount;
+    currentPos = best.candidate.pos;
+  }
+
+  if (!plan.steps.length) return null;
+  updatePickupPlanTotals(plan);
+  return plan;
+}
+
+function clearPickupPlan(creep) {
+  if (creep.memory && creep.memory.pickupPlan) {
+    delete creep.memory.pickupPlan;
+  }
+}
+
+function ensurePickupPlan(creep, force = false) {
+  const freeCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (freeCapacity <= 0) {
+    clearPickupPlan(creep);
+    return null;
+  }
+
+  if (force) clearPickupPlan(creep);
+
+  let plan = creep.memory.pickupPlan;
+  const needsFresh =
+    !plan ||
+    plan.version !== PICKUP_PLAN_VERSION ||
+    !Array.isArray(plan.steps) ||
+    plan.steps.length === 0 ||
+    Game.time - (plan.tick || 0) > PICKUP_PLAN_EXPIRY;
+
+  if (needsFresh) {
+    plan = buildPickupPlan(creep);
+    if (!plan) {
+      clearPickupPlan(creep);
+      return null;
+    }
+    plan.version = PICKUP_PLAN_VERSION;
+  }
+
+  plan.tick = Game.time;
+  updatePickupPlanTotals(plan);
+  creep.memory.pickupPlan = plan;
+  return plan;
+}
+
+function completePickupStep(creep, targetId, amount) {
+  if (!creep.memory || !creep.memory.pickupPlan || !targetId || amount <= 0) return;
+  const plan = creep.memory.pickupPlan;
+  if (!Array.isArray(plan.steps) || plan.steps.length === 0) return;
+  const step = plan.steps[0];
+  if (!step || step.id !== targetId) return;
+  const base = step.remaining !== undefined ? step.remaining : step.amount || 0;
+  step.remaining = Math.max(0, base - amount);
+  plan.tick = Game.time;
+  if (step.remaining <= 0) {
+    plan.steps.shift();
+  }
+  updatePickupPlanTotals(plan);
+  if (!plan.steps.length || plan.remaining <= 0) {
+    clearPickupPlan(creep);
+  } else {
+    creep.memory.pickupPlan = plan;
+  }
+}
+
+function finalizePickupSuccess(creep, targetId, reservedAmount, gainedAmount) {
+  if (!targetId) return;
+  releaseEnergy(targetId, reservedAmount);
+  if (gainedAmount > 0) {
+    completePickupStep(creep, targetId, gainedAmount);
+  } else {
+    clearPickupPlan(creep);
+  }
+}
+
+// Determine the optimal energy source following the cached pickup plan.
+function findEnergySource(creep) {
+  let plan = ensurePickupPlan(creep);
+  if (!plan) return null;
+
+  while (plan && Array.isArray(plan.steps) && plan.steps.length) {
+    const step = plan.steps[0];
+    const target = Game.getObjectById(step.id);
+    if (!target) {
+      plan.steps.shift();
+      updatePickupPlanTotals(plan);
+      plan = ensurePickupPlan(creep, true);
+      if (!plan) return null;
+      continue;
+    }
+
+    const reserved = Memory.energyReserves[step.id] || 0;
+    const available =
+      step.type === 'pickup'
+        ? (target.amount || 0) - reserved
+        : target.store
+          ? (target.store[RESOURCE_ENERGY] || 0) - reserved
+          : 0;
+
+    if (available <= 0) {
+      plan.steps.shift();
+      updatePickupPlanTotals(plan);
+      plan = ensurePickupPlan(creep, true);
+      if (!plan) return null;
+      continue;
+    }
+
+    const freeCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+    const requested = Math.min(available, freeCapacity);
+    if (requested <= 0) {
+      plan.steps.shift();
+      updatePickupPlanTotals(plan);
+      plan = ensurePickupPlan(creep, true);
+      if (!plan) return null;
+      continue;
+    }
+
+    step.remaining = requested;
+    step.amount = requested;
+    plan.tick = Game.time;
+    creep.memory.pickupPlan = plan;
+    return {
+      type: step.type,
+      target,
+      available: requested,
+      planStepId: step.id,
+    };
+  }
+
+  clearPickupPlan(creep);
+  return null;
 }
 
 function deliverEnergy(creep, target = null) {
-  const structure =
+  const spawnTarget =
     target ||
-    creep.pos.findClosestByPath(FIND_STRUCTURES, {
-      filter: s =>
-        s.structureType === STRUCTURE_EXTENSION &&
-        s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-    }) ||
-    creep.pos.findClosestByPath(FIND_STRUCTURES, {
-      filter: s =>
-        s.structureType === STRUCTURE_SPAWN &&
-        s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-    });
+    (typeof FIND_MY_SPAWNS !== 'undefined' && typeof creep.pos.findClosestByPath === 'function'
+      ? creep.pos.findClosestByPath(FIND_MY_SPAWNS, {
+          filter: (s) =>
+            s &&
+            s.store &&
+            typeof s.store.getFreeCapacity === 'function' &&
+            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+        })
+      : null);
+  const extensionTarget =
+    !spawnTarget && typeof creep.pos.findClosestByPath === 'function'
+      ? creep.pos.findClosestByPath(FIND_STRUCTURES, {
+          filter: (s) =>
+            s &&
+            s.structureType === STRUCTURE_EXTENSION &&
+            s.store &&
+            typeof s.store.getFreeCapacity === 'function' &&
+            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+        })
+      : null;
+  const structure = spawnTarget || extensionTarget;
   if (structure) {
     const result = creep.transfer(structure, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.travelTo(structure, { visualizePathStyle: { stroke: '#ffffff' } });
+      creep.travelTo(structure, {
+        visualizePathStyle: { stroke: '#ffffff' },
+        allowRestricted: structure.structureType === STRUCTURE_SPAWN,
+      });
     } else if (result === OK) {
+      clearPickupPlan(creep);
       if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
         const duration = Game.time - creep.memory.roundTripStartTick;
         const routeId = creep.memory.assignment.routeId;
@@ -470,6 +733,12 @@ module.exports = {
       const target = Game.creeps[creep.memory.task.target] ||
         Game.getObjectById(creep.memory.task.target);
       if (!target) {
+        if (creep.memory.task.reserved) {
+          energyRequests.releaseDelivery(
+            creep.memory.task.target,
+            creep.memory.task.reserved,
+          );
+        }
         htm.addCreepTask(
           creep.memory.task.target,
           'deliverEnergy',
@@ -481,11 +750,24 @@ module.exports = {
         );
         delete creep.memory.task;
       } else if (creep.store[RESOURCE_ENERGY] > 0) {
+        clearPickupPlan(creep);
+        const carrying = creep.store[RESOURCE_ENERGY] || 0;
+        const reserved = creep.memory.task.reserved || 0;
+        if (carrying < reserved) {
+          const diff = reserved - carrying;
+          if (diff > 0) {
+            energyRequests.releaseDelivery(creep.memory.task.target, diff);
+            creep.memory.task.reserved = reserved - diff;
+          }
+        }
         const before = creep.store[RESOURCE_ENERGY];
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           creep.travelTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
         } else {
           const delivered = before - creep.store[RESOURCE_ENERGY];
+          if (delivered > 0) {
+            energyRequests.releaseDelivery(creep.memory.task.target, delivered);
+          }
           creep.memory.task.reserved = Math.max(0, creep.memory.task.reserved - delivered);
           const isStructure = target.structureType !== undefined;
           if (
@@ -513,8 +795,10 @@ module.exports = {
             creep.store.getFreeCapacity(RESOURCE_ENERGY),
             source.available || creep.store.getFreeCapacity(RESOURCE_ENERGY),
           );
+          if (amount <= 0) return;
           reserveEnergy(source.target.id, amount);
           creep.memory.reserving = { id: source.target.id, amount, type: source.type };
+          const beforeEnergy = creep.store[RESOURCE_ENERGY] || 0;
           const action =
             source.type === 'pickup'
               ? creep.pickup(source.target)
@@ -522,14 +806,29 @@ module.exports = {
           if (action === ERR_NOT_IN_RANGE) {
             creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
           } else if (action === OK) {
-            releaseEnergy(source.target.id, amount);
+            const gained = (creep.store[RESOURCE_ENERGY] || 0) - beforeEnergy;
+            finalizePickupSuccess(creep, source.target.id, amount, gained);
             delete creep.memory.reserving;
             creep.memory.roundTripStartTick = Game.time;
+          } else if (action !== ERR_TIRED) {
+            releaseEnergy(source.target.id, amount);
+            delete creep.memory.reserving;
+            clearPickupPlan(creep);
           }
         }
         return;
       }
-    }
+      const outstanding = creep.memory.task && creep.memory.task.reserved
+        ? creep.memory.task.reserved
+        : 0;
+  if (outstanding > 0) {
+    energyRequests.releaseDelivery(creep.memory.task.target, outstanding);
+  }
+  delete creep.memory.task;
+  clearPickupPlan(creep);
+  moveToIdle(creep);
+  return;
+}
 
     if (creep.memory.reserving) {
       const reservation = creep.memory.reserving;
@@ -540,10 +839,12 @@ module.exports = {
           : target && target.store
             ? target.store[RESOURCE_ENERGY] || 0
             : 0;
-      if (!target || available <= 0) {
+  if (!target || available <= 0) {
         releaseEnergy(reservation.id, reservation.amount);
         delete creep.memory.reserving;
+        clearPickupPlan(creep);
       } else {
+        const beforeEnergy = creep.store[RESOURCE_ENERGY] || 0;
         const action =
           reservation.type === 'pickup'
             ? creep.pickup(target)
@@ -551,12 +852,14 @@ module.exports = {
         if (action === ERR_NOT_IN_RANGE) {
           creep.travelTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
         } else if (action === OK) {
-          releaseEnergy(reservation.id, reservation.amount);
+          const gained = (creep.store[RESOURCE_ENERGY] || 0) - beforeEnergy;
+          finalizePickupSuccess(creep, reservation.id, reservation.amount, gained);
           delete creep.memory.reserving;
           creep.memory.roundTripStartTick = Game.time;
         } else if (action !== ERR_TIRED) {
           releaseEnergy(reservation.id, reservation.amount);
           delete creep.memory.reserving;
+          clearPickupPlan(creep);
         }
         return;
       }
@@ -574,9 +877,15 @@ module.exports = {
       if (task) available.push({ name, task });
     }
 
-    available.sort(
-      (a, b) => (a.task.data.ticksNeeded || 0) - (b.task.data.ticksNeeded || 0),
-    );
+    available.sort((a, b) => {
+      const priorityA = a.task.priority !== undefined ? a.task.priority : 99;
+      const priorityB = b.task.priority !== undefined ? b.task.priority : 99;
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      const outstandingA = a.task.data && a.task.data.amount !== undefined ? a.task.data.amount : 0;
+      const outstandingB = b.task.data && b.task.data.amount !== undefined ? b.task.data.amount : 0;
+      if (outstandingA !== outstandingB) return outstandingB - outstandingA;
+      return (a.task.data.ticksNeeded || 0) - (b.task.data.ticksNeeded || 0);
+    });
 
     for (const entry of available) {
       const { name, task } = entry;
@@ -597,15 +906,27 @@ module.exports = {
         htm.DEFAULT_CLAIM_COOLDOWN,
         estimate,
       );
-      let deliver = creep.store.getCapacity ? creep.store.getCapacity() : 0;
+      let capacity = 0;
+      if (creep.store && typeof creep.store.getCapacity === 'function') {
+        capacity = creep.store.getCapacity(RESOURCE_ENERGY);
+      } else if (creep.carryCapacity) {
+        capacity = creep.carryCapacity;
+      }
+      const outstanding =
+        task.data.amount !== undefined ? task.data.amount : capacity;
+      let deliver = Math.min(capacity, outstanding);
+      if (deliver <= 0) continue;
       if (task.data.amount !== undefined) {
-        deliver = Math.min(deliver, task.data.amount);
         task.data.amount -= deliver;
         if (task.data.amount <= 0) {
           const idx = creepTasks[name].tasks.indexOf(task);
           if (idx !== -1) creepTasks[name].tasks.splice(idx, 1);
         }
       }
+      energyRequests.reserveDelivery(name, deliver, {
+        roomName: task.data.pos.roomName,
+        structureType: task.data.structureType || null,
+      });
       creep.memory.task = {
         name: "deliverEnergy",
         target: name,
@@ -618,6 +939,7 @@ module.exports = {
     }
 
     if (creep.store[RESOURCE_ENERGY] > 0) {
+      clearPickupPlan(creep);
       if (deliverEnergy(creep)) return;
     }
 
@@ -630,6 +952,7 @@ module.exports = {
       if (amount <= 0) return;
       reserveEnergy(source.target.id, amount);
       creep.memory.reserving = { id: source.target.id, amount, type: source.type };
+      const beforeEnergy = creep.store[RESOURCE_ENERGY] || 0;
       const action =
         source.type === 'pickup'
           ? creep.pickup(source.target)
@@ -637,12 +960,14 @@ module.exports = {
       if (action === ERR_NOT_IN_RANGE) {
         creep.travelTo(source.target, { visualizePathStyle: { stroke: '#ffaa00' } });
       } else if (action === OK) {
-        releaseEnergy(source.target.id, amount);
+        const gained = (creep.store[RESOURCE_ENERGY] || 0) - beforeEnergy;
+        finalizePickupSuccess(creep, source.target.id, amount, gained);
         delete creep.memory.reserving;
         creep.memory.roundTripStartTick = Game.time;
       } else if (action !== ERR_TIRED) {
         releaseEnergy(source.target.id, amount);
         delete creep.memory.reserving;
+        clearPickupPlan(creep);
       }
       return;
     }
@@ -679,12 +1004,18 @@ module.exports = {
         }
       }
     } else if (spawn) {
-      creep.travelTo(spawn, { range: 2 });
+      creep.travelTo(spawn, { range: 2, allowRestricted: true });
       return;
     }
   },
   onDeath: function (creep) {
     if (creep.memory.task && creep.memory.task.name === 'deliverEnergy') {
+      if (creep.memory.task.reserved) {
+        energyRequests.releaseDelivery(
+          creep.memory.task.target,
+          creep.memory.task.reserved,
+        );
+      }
       htm.addCreepTask(
         creep.memory.task.target,
         'deliverEnergy',
@@ -695,5 +1026,6 @@ module.exports = {
         'hauler',
       );
     }
+    clearPickupPlan(creep);
   },
 };

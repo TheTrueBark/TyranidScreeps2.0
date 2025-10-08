@@ -52,6 +52,7 @@ const PRIORITY_HIGH = resolvePriority('miner');
 
 // HTM task name for sequential miner+hauler spawning
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
+const MINER_HANDOFF_TTL = 50;
 
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
@@ -726,6 +727,9 @@ const spawnManager = {
         );
       }
     } else {
+      if (spawn.spawning && spawn.spawning.name) {
+        this.revalidateMinerAssignment(spawn);
+      }
       logger.log(
         "spawnManager",
         `${spawn.name} is currently spawning a creep`,
@@ -923,6 +927,76 @@ const spawnManager = {
           break;
       }
     }
+  },
+
+  revalidateMinerAssignment(spawn) {
+    const spawning = spawn.spawning;
+    if (!spawning || spawning.remainingTime > 1) return;
+
+    const creepMemory = Memory.creeps && Memory.creeps[spawning.name];
+    if (!creepMemory || creepMemory.role !== 'miner') return;
+
+    const sourceId = creepMemory.source;
+    const roomName = spawn.room.name;
+    if (!sourceId || !roomName) return;
+
+    const sourceMem = memoryManager.getRoomMiningData(roomName, sourceId);
+    if (!sourceMem || !sourceMem.positions) return;
+
+    const findOccupant = (pos, exclude) =>
+      memoryManager.getMiningPositionOccupant(roomName, sourceId, pos, exclude);
+
+    const isDyingSoon = (creep) =>
+      !creep || creep.ticksToLive === undefined || creep.ticksToLive <= MINER_HANDOFF_TTL;
+
+    let currentPos = creepMemory.miningPosition;
+    if (!currentPos || currentPos.x === undefined || currentPos.y === undefined) {
+      const alternative = memoryManager.findAvailableMiningPosition(roomName, sourceId, {
+        excludeNames: [spawning.name],
+        tolerateTicks: MINER_HANDOFF_TTL,
+      });
+      if (alternative && alternative.pos) {
+        const pos = alternative.pos;
+        creepMemory.miningPosition = {
+          x: pos.x,
+          y: pos.y,
+          roomName: pos.roomName || roomName,
+          reserved: true,
+        };
+        memoryManager.ensureMiningReservation(roomName, sourceId, pos, true);
+      } else {
+        creepMemory.abortOnSpawn = true;
+        creepMemory.abortReason = 'noAvailableMiningPosition';
+      }
+      return;
+    }
+
+    memoryManager.ensureMiningReservation(roomName, sourceId, currentPos, true);
+
+    const conflict = findOccupant(currentPos, spawning.name);
+    if (!conflict || isDyingSoon(conflict)) {
+      return;
+    }
+
+    const alternative = memoryManager.findAvailableMiningPosition(roomName, sourceId, {
+      excludeNames: [spawning.name, conflict.name],
+      tolerateTicks: MINER_HANDOFF_TTL,
+    });
+
+    if (alternative && alternative.pos) {
+      const pos = alternative.pos;
+      creepMemory.miningPosition = {
+        x: pos.x,
+        y: pos.y,
+        roomName: pos.roomName || roomName,
+        reserved: true,
+      };
+      memoryManager.ensureMiningReservation(roomName, sourceId, pos, true);
+      return;
+    }
+
+    creepMemory.abortOnSpawn = true;
+    creepMemory.abortReason = 'miningPositionConflict';
   },
 };
 

@@ -28,6 +28,7 @@ describe('hiveGaze.evaluateExpansionVision', function() {
     expect(tasks.length).to.equal(1);
     expect(tasks[0].name).to.equal('SCOUT_ROOM');
     expect(Memory.hive.expansionVisionLastCheck).to.equal(Game.time);
+    expect(Memory.hive.scoutRescanRequested).to.be.false;
   });
 
   it('skips rooms on scout cooldown', function() {
@@ -51,6 +52,10 @@ describe('hiveGaze.manageScouts', function() {
     Memory.htm.colonies = { W1N1: { tasks: [{ name: 'SCOUT_ROOM', id: 't1', data: { roomName: 'W1N2' }, priority: 5, ttl: 500, age:0, amount:1 }] } };
     const spawnQueue = require('../manager.spawnQueue');
     spawnQueue.queue = [];
+    Game.creeps = {
+      miner1: { memory: { role: 'miner' }, room: { name: 'W1N1' } },
+      hauler1: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
+    };
   });
 
   it('queues a scout when none exist', function() {

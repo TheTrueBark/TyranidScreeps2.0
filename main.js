@@ -57,7 +57,7 @@ if (Memory.settings.debugVisuals === undefined) {
   Memory.settings.debugVisuals = false;
 }
 if (Memory.settings.showSpawnQueueHud === undefined) {
-  Memory.settings.showSpawnQueueHud = false;
+  Memory.settings.showSpawnQueueHud = true;
 }
 if (Memory.settings.enableTowerRepairs === undefined) {
   Memory.settings.enableTowerRepairs = true;
@@ -114,6 +114,16 @@ global.visual = {
         3,
       );
     }
+  },
+  rescanRooms(force = true) {
+    if (!Memory.hive) Memory.hive = {};
+    Memory.hive.scoutRescanRequested = Boolean(force);
+    statsConsole.log(
+      force
+        ? 'Scout rescan requested.'
+        : 'Scout rescan flag cleared.',
+      2,
+    );
   },
 };
 
@@ -434,6 +444,14 @@ module.exports.loop = function () {
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
     const creepStartCPU = Game.cpu.getUsed();
+
+    if (creep.memory && creep.memory.abortOnSpawn) {
+      if (Memory.settings && Memory.settings.debugVisuals) {
+        statsConsole.log(`Aborting creep ${name} (${creep.memory.role || 'unknown'})`, 3);
+      }
+      creep.suicide();
+      continue;
+    }
 
     if (creep.memory.role === "upgrader") {
       roleUpgrader.run(creep);

@@ -90,7 +90,7 @@ describe('demand spawn scaling', function () {
     Memory.demand.rooms.W1N1.runNextTick = true;
     demand.run();
 
-    expect(Memory.rooms['W1N1'].spawnLimits.maxHaulers).to.equal(5);
+    expect(Memory.rooms['W1N1'].spawnLimits.maxHaulers).to.equal(3);
 
     const immediateQueued = spawnQueue.queue.filter(
       (req) =>

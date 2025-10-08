@@ -4,6 +4,8 @@ const globals = require('./mocks/globals');
 const htm = require('../manager.htm');
 const energyRequests = require('../manager.energyRequests');
 
+global.FIND_MY_SPAWNS = 1;
+global.FIND_MY_STRUCTURES = 2;
 global.FIND_STRUCTURES = 3;
 global.STRUCTURE_CONTAINER = 'container';
 global.RESOURCE_ENERGY = 'energy';
@@ -26,12 +28,23 @@ describe('controller container energy requests', function () {
     };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
       controller: { pos: { x: 6, y: 5, roomName: 'W1N1', findInRange: () => [container] } },
-      find: type => (type === FIND_STRUCTURES ? [container] : []),
+      find: (type, opts = {}) => {
+        if (type === FIND_MY_SPAWNS) return [];
+        if (type === FIND_MY_STRUCTURES || type === FIND_STRUCTURES) {
+          const structs = [container];
+          return typeof opts.filter === 'function' ? structs.filter(opts.filter) : structs;
+        }
+        return [];
+      },
     };
   });
 
   afterEach(function () {
+    global.FIND_MY_SPAWNS = 1;
+    global.FIND_MY_STRUCTURES = 2;
     global.FIND_STRUCTURES = 3;
     global.STRUCTURE_CONTAINER = 'container';
     global.RESOURCE_ENERGY = 'energy';
@@ -43,6 +56,8 @@ describe('controller container energy requests', function () {
     energyRequests.run(room);
     const tasks = Memory.htm.creeps['c1'].tasks;
     expect(tasks[0].name).to.equal('deliverEnergy');
+    const state = energyRequests.getDeliveryState('c1');
+    expect(state).to.include({ requested: 800, outstanding: 800 });
   });
 });
 

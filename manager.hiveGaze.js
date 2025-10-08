@@ -5,6 +5,9 @@ const _ = require('lodash');
 const statsConsole = require('console.console');
 const { getRandomTyranidQuote } = require('./utils.quotes');
 
+const SCOUT_REVISIT_TICKS = 5000;
+const SCOUT_SEED_DEPTH = 3;
+
 /**
  * HiveGaze explores exits and queues scout tasks.
  * @codex-owner hiveGaze
@@ -28,6 +31,7 @@ function scoreTerrain(roomName) {
 }
 
 function cacheMiningRoutes(room) {
+  if (!Memory.rooms[room.name]) Memory.rooms[room.name] = {};
   const spawn = room.find(FIND_MY_SPAWNS)[0];
   if (!spawn) return;
   if (!Memory.rooms[room.name].miningRoutes)
@@ -46,19 +50,50 @@ function cacheMiningRoutes(room) {
   }
 }
 
+function seedReachableRoomMemory(origin, depth = SCOUT_SEED_DEPTH) {
+  if (!Game.map || typeof Game.map.describeExits !== 'function') return;
+  if (!Memory.rooms) Memory.rooms = {};
+  const queue = [{ room: origin, depth: 0 }];
+  const seen = new Set([origin]);
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (current.depth >= depth) continue;
+    const exits = Game.map.describeExits(current.room) || {};
+    for (const dir in exits) {
+      const target = exits[dir];
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+      queue.push({ room: target, depth: current.depth + 1 });
+      if (!Memory.rooms[target]) Memory.rooms[target] = {};
+      const mem = Memory.rooms[target];
+      if (mem.lastScouted === undefined) mem.lastScouted = 0;
+      if (!mem.homeColony) mem.homeColony = origin;
+      if (!Array.isArray(mem.scoutFailLog)) mem.scoutFailLog = [];
+    }
+  }
+}
+
 const hiveGaze = {
   scoreTerrain,
+  seedReachableRoomMemory,
 
   /** Evaluate exits and queue scouting tasks
    *  @codex-owner hiveGaze
    */
   evaluateExpansionVision() {
     htm.init();
-    if (!Memory.hive) Memory.hive = { clusters: {} };
+    if (!Memory.hive) Memory.hive = {};
+    if (!Memory.hive.clusters) Memory.hive.clusters = {};
+    if (Memory.hive.scoutRescanRequested === undefined) {
+      Memory.hive.scoutRescanRequested = true;
+    }
     if (!Memory.rooms) Memory.rooms = {};
+    let tasksQueued = false;
     for (const roomName in Game.rooms) {
       const room = Game.rooms[roomName];
       if (!room.controller || !room.controller.my) continue;
+      seedReachableRoomMemory(roomName);
       cacheMiningRoutes(room);
       const exits = Game.map.describeExits(roomName) || {};
       for (const dir in exits) {
@@ -67,8 +102,18 @@ const hiveGaze = {
         if (mem && mem.scoutCooldownUntil && mem.scoutCooldownUntil > Game.time) {
           continue; // skip rooms on cooldown
         }
-        const last = mem && mem.lastScouted ? mem.lastScouted : 0;
-        if (!mem || Game.time - last > 15000) {
+        const last =
+          mem && typeof mem.lastScouted === 'number' ? mem.lastScouted : null;
+        const stale =
+          !mem ||
+          last === null ||
+          last === 0 ||
+          Game.time - last >= SCOUT_REVISIT_TICKS;
+        const force = Boolean(Memory.hive.scoutRescanRequested);
+        if (
+          (stale || force) &&
+          !htm.hasTask(htm.LEVELS.COLONY, roomName, 'SCOUT_ROOM', 'hiveGaze')
+        ) {
           htm.addColonyTask(
             roomName,
             'SCOUT_ROOM',
@@ -79,8 +124,12 @@ const hiveGaze = {
             'hiveGaze',
             { module: 'hiveGaze', createdBy: 'evaluateExpansionVision', tickCreated: Game.time },
           );
+          tasksQueued = true;
         }
       }
+    }
+    if (tasksQueued && Memory.hive.scoutRescanRequested) {
+      Memory.hive.scoutRescanRequested = false;
     }
     Memory.hive.expansionVisionLastCheck = Game.time;
   },
@@ -90,24 +139,45 @@ const hiveGaze = {
    */
   manageScouts() {
     const scouts = _.filter(Game.creeps, c => c.memory.role === 'scout');
-    const tasks = [];
+    const tasksByColony = new Map();
     if (Memory.htm && Memory.htm.colonies) {
       for (const col in Memory.htm.colonies) {
         const container = Memory.htm.colonies[col];
         if (!container.tasks) continue;
         for (const t of container.tasks) {
-          if (t.name === 'SCOUT_ROOM') tasks.push({ colony: col, task: t });
+          if (t.name === 'SCOUT_ROOM') {
+            if (!tasksByColony.has(col)) tasksByColony.set(col, []);
+            tasksByColony.get(col).push(t);
+          }
         }
       }
     }
-    const queued = spawnQueue.queue.some(q => q.category === 'scout');
-    if (tasks.length && scouts.length === 0 && !queued) {
-      // spawn a new scout in the first colony with tasks
-      const colony = tasks[0].colony;
+    if (!tasksByColony.size) return;
+
+    for (const [colony] of tasksByColony.entries()) {
+      const existing = scouts.filter(
+        (c) => c.memory && c.memory.homeRoom === colony,
+      );
+      const queuedForColony = spawnQueue.queue.some(
+        (q) => q.category === 'scout' && q.room === colony,
+      );
+      if (existing.length > 0 || queuedForColony) continue;
+
       const room = Game.rooms[colony];
-      if (!room) return;
+      if (!room) continue;
       const spawn = room.find(FIND_MY_SPAWNS)[0];
-      if (!spawn) return;
+      if (!spawn) continue;
+
+      const hasMiner = _.some(
+        Game.creeps,
+        (c) => c.memory.role === 'miner' && c.room && c.room.name === colony,
+      );
+      const hasHauler = _.some(
+        Game.creeps,
+        (c) => c.memory.role === 'hauler' && c.room && c.room.name === colony,
+      );
+      if (!hasMiner || !hasHauler) continue;
+
       spawnQueue.addToQueue(
         'scout',
         colony,
@@ -118,9 +188,15 @@ const hiveGaze = {
         spawnManager.ROLE_PRIORITY.scout || 0,
       );
       if (Memory.settings && Memory.settings.debugHiveGaze) {
-        statsConsole.log('[HiveGaze] Scout missing, spawning new', 3);
+        statsConsole.log(`[HiveGaze] Scout queued for ${colony}`, 3);
       }
+      break;
     }
+  },
+
+  requestScoutRescan() {
+    if (!Memory.hive) Memory.hive = {};
+    Memory.hive.scoutRescanRequested = true;
   },
 
   remoteScoreRoom({ roomName, colony }) {

@@ -146,6 +146,11 @@ const roleBuilder = {
       }
       return;
     }
+
+    const idle = movementUtils.findIdlePosition(creep.room, 'builder', creep.name);
+    if (idle && !creep.pos.isEqualTo(idle)) {
+      creep.travelTo(idle, { range: 0 });
+    }
   },
   onDeath(creep) {
     // Clean up any lingering task references when the creep dies

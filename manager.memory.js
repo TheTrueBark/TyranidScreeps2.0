@@ -140,6 +140,82 @@ const memoryManager = {
     }
   },
 
+  getRoomMiningData(roomName, sourceId) {
+    if (
+      !Memory.rooms ||
+      !Memory.rooms[roomName] ||
+      !Memory.rooms[roomName].miningPositions ||
+      !Memory.rooms[roomName].miningPositions[sourceId]
+    ) {
+      return null;
+    }
+    return Memory.rooms[roomName].miningPositions[sourceId];
+  },
+
+  getMiningPositionOccupant(roomName, sourceId, pos, excludeName = null) {
+    if (!pos) return null;
+    for (const name in Game.creeps) {
+      if (excludeName && name === excludeName) continue;
+      const creep = Game.creeps[name];
+      if (
+        creep &&
+        creep.memory &&
+        creep.memory.role === 'miner' &&
+        creep.memory.source === sourceId &&
+        creep.memory.miningPosition &&
+        creep.memory.miningPosition.x === pos.x &&
+        creep.memory.miningPosition.y === pos.y &&
+        (creep.memory.miningPosition.roomName || creep.room && creep.room.name || roomName) ===
+          (pos.roomName || roomName)
+      ) {
+        return creep;
+      }
+    }
+    return null;
+  },
+
+  ensureMiningReservation(roomName, sourceId, pos, reserved = true) {
+    const sourceMem = this.getRoomMiningData(roomName, sourceId);
+    if (!sourceMem || !sourceMem.positions) return;
+    for (const key in sourceMem.positions) {
+      const entry = sourceMem.positions[key];
+      if (entry && entry.x === pos.x && entry.y === pos.y) {
+        sourceMem.positions[key].reserved = reserved;
+      }
+    }
+  },
+
+  findAvailableMiningPosition(roomName, sourceId, options = {}) {
+    const { excludeNames = [], tolerateTicks = 0 } = options;
+    const sourceMem = this.getRoomMiningData(roomName, sourceId);
+    if (!sourceMem || !sourceMem.positions) return null;
+
+    let fallback = null;
+    for (const key in sourceMem.positions) {
+      const entry = sourceMem.positions[key];
+      if (!entry) continue;
+      const occupant = this.getMiningPositionOccupant(
+        roomName,
+        sourceId,
+        entry,
+        null,
+      );
+      if (!occupant || (excludeNames.includes(occupant.name))) {
+        if (!occupant) {
+          return { key, pos: entry, occupant: null };
+        }
+        continue;
+      }
+      if (
+        occupant.ticksToLive !== undefined &&
+        occupant.ticksToLive <= tolerateTicks
+      ) {
+        if (!fallback) fallback = { key, pos: entry, occupant };
+      }
+    }
+    return fallback;
+  },
+
   /**
    * Assigns an available mining position to a creep.
    *
@@ -166,7 +242,7 @@ const memoryManager = {
     for (const key in positions) {
       const position = positions[key];
       if (position && !position.reserved) {
-        position.reserved = true;
+        this.ensureMiningReservation(room.name, sourceId, position, true);
         // Ensure roomName is available for later release and Position usage
         creepMemory.miningPosition = {
           x: position.x,
@@ -205,7 +281,15 @@ const memoryManager = {
       for (const key in source.positions) {
         const pos = source.positions[key];
         if (pos && pos.x === x && pos.y === y) {
-          source.positions[key].reserved = false;
+          const occupant = this.getMiningPositionOccupant(
+            roomName,
+            sourceId,
+            pos,
+            creep && creep.name,
+          );
+          if (!occupant) {
+            source.positions[key].reserved = false;
+          }
         }
       }
     }
@@ -232,7 +316,14 @@ const memoryManager = {
       for (const key in source.positions) {
         const p = source.positions[key];
         if (p && p.x === pos.x && p.y === pos.y) {
-          source.positions[key].reserved = false;
+          const occupant = this.getMiningPositionOccupant(
+            pos.roomName,
+            sourceId,
+            p,
+          );
+          if (!occupant) {
+            source.positions[key].reserved = false;
+          }
         }
       }
     }

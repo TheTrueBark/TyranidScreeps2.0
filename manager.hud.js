@@ -1,10 +1,15 @@
 // hudManager.js
-const visualizer = require("manager.visualizer");
+const visualizer = require('manager.visualizer');
 const layoutVisualizer = require('./layoutVisualizer');
 const spawnQueue = require('./manager.spawnQueue');
+const energyRequests = require('./manager.energyRequests');
 
 const MAX_QUEUE_LINES = 5;
-const STATUS_PLACEHOLDER = 'Status: TBD';
+const MAX_TASK_LINES = 6;
+const MAX_ENERGY_LINES = 3;
+const TASK_PANEL_POS = { x: 47, y: 2 };
+const SPAWN_PANEL_POS = { x: 2, y: 2 };
+const PANEL_FONT = { align: 'left', font: 0.9 };
 
 const sortSpawnRequests = (requests) => spawnQueue.getOrderedQueue(requests);
 
@@ -21,12 +26,35 @@ const formatSpawnLabel = (request) => {
   return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
 };
 
+const prettifyWords = (value = '') =>
+  value
+    .toString()
+    .replace(/[_\s]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+    .replace(/^\w/, (match) => match.toUpperCase());
+
+const getSpawnStatusLine = (room) => {
+  if (typeof FIND_MY_SPAWNS === 'undefined' || typeof room.find !== 'function') {
+    return 'Status: Unknown';
+  }
+  const spawns = room.find(FIND_MY_SPAWNS) || [];
+  if (!spawns || spawns.length === 0) return 'Status: No spawn';
+  const active = spawns.find((spawn) => spawn.spawning);
+  if (active && active.spawning) {
+    const { name, remainingTime } = active.spawning;
+    return `Status: Spawning ${name} (${remainingTime || 0}t)`;
+  }
+  return 'Status: Idle';
+};
+
 const buildSpawnQueueLines = (room, requests = []) => {
   const lines = [
-    room.name,
-    STATUS_PLACEHOLDER,
+    `${room.name} Spawn`,
+    getSpawnStatusLine(room),
+    `Energy: ${room.energyAvailable || 0}/${room.energyCapacityAvailable || 0}`,
     '-----------------',
-    'Spawn Queue',
+    'Queue',
   ];
 
   if (!requests.length) {
@@ -35,8 +63,17 @@ const buildSpawnQueueLines = (room, requests = []) => {
   }
 
   const ordered = sortSpawnRequests(requests).slice(0, MAX_QUEUE_LINES);
-  for (const request of ordered) {
-    lines.push(`  ${formatSpawnLabel(request)} - ${request.energyRequired}`);
+  ordered.forEach((request, index) => {
+    const label = formatSpawnLabel(request);
+    const energy =
+      typeof request.energyRequired === 'number'
+        ? `${request.energyRequired}`
+        : '?';
+    lines.push(`  ${index + 1}. ${label} (${energy})`);
+  });
+
+  if (requests.length > MAX_QUEUE_LINES) {
+    lines.push(`  +${requests.length - MAX_QUEUE_LINES} more…`);
   }
 
   return lines;
@@ -49,8 +86,87 @@ const drawSpawnQueueHud = (room) => {
   const lines = buildSpawnQueueLines(room, roomQueue);
   visualizer.showInfo(
     lines,
-    { room, pos: new RoomPosition(2, 2, room.name) },
-    { align: 'left', font: 0.9 },
+    { room, pos: new RoomPosition(SPAWN_PANEL_POS.x, SPAWN_PANEL_POS.y, room.name) },
+    PANEL_FONT,
+  );
+};
+
+const formatTaskLabel = (task, index) => {
+  const count =
+    typeof task.amount === 'number' && task.amount > 1
+      ? ` x${task.amount}`
+      : '';
+  const priority =
+    typeof task.priority === 'number' ? ` [p${task.priority}]` : '';
+  const name = prettifyWords(task.name || 'task');
+  const manager =
+    task.manager && task.manager !== 'unknown'
+      ? ` • ${prettifyWords(task.manager)}`
+      : '';
+  return `  ${index + 1}. ${name}${count}${priority}${manager}`;
+};
+
+const buildColonyTaskLines = (room) => {
+  const colony =
+    Memory.htm &&
+    Memory.htm.colonies &&
+    Memory.htm.colonies[room.name] &&
+    Array.isArray(Memory.htm.colonies[room.name].tasks)
+      ? Memory.htm.colonies[room.name].tasks
+      : [];
+  const sorted = colony
+    .slice()
+    .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+  const limited = sorted.slice(0, MAX_TASK_LINES);
+
+  const lines = [`${room.name} Tasks`, `Active: ${colony.length}`, '-----------------'];
+
+  if (!limited.length) {
+    lines.push('  (no pending tasks)');
+    return lines;
+  }
+
+  limited.forEach((task, idx) => lines.push(formatTaskLabel(task, idx)));
+  if (colony.length > MAX_TASK_LINES) {
+    lines.push(`  +${colony.length - MAX_TASK_LINES} more…`);
+  }
+  return lines;
+};
+
+const buildEnergySummaryLines = (room) => {
+  const summaries = energyRequests
+    .getRoomDeliverySummary(room.name)
+    .filter(
+      (entry) =>
+        (entry.outstanding || 0) > 0 || (entry.reserved || 0) > 0,
+    )
+    .slice(0, MAX_ENERGY_LINES);
+
+  if (!summaries.length) return [];
+
+  const lines = ['Energy Logistics', '-----------------'];
+  summaries.forEach((entry) => {
+    const label = prettifyWords(entry.structureType || 'structure');
+    const outstanding = entry.outstanding || 0;
+    const reserved = entry.reserved || 0;
+    lines.push(`  ${label}: need ${outstanding}, reserved ${reserved}`);
+  });
+  if (summaries.length < energyRequests.getRoomDeliverySummary(room.name).length) {
+    lines.push('  …');
+  }
+  return lines;
+};
+
+const drawTaskHud = (room) => {
+  const taskLines = buildColonyTaskLines(room);
+  const energyLines = buildEnergySummaryLines(room);
+  const combined = energyLines.length
+    ? [...taskLines, '', ...energyLines]
+    : taskLines;
+  visualizer.showInfo(
+    combined,
+    { room, pos: new RoomPosition(TASK_PANEL_POS.x, TASK_PANEL_POS.y, room.name) },
+    { align: 'right', font: 0.9 },
   );
 };
 
@@ -59,6 +175,7 @@ module.exports = {
     if (!visualizer.enabled) return;
 
     drawSpawnQueueHud(room);
+    drawTaskHud(room);
 
     // Controller level near controller
     if (room.controller) {
@@ -75,20 +192,6 @@ module.exports = {
     }
 
     // Task summary for this colony
-    const tasks =
-      (Memory.htm &&
-        Memory.htm.colonies &&
-        Memory.htm.colonies[room.name] &&
-        Memory.htm.colonies[room.name].tasks) || [];
-    const taskLines = tasks.map((t) => `${t.name} (${t.amount})`);
-    if (taskLines.length > 0) {
-      visualizer.showInfo(
-        taskLines,
-        { room, pos: new RoomPosition(48, 1, room.name) },
-        { align: 'right' },
-      );
-    }
-
     layoutVisualizer.drawLayout(room.name);
   },
   _buildSpawnQueueLines: buildSpawnQueueLines,

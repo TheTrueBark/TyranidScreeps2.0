@@ -53,7 +53,7 @@ const roleBaseDistributor = {
       }
     }
 
-    const idle = movementUtils.findIdlePosition(creep.room);
+    const idle = movementUtils.findIdlePosition(creep.room, 'baseDistributor', creep.name);
     if (idle && !creep.pos.isEqualTo(idle)) creep.travelTo(idle, { range: 0 });
   },
 };

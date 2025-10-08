@@ -66,5 +66,5 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 Next step: focus on the hierarchical task system so the scheduler can trigger colony and creep level tasks dynamically.
 
 ## Documentation
-- [Project Wiki](./wiki/Home.md) - architecture and system guides
+- [Project Wiki](./TyranidScreeps2.0.wiki/Home.md) - architecture and system guides
 - [Roadmap](./ROADMAP.md)
