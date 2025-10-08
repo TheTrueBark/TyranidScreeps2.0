@@ -389,6 +389,31 @@ const demandModule = {
         cap = manual;
       }
 
+      const demandTarget = Math.max(
+        demandBasedTarget,
+        roomsNeedingHaulers.has(roomName) ? 1 : 0,
+      );
+      const isAuto = manual === undefined || manual === 'auto';
+      let desiredTotal = target;
+      if (isAuto) {
+        desiredTotal = Math.max(
+          target,
+          Math.min(demandTarget, target + 1),
+        );
+      }
+
+      let toQueue = 0;
+      if (roomsNeedingHaulers.has(roomName) || desiredTotal > currentAmount) {
+        toQueue = Math.max(0, Math.ceil(desiredTotal - currentAmount));
+      }
+
+      if (isAuto && toQueue > 0) {
+        target = desiredTotal;
+        cap = Math.max(cap, Math.max(desiredTotal, currentAmount + toQueue));
+      } else {
+        target = Math.max(target, desiredTotal);
+      }
+
       if (!Memory.rooms) Memory.rooms = {};
       if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
       if (!Memory.rooms[roomName].spawnLimits)
@@ -403,10 +428,7 @@ const demandModule = {
       }
 
       const needsHaulers =
-        roomsNeedingHaulers.has(roomName) || target > currentAmount;
-      const toQueue = needsHaulers
-        ? Math.max(0, target - currentAmount)
-        : 0;
+        roomsNeedingHaulers.has(roomName) || toQueue > 0;
 
       if (
         toQueue > 0 &&

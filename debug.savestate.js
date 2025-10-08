@@ -11,6 +11,10 @@ const LZString = require('./vendor.lz-string');
 
 const SAVESTATE_VERSION = 1;
 
+const isNil = (value) => value === undefined || value === null;
+const coerceNull = (value) => (isNil(value) ? null : value);
+const coerceObject = (value) => (isNil(value) ? {} : value);
+
 const ensureSavestateContainer = () => {
   if (!Memory.debug) Memory.debug = {};
   if (!Memory.debug.savestates) Memory.debug.savestates = {};
@@ -78,10 +82,12 @@ const captureSpawnQueue = (tree) => {
     room: entry.room,
     priority: entry.priority,
     ticksToSpawn: entry.ticksToSpawn,
-    parentTaskId: entry.parentTaskId ?? null,
-    parentTick: entry.parentTick ?? null,
-    subOrder: entry.subOrder ?? null,
-    enqueuedTick: entry.enqueuedTick ?? entry.parentTick ?? null,
+    parentTaskId: coerceNull(entry.parentTaskId),
+    parentTick: coerceNull(entry.parentTick),
+    subOrder: coerceNull(entry.subOrder),
+    enqueuedTick: !isNil(entry.enqueuedTick)
+      ? entry.enqueuedTick
+      : coerceNull(entry.parentTick),
   }));
   return {
     queue,
@@ -96,24 +102,25 @@ const captureTasksForContainer = (container) =>
   (container && Array.isArray(container.tasks)) ? container.tasks : [];
 
 const captureHTMState = (tree) => {
-  const hive = captureTasksForContainer(tree?.htm?.hive);
+  const htm = tree && tree.htm ? tree.htm : {};
+  const hive = captureTasksForContainer(htm.hive);
   const clusters = {};
-  if (tree?.htm?.clusters) {
-    for (const [clusterId, container] of Object.entries(tree.htm.clusters)) {
+  if (htm.clusters) {
+    for (const [clusterId, container] of Object.entries(htm.clusters)) {
       clusters[clusterId] = captureTasksForContainer(container);
     }
   }
 
   const colonies = {};
-  if (tree?.htm?.colonies) {
-    for (const [colonyId, container] of Object.entries(tree.htm.colonies)) {
+  if (htm.colonies) {
+    for (const [colonyId, container] of Object.entries(htm.colonies)) {
       colonies[colonyId] = captureTasksForContainer(container);
     }
   }
 
   const creeps = {};
-  if (tree?.htm?.creeps) {
-    for (const [creepName, container] of Object.entries(tree.htm.creeps)) {
+  if (htm.creeps) {
+    for (const [creepName, container] of Object.entries(htm.creeps)) {
       creeps[creepName] = captureTasksForContainer(container);
     }
   }
@@ -122,31 +129,31 @@ const captureHTMState = (tree) => {
 };
 
 const captureCreepSummaries = (tree) => {
-  const creeps = tree?.creeps ? tree.creeps : {};
+  const creeps = tree && tree.creeps ? tree.creeps : {};
   const summary = {};
   for (const [name, memory] of Object.entries(creeps)) {
     summary[name] = {
-      role: memory.role ?? null,
-      taskId: memory.taskId ?? null,
+      role: coerceNull(memory.role),
+      taskId: coerceNull(memory.taskId),
       task: memory.task
         ? {
-          name: memory.task.name ?? null,
-          target: memory.task.target ?? null,
+          name: coerceNull(memory.task.name),
+          target: coerceNull(memory.task.target),
         }
         : null,
-      colony: memory.colony ?? null,
+      colony: coerceNull(memory.colony),
     };
   }
   return { memory: creeps, summary };
 };
 
 const captureEmpire = (tree) => {
-  const hive = tree?.hive || {};
+  const hive = tree && tree.hive ? tree.hive : {};
   const clusters = {};
   if (hive.clusters) {
     for (const [clusterId, cluster] of Object.entries(hive.clusters)) {
       clusters[clusterId] = {
-        meta: cluster.meta ?? {},
+        meta: coerceObject(cluster.meta),
         colonies: cluster.colonies
           ? Object.keys(cluster.colonies)
           : [],
@@ -161,7 +168,7 @@ const captureEmpire = (tree) => {
       for (const [colonyId, colony] of Object.entries(cluster.colonies)) {
         colonies[colonyId] = {
           clusterId,
-          meta: colony.meta ?? {},
+          meta: coerceObject(colony.meta),
           creeps: colony.creeps ? Object.keys(colony.creeps) : [],
           structures: colony.structures ? Object.keys(colony.structures) : [],
         };
@@ -169,25 +176,38 @@ const captureEmpire = (tree) => {
     }
   }
 
-  const expansionTargets = hive.expansionTargets ?? tree?.empire?.expansionTargets ?? null;
+  let expansionTargets = null;
+  if (!isNil(hive.expansionTargets)) {
+    expansionTargets = hive.expansionTargets;
+  } else if (tree && tree.empire && !isNil(tree.empire.expansionTargets)) {
+    expansionTargets = tree.empire.expansionTargets;
+  }
 
   const roomOwnership = {};
-  if (tree?.rooms) {
+  if (tree && tree.rooms) {
     for (const [roomName, roomMemory] of Object.entries(tree.rooms)) {
       roomOwnership[roomName] = {
-        owner: roomMemory.owner ?? roomMemory.meta?.owner ?? null,
-        colony: roomMemory.colony ?? roomMemory.meta?.colony ?? null,
-        cluster: roomMemory.cluster ?? null,
+        owner: !isNil(roomMemory.owner)
+          ? roomMemory.owner
+          : (roomMemory.meta && !isNil(roomMemory.meta.owner)
+            ? roomMemory.meta.owner
+            : null),
+        colony: !isNil(roomMemory.colony)
+          ? roomMemory.colony
+          : (roomMemory.meta && !isNil(roomMemory.meta.colony)
+            ? roomMemory.meta.colony
+            : null),
+        cluster: coerceNull(roomMemory.cluster),
       };
     }
   }
 
   return {
     hive: {
-      version: hive.version ?? null,
+      version: coerceNull(hive.version),
       clusters,
       colonies,
-      meta: hive.meta ?? {},
+      meta: coerceObject(hive.meta),
     },
     roomOwnership,
     expansionTargets,
@@ -195,7 +215,7 @@ const captureEmpire = (tree) => {
 };
 
 const captureRoomLayouts = (tree) => {
-  if (!tree?.rooms) return {};
+  if (!(tree && tree.rooms)) return {};
   const layouts = {};
   for (const [roomName, roomMemory] of Object.entries(tree.rooms)) {
     const data = {};
@@ -209,7 +229,9 @@ const captureRoomLayouts = (tree) => {
 };
 
 const captureDebugIndex = (tree) => ({
-  savestates: tree?.debug?.savestates ? tree.debug.savestates : {},
+  savestates: tree && tree.debug && tree.debug.savestates
+    ? tree.debug.savestates
+    : {},
 });
 
 const buildSnapshot = (note) => {
@@ -244,7 +266,7 @@ const decodeSavestate = (entry) => {
 };
 
 const applyMemory = (snapshot) => {
-  if (!snapshot?.memory) return;
+  if (!(snapshot && snapshot.memory)) return;
   const raw = snapshot.memory.raw;
   if (!raw) return;
 
@@ -294,7 +316,9 @@ const saveSavestate = (stateId, note = '') => {
 const restoreSavestate = (stateId, { force = false } = {}) => {
   ensureSavestateContainer();
   if (!force) {
-    const enabled = Memory?.settings?.allowSavestateRestore === true;
+    const enabled = Memory
+      && Memory.settings
+      && Memory.settings.allowSavestateRestore === true;
     if (!enabled) {
       statsConsole.log(
         'Savestate restore blocked. Set Memory.settings.allowSavestateRestore = true to proceed.',
@@ -330,10 +354,10 @@ const listSavestates = () => {
   ensureSavestateContainer();
   return Object.entries(Memory.debug.savestates).map(([id, data]) => ({
     id,
-    tick: data.tick ?? null,
-    created: data.created ?? null,
-    note: data.note ?? null,
-    version: data.version ?? null,
+    tick: coerceNull(data.tick),
+    created: coerceNull(data.created),
+    note: coerceNull(data.note),
+    version: coerceNull(data.version),
   }));
 };
 

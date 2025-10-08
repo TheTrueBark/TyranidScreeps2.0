@@ -63,6 +63,54 @@ function positionsMatch(a, b) {
   );
 }
 
+function resolvePlanTarget(step, creep) {
+  if (!step || !step.id) return null;
+  let target =
+    typeof Game.getObjectById === 'function' ? Game.getObjectById(step.id) : null;
+  if (target) return target;
+
+  const roomName =
+    (step.pos && step.pos.roomName) || (creep.room && creep.room.name) || null;
+  const room =
+    (roomName && Game.rooms && Game.rooms[roomName]) || creep.room || null;
+  if (!room || typeof room.find !== 'function') return null;
+
+  if (step.type === 'pickup') {
+    const drops =
+      typeof FIND_DROPPED_RESOURCES !== 'undefined'
+        ? room.find(FIND_DROPPED_RESOURCES) || []
+        : [];
+    const foundDrop = drops.find(
+      (drop) =>
+        drop &&
+        ((drop.id && drop.id === step.id) ||
+          (drop.pos && step.pos && positionsMatch(drop.pos, step.pos))),
+    );
+    if (foundDrop) return foundDrop;
+    return null;
+  }
+
+  const searchConstants = [];
+  if (typeof FIND_STRUCTURES !== 'undefined') searchConstants.push(FIND_STRUCTURES);
+  if (typeof FIND_TOMBSTONES !== 'undefined')
+    searchConstants.push(FIND_TOMBSTONES);
+  if (typeof FIND_RUINS !== 'undefined') searchConstants.push(FIND_RUINS);
+  if (typeof FIND_MY_SPAWNS !== 'undefined') searchConstants.push(FIND_MY_SPAWNS);
+
+  for (const constant of searchConstants) {
+    const list = room.find(constant) || [];
+    const match = list.find(
+      (obj) =>
+        obj &&
+        ((obj.id && obj.id === step.id) ||
+          (obj.pos && step.pos && positionsMatch(obj.pos, step.pos))),
+    );
+    if (match) return match;
+  }
+
+  return null;
+}
+
 function createRoomPosition(pos) {
   if (!pos) return null;
   const roomName = pos.roomName || (pos.room && pos.room.name) || undefined;
@@ -207,7 +255,13 @@ function ensureAssignment(creep) {
       : null;
 
   if (!source) {
-    if (!room.find || typeof room.find !== 'function') return;
+    if (
+      !room.find ||
+      typeof room.find !== 'function' ||
+      typeof FIND_SOURCES === 'undefined'
+    ) {
+      return;
+    }
     const sources = room.find(FIND_SOURCES) || [];
     if (sources.length === 0) return;
     const counts = {};
@@ -293,56 +347,74 @@ const gatherEnergyCandidates = (creep) => {
     });
   };
 
-  const spawns = room.find(FIND_MY_SPAWNS, {
-    filter: (s) =>
-      s &&
-      s.store &&
-      typeof s.store.getFreeCapacity === 'function' &&
-      s.store.getFreeCapacity(RESOURCE_ENERGY) < s.store.getCapacity(RESOURCE_ENERGY),
-  }) || [];
+  const spawns =
+    typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_MY_SPAWNS, {
+          filter: (s) =>
+            s &&
+            s.store &&
+            typeof s.store.getFreeCapacity === 'function' &&
+            s.store.getFreeCapacity(RESOURCE_ENERGY) < s.store.getCapacity(RESOURCE_ENERGY),
+        }) || []
+      : [];
   for (const spawn of spawns) {
     const stored = spawn.store[RESOURCE_ENERGY] || 0;
     if (stored > 0) pushCandidate('withdraw', spawn, stored);
   }
 
-  const dropped = room.find(FIND_DROPPED_RESOURCES, {
-    filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
-  }) || [];
+  const dropped =
+    typeof FIND_DROPPED_RESOURCES !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_DROPPED_RESOURCES, {
+          filter: (r) => r.resourceType === RESOURCE_ENERGY && r.amount > 0,
+        }) || []
+      : [];
   for (const res of dropped) {
     pushCandidate('pickup', res, res.amount);
   }
 
-  const ruins = room.find(FIND_RUINS, {
-    filter: (r) => r.store && r.store[RESOURCE_ENERGY] > 0,
-  }) || [];
+  const ruins =
+    typeof FIND_RUINS !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_RUINS, {
+          filter: (r) => r.store && r.store[RESOURCE_ENERGY] > 0,
+        }) || []
+      : [];
   for (const structure of ruins) {
     pushCandidate('withdraw', structure, structure.store[RESOURCE_ENERGY]);
   }
 
-  const tombstones = room.find(FIND_TOMBSTONES, {
-    filter: (t) => t.store && t.store[RESOURCE_ENERGY] > 0,
-  }) || [];
+  const tombstones =
+    typeof FIND_TOMBSTONES !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_TOMBSTONES, {
+          filter: (t) => t.store && t.store[RESOURCE_ENERGY] > 0,
+        }) || []
+      : [];
   for (const tomb of tombstones) {
     pushCandidate('withdraw', tomb, tomb.store[RESOURCE_ENERGY]);
   }
 
-  const containers = room.find(FIND_STRUCTURES, {
-    filter: (s) =>
-      s.structureType === STRUCTURE_CONTAINER &&
-      s.store &&
-      s.store[RESOURCE_ENERGY] > 0 &&
-      s.id !== avoid,
-  }) || [];
+  const containers =
+    typeof FIND_STRUCTURES !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_STRUCTURES, {
+          filter: (s) =>
+            s.structureType === STRUCTURE_CONTAINER &&
+            s.store &&
+            s.store[RESOURCE_ENERGY] > 0 &&
+            s.id !== avoid,
+        }) || []
+      : [];
   for (const container of containers) {
     pushCandidate('withdraw', container, container.store[RESOURCE_ENERGY]);
   }
 
-  const links = room.find(FIND_STRUCTURES, {
-    filter: (s) =>
-      s.structureType === STRUCTURE_LINK &&
-      s.store &&
-      s.store[RESOURCE_ENERGY] > 0,
-  }) || [];
+  const links =
+    typeof FIND_STRUCTURES !== 'undefined' && typeof room.find === 'function'
+      ? room.find(FIND_STRUCTURES, {
+          filter: (s) =>
+            s.structureType === STRUCTURE_LINK &&
+            s.store &&
+            s.store[RESOURCE_ENERGY] > 0,
+        }) || []
+      : [];
   for (const link of links) {
     pushCandidate('withdraw', link, link.store[RESOURCE_ENERGY]);
   }
@@ -371,9 +443,26 @@ const evaluateCandidate = (creep, startPos, candidate, remaining) => {
     maxOps: 4000,
     ensurePath: true,
   });
-  const result = Traveler.findTravelPath(startPos, candidate.pos, options);
-  if (!result || !Array.isArray(result.path) || result.path.length === 0) return null;
-  const distance = result.path.length;
+  let distance = null;
+  try {
+    const result = Traveler.findTravelPath(startPos, candidate.pos, options);
+    if (result && Array.isArray(result.path) && result.path.length > 0) {
+      distance = result.path.length;
+    }
+  } catch (error) {
+    // Fallback handled below.
+  }
+  if (distance === null) {
+    if (startPos && typeof startPos.getRangeTo === 'function') {
+      distance = startPos.getRangeTo(candidate.pos);
+    } else if (candidate.pos && startPos) {
+      const dx = Math.abs((candidate.pos.x || 0) - (startPos.x || 0));
+      const dy = Math.abs((candidate.pos.y || 0) - (startPos.y || 0));
+      distance = Math.max(dx, dy);
+    } else {
+      return null;
+    }
+  }
   const travelCost = distance + 1; // include pickup tick
   const efficiency = travelCost / Math.max(1, amount);
   return {
@@ -531,12 +620,44 @@ function finalizePickupSuccess(creep, targetId, reservedAmount, gainedAmount) {
 
 // Determine the optimal energy source following the cached pickup plan.
 function findEnergySource(creep) {
+  const assignment = creep.memory && creep.memory.assignment;
+  if (assignment && assignment.pickupPos) {
+    const roomName = assignment.pickupPos.roomName || creep.room.name;
+    const room = Game.rooms && Game.rooms[roomName];
+    if (room && typeof room.find === 'function') {
+      const drops =
+        typeof FIND_DROPPED_RESOURCES !== 'undefined'
+          ? room.find(FIND_DROPPED_RESOURCES) || []
+          : [];
+      const target = drops.find((drop) => {
+        if (!drop || !drop.pos) return false;
+        if (assignment.pickupId && drop.id === assignment.pickupId) return true;
+        return positionsMatch(drop.pos, assignment.pickupPos);
+      });
+      if (target && (target.amount || 0) > 0) {
+        const reserved =
+          target.id && Memory.energyReserves
+            ? Memory.energyReserves[target.id] || 0
+            : 0;
+        const available = (target.amount || 0) - reserved;
+        if (available > 0) {
+          return {
+            type: 'pickup',
+            target,
+            available,
+            preferred: true,
+          };
+        }
+      }
+    }
+  }
+
   let plan = ensurePickupPlan(creep);
   if (!plan) return null;
 
   while (plan && Array.isArray(plan.steps) && plan.steps.length) {
     const step = plan.steps[0];
-    const target = Game.getObjectById(step.id);
+    const target = resolvePlanTarget(step, creep);
     if (!target) {
       plan.steps.shift();
       updatePickupPlanTotals(plan);
@@ -644,12 +765,18 @@ function deliverEnergy(creep, target = null) {
 
   const ctrlContainer =
     creep.room.controller &&
-    creep.room.controller.pos
-      .findInRange(FIND_STRUCTURES, 3, {
-        filter: s =>
-          s.structureType === STRUCTURE_CONTAINER &&
-          s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-      })[0];
+    typeof FIND_STRUCTURES !== 'undefined' &&
+    creep.room.controller.pos &&
+    typeof creep.room.controller.pos.findInRange === 'function'
+      ? creep.room.controller.pos
+          .findInRange(FIND_STRUCTURES, 3, {
+            filter: s =>
+              s.structureType === STRUCTURE_CONTAINER &&
+              s.store &&
+              typeof s.store.getFreeCapacity === 'function' &&
+              s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
+          })[0]
+      : null;
   if (ctrlContainer) {
     const result = creep.transfer(ctrlContainer, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
@@ -907,9 +1034,24 @@ module.exports = {
         estimate,
       );
       let capacity = 0;
-      if (creep.store && typeof creep.store.getCapacity === 'function') {
-        capacity = creep.store.getCapacity(RESOURCE_ENERGY);
-      } else if (creep.carryCapacity) {
+      if (creep.store) {
+        if (typeof creep.store.getCapacity === 'function') {
+          const total = creep.store.getCapacity(RESOURCE_ENERGY);
+          if (typeof total === 'number' && total > 0) capacity = total;
+        } else if (typeof creep.store.getFreeCapacity === 'function') {
+          const free = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+          if (typeof free === 'number') {
+            capacity = Math.max(0, free) + (creep.store[RESOURCE_ENERGY] || 0);
+          }
+        }
+        if (!capacity && typeof creep.store[RESOURCE_ENERGY] === 'number') {
+          capacity = (creep.store[RESOURCE_ENERGY] || 0) +
+            (typeof creep.store.getFreeCapacity === 'function'
+              ? Math.max(0, creep.store.getFreeCapacity(RESOURCE_ENERGY))
+              : 0);
+        }
+      }
+      if (!capacity && creep.carryCapacity) {
         capacity = creep.carryCapacity;
       }
       const outstanding =
@@ -973,9 +1115,12 @@ module.exports = {
     }
 
 
-    const spawn = creep.room && typeof creep.room.find === 'function'
-      ? creep.room.find(FIND_MY_SPAWNS)[0]
-      : null;
+    const spawn =
+      creep.room &&
+      typeof creep.room.find === 'function' &&
+      typeof FIND_MY_SPAWNS !== 'undefined'
+        ? creep.room.find(FIND_MY_SPAWNS)[0]
+        : null;
     const assignment = creep.memory.assignment;
     if (creep.store[RESOURCE_ENERGY] === 0) {
       if (assignment && assignment.pickupPos) {

@@ -34,12 +34,12 @@ const prettifyWords = (value = '') =>
     .trim()
     .replace(/^\w/, (match) => match.toUpperCase());
 
-const getSpawnStatusLine = (room) => {
+const getSpawnStatusLine = (room = {}) => {
   if (typeof FIND_MY_SPAWNS === 'undefined' || typeof room.find !== 'function') {
-    return 'Status: Unknown';
+    return 'Status: TBD';
   }
   const spawns = room.find(FIND_MY_SPAWNS) || [];
-  if (!spawns || spawns.length === 0) return 'Status: No spawn';
+  if (!spawns || spawns.length === 0) return 'Status: TBD';
   const active = spawns.find((spawn) => spawn.spawning);
   if (active && active.spawning) {
     const { name, remainingTime } = active.spawning;
@@ -48,14 +48,9 @@ const getSpawnStatusLine = (room) => {
   return 'Status: Idle';
 };
 
-const buildSpawnQueueLines = (room, requests = []) => {
-  const lines = [
-    `${room.name} Spawn`,
-    getSpawnStatusLine(room),
-    `Energy: ${room.energyAvailable || 0}/${room.energyCapacityAvailable || 0}`,
-    '-----------------',
-    'Queue',
-  ];
+const buildSpawnQueueLines = (room = {}, requests = []) => {
+  const roomName = room.name || 'Spawn';
+  const lines = [roomName, getSpawnStatusLine(room), '-----------------', 'Spawn Queue'];
 
   if (!requests.length) {
     lines.push('  (empty)');
@@ -63,13 +58,13 @@ const buildSpawnQueueLines = (room, requests = []) => {
   }
 
   const ordered = sortSpawnRequests(requests).slice(0, MAX_QUEUE_LINES);
-  ordered.forEach((request, index) => {
+  ordered.forEach((request) => {
     const label = formatSpawnLabel(request);
     const energy =
       typeof request.energyRequired === 'number'
         ? `${request.energyRequired}`
         : '?';
-    lines.push(`  ${index + 1}. ${label} (${energy})`);
+    lines.push(`  ${label} - ${energy}`);
   });
 
   if (requests.length > MAX_QUEUE_LINES) {

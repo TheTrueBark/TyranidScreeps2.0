@@ -4,6 +4,7 @@
  *   const hiveTravel = require("manager.hiveTravel");
  */
 "use strict";
+const _ = require('lodash');
 const statsConsole = require("console.console");
 Object.defineProperty(exports, "__esModule", { value: true });
 class Traveler {
@@ -140,8 +141,14 @@ class Traveler {
      * @returns {any}
      */
     static normalizePos(destination) {
-        if (!(destination instanceof RoomPosition)) {
+        if (destination instanceof RoomPosition) {
+            return destination;
+        }
+        if (destination && destination.pos) {
             return destination.pos;
+        }
+        if (destination && destination.x !== undefined && destination.y !== undefined) {
+            return destination;
         }
         return destination;
     }

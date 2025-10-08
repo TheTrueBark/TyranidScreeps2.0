@@ -67,7 +67,12 @@ const createAvoidanceCallback = (creep, destination, flags = {}) => {
 const shouldAllowRestricted = (creep, destination, explicit) => {
   if (explicit !== undefined) return explicit;
   if (!destination) return false;
-  if (destination.structureType === STRUCTURE_SPAWN) return true;
+  if (
+    typeof STRUCTURE_SPAWN !== 'undefined' &&
+    destination.structureType === STRUCTURE_SPAWN
+  ) {
+    return true;
+  }
   const pos = getPos(destination);
   if (!pos) return false;
   const roomMemory =
