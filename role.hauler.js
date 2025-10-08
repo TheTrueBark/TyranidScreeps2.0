@@ -35,6 +35,229 @@ function moveToIdle(creep) {
   if (idle && !creep.pos.isEqualTo(idle)) creep.travelTo(idle, { range: 0 });
 }
 
+function extractPos(value) {
+  if (!value) return null;
+  if (value.pos) return extractPos(value.pos);
+  const { x, y } = value;
+  if (typeof x !== 'number' || typeof y !== 'number') return null;
+  const roomName = value.roomName || (value.room && value.room.name) || null;
+  return { x, y, roomName };
+}
+
+function positionsMatch(a, b) {
+  const posA = extractPos(a);
+  const posB = extractPos(b);
+  if (!posA || !posB) return false;
+  const roomA = posA.roomName;
+  const roomB = posB.roomName;
+  return (
+    posA.x === posB.x &&
+    posA.y === posB.y &&
+    (roomA === roomB || roomA === undefined || roomB === undefined)
+  );
+}
+
+function createRoomPosition(pos) {
+  if (!pos) return null;
+  const roomName = pos.roomName || (pos.room && pos.room.name) || undefined;
+  if (typeof RoomPosition === 'function') {
+    try {
+      return new RoomPosition(pos.x, pos.y, roomName);
+    } catch (e) {
+      return { x: pos.x, y: pos.y, roomName };
+    }
+  }
+  return { x: pos.x, y: pos.y, roomName };
+}
+
+function ensureDemandRoute(routeId, assignment) {
+  if (!routeId || !assignment) return;
+  if (!Memory.demand) Memory.demand = {};
+  if (!Memory.demand.routes) Memory.demand.routes = {};
+  const route = Memory.demand.routes[routeId] || {};
+  if (!route.totals) route.totals = route.totals || { demand: 0 };
+  route.assignmentInfo = Object.assign({}, route.assignmentInfo, {
+    sourceId: assignment.sourceId || (route.assignmentInfo && route.assignmentInfo.sourceId) || null,
+    pickupId: assignment.pickupId || (route.assignmentInfo && route.assignmentInfo.pickupId) || null,
+    pickupPos: assignment.pickupPos || (route.assignmentInfo && route.assignmentInfo.pickupPos) || null,
+    destId: assignment.destId || (route.assignmentInfo && route.assignmentInfo.destId) || null,
+    room: assignment.room || (route.assignmentInfo && route.assignmentInfo.room) || null,
+    type: assignment.type || (route.assignmentInfo && route.assignmentInfo.type) || 'local',
+  });
+  Memory.demand.routes[routeId] = route;
+}
+
+function determinePickupPoint(room, source, existingAssignment = {}) {
+  if (!room || !source) {
+    return {
+      pickupId: existingAssignment.pickupId || null,
+      pickupPos: existingAssignment.pickupPos || null,
+    };
+  }
+
+  if (existingAssignment.pickupId) {
+    const obj =
+      typeof Game.getObjectById === 'function'
+        ? Game.getObjectById(existingAssignment.pickupId)
+        : null;
+    if (obj && obj.pos) {
+      return {
+        pickupId: existingAssignment.pickupId,
+        pickupPos:
+          existingAssignment.pickupPos || {
+            x: obj.pos.x,
+            y: obj.pos.y,
+            roomName: obj.pos.roomName,
+          },
+      };
+    }
+  }
+
+  const container =
+    source.pos &&
+    typeof source.pos.findInRange === 'function'
+      ? source.pos.findInRange(FIND_STRUCTURES, 1, {
+          filter: s => s.structureType === STRUCTURE_CONTAINER,
+        })[0]
+      : null;
+  if (container && container.pos) {
+    return {
+      pickupId: container.id,
+      pickupPos: {
+        x: container.pos.x,
+        y: container.pos.y,
+        roomName: container.pos.roomName,
+      },
+    };
+  }
+
+  const positionsMem = _.get(
+    Memory,
+    ['rooms', room.name, 'miningPositions', source.id, 'positions'],
+    null,
+  );
+  if (positionsMem) {
+    const values = Object.values(positionsMem).filter(Boolean);
+    const slot =
+      values.find(p => p && p.reserved) ||
+      values[0];
+    if (slot) {
+      return {
+        pickupId: existingAssignment.pickupId || null,
+        pickupPos: {
+          x: slot.x,
+          y: slot.y,
+          roomName: slot.roomName || room.name,
+        },
+      };
+    }
+  }
+
+  if (existingAssignment.pickupPos) {
+    return {
+      pickupId: existingAssignment.pickupId || null,
+      pickupPos: existingAssignment.pickupPos,
+    };
+  }
+
+  return {
+    pickupId: null,
+    pickupPos: {
+      x: source.pos.x,
+      y: source.pos.y,
+      roomName: source.pos.roomName,
+    },
+  };
+}
+
+function pickLeastClaimedSource(sources, counts) {
+  if (!Array.isArray(sources) || sources.length === 0) return null;
+  let selected = null;
+  let bestCount = Infinity;
+  for (const src of sources) {
+    if (!src) continue;
+    const id = src.id || '';
+    const count = counts[id] || 0;
+    if (
+      selected === null ||
+      count < bestCount ||
+      (count === bestCount && String(id).localeCompare(String(selected.id || '')) < 0)
+    ) {
+      selected = src;
+      bestCount = count;
+    }
+  }
+  return selected;
+}
+
+function ensureAssignment(creep) {
+  if (!creep || !creep.room) return;
+  if (!creep.memory.assignment) creep.memory.assignment = {};
+  const assignment = creep.memory.assignment;
+  const room = creep.room;
+  let source =
+    assignment.sourceId && typeof Game.getObjectById === 'function'
+      ? Game.getObjectById(assignment.sourceId)
+      : null;
+
+  if (!source) {
+    if (!room.find || typeof room.find !== 'function') return;
+    const sources = room.find(FIND_SOURCES) || [];
+    if (sources.length === 0) return;
+    const counts = {};
+    for (const name in Game.creeps) {
+      const other = Game.creeps[name];
+      if (!other || other.name === creep.name) continue;
+      if (other.memory && other.memory.role === 'hauler' && other.room && other.room.name === room.name) {
+        const otherAssign = other.memory.assignment;
+        if (otherAssign && otherAssign.sourceId) {
+          counts[otherAssign.sourceId] = (counts[otherAssign.sourceId] || 0) + 1;
+        }
+      }
+    }
+    source = pickLeastClaimedSource(sources, counts) || sources[0];
+    assignment.sourceId = source.id;
+  }
+
+  assignment.room = assignment.room || room.name;
+  assignment.routeId =
+    assignment.routeId || `hauler:${room.name}:${assignment.sourceId}`;
+  if (!assignment.destId && room.storage) assignment.destId = room.storage.id;
+
+  const pickup = determinePickupPoint(room, source, assignment);
+  if (pickup.pickupId) assignment.pickupId = pickup.pickupId;
+  if (pickup.pickupPos) assignment.pickupPos = pickup.pickupPos;
+
+  ensureDemandRoute(assignment.routeId, assignment);
+}
+
+function isPreferredTarget(assignment, target) {
+  if (!assignment || !target) return false;
+  if (assignment.pickupId && target.id === assignment.pickupId) return true;
+  const targetPos = extractPos(target);
+  if (!targetPos) return false;
+  if (assignment.pickupPos && positionsMatch(assignment.pickupPos, targetPos)) return true;
+  if (assignment.sourceId) {
+    const source =
+      typeof Game.getObjectById === 'function'
+        ? Game.getObjectById(assignment.sourceId)
+        : null;
+    if (source) {
+      const sourcePos = extractPos(source);
+      if (sourcePos && sourcePos.roomName === targetPos.roomName) {
+        const dx = Math.abs(sourcePos.x - targetPos.x);
+        const dy = Math.abs(sourcePos.y - targetPos.y);
+        if (dx <= 1 && dy <= 1) return true;
+      }
+    } else if (assignment.pickupPos) {
+      const dx = Math.abs(assignment.pickupPos.x - targetPos.x);
+      const dy = Math.abs(assignment.pickupPos.y - targetPos.y);
+      if (dx <= 1 && dy <= 1) return true;
+    }
+  }
+  return false;
+}
+
 // Remember the last container a hauler deposited into so it doesn't
 // immediately withdraw the energy again. The block persists until
 // a different container is used.
@@ -53,6 +276,7 @@ function findEnergySource(creep) {
   const room = creep.room;
   if (!room || typeof room.find !== "function") return null;
 
+  const assignment = creep.memory.assignment || null;
   const candidates = [];
   const pushCandidate = (type, target, amount) => {
     if (!target) return;
@@ -60,7 +284,8 @@ function findEnergySource(creep) {
     const available = amount - reserved;
     if (available <= 0) return;
     const range = creep.pos.getRangeTo(target);
-    candidates.push({ type, target, available, range });
+    const preferred = isPreferredTarget(assignment, target);
+    candidates.push({ type, target, available, range, preferred });
   };
 
   const dropped = room.find(FIND_DROPPED_RESOURCES, {
@@ -102,6 +327,8 @@ function findEnergySource(creep) {
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => {
+    if (a.preferred && !b.preferred) return -1;
+    if (!a.preferred && b.preferred) return 1;
     if (b.available !== a.available) return b.available - a.available;
     if (a.range !== b.range) return a.range - b.range;
     const aId = a.target.id || '';
@@ -217,6 +444,7 @@ function deliverEnergy(creep, target = null) {
 module.exports = {
   run: function (creep) {
     movementUtils.avoidSpawnArea(creep);
+    ensureAssignment(creep);
 
     const last = creep.memory._lastPos;
     if (
@@ -423,7 +651,23 @@ module.exports = {
     const spawn = creep.room && typeof creep.room.find === 'function'
       ? creep.room.find(FIND_MY_SPAWNS)[0]
       : null;
+    const assignment = creep.memory.assignment;
     if (creep.store[RESOURCE_ENERGY] === 0) {
+      if (assignment && assignment.pickupPos) {
+        const targetPos = assignment.pickupPos;
+        if (!positionsMatch(creep.pos, targetPos)) {
+          const goal = createRoomPosition({
+            x: targetPos.x,
+            y: targetPos.y,
+            roomName: targetPos.roomName || creep.room.name,
+          });
+          if (goal) {
+            const pickupRange = assignment.pickupId ? 1 : 0;
+            creep.travelTo(goal, { range: pickupRange });
+            return;
+          }
+        }
+      }
       const miners = Object.values(Game.creeps).filter(
         c => c.memory && c.memory.role === 'miner' && c.room.name === creep.room.name,
       );

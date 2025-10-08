@@ -7,8 +7,29 @@ const _ = require('lodash');
 
 const ENERGY_PER_TICK_THRESHOLD = 1; // Delivery rate below which more haulers are spawned
 const DEFAULT_HAULER_RATE = 5; // Fallback energy/tick value when no haulers exist
-const MAX_HAULERS_PER_ROOM = 4; // Safeguard against spamming hauler spawns
 const HAULER_SPAWN_COOLDOWN = 50; // Minimum ticks between hauler spawn attempts
+
+function countRoomCreeps(roomName) {
+  const creeps = Object.values(Game.creeps || {});
+  let miners = 0;
+  let haulers = 0;
+  let others = 0;
+  for (const creep of creeps) {
+    if (!creep || !creep.memory || !creep.room || creep.room.name !== roomName) continue;
+    const role = creep.memory.role;
+    if (role === 'miner') miners += 1;
+    else if (role === 'hauler') haulers += 1;
+    else others += 1;
+  }
+  return { miners, haulers, others };
+}
+
+function computeHaulerCap(roomName) {
+  const { miners, others } = countRoomCreeps(roomName);
+  const halfOthers = Math.ceil(others / 2);
+  const cap = miners + halfOthers;
+  return Math.max(2, cap);
+}
 
 function initMemory() {
   if (!Memory.demand || !Memory.demand.rooms) {
@@ -369,14 +390,7 @@ const demandModule = {
               t => t.name === 'spawnHauler' && t.manager === 'spawnManager',
             )
           : null;
-      const haulersAlive = _.filter(
-        Game.creeps,
-        c => c.memory.role === 'hauler' && c.room.name === roomName,
-      ).length;
-      const minersAlive = _.filter(
-        Game.creeps,
-        c => c.memory.role === 'miner' && c.room.name === roomName,
-      ).length;
+      const { haulers: haulersAlive, miners: minersAlive } = countRoomCreeps(roomName);
       const queuedHaulers = spawnQueue.queue.filter(
         q =>
           q.room === roomName &&
@@ -395,21 +409,31 @@ const demandModule = {
       let targetCalc = Math.ceil(
         demandRate / Math.max(perHauler, ENERGY_PER_TICK_THRESHOLD),
       );
-      let target = Math.max(
-        2,
-        Math.min(MAX_HAULERS_PER_ROOM, targetCalc),
-      );
+      let target = Math.max(2, targetCalc);
+      const dynamicCap = computeHaulerCap(roomName);
       const manual =
         Memory.rooms &&
         Memory.rooms[roomName] &&
         Memory.rooms[roomName].manualSpawnLimits &&
         Memory.rooms[roomName].manualSpawnLimits.haulers;
-      if (manual !== undefined && manual !== 'auto') target = manual;
+      let cap = dynamicCap;
+      if (manual !== undefined && manual !== 'auto') {
+        target = manual;
+        cap = manual;
+      } else {
+        target = Math.min(target, dynamicCap);
+      }
       if (!Memory.rooms) Memory.rooms = {};
       if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
       if (!Memory.rooms[roomName].spawnLimits)
         Memory.rooms[roomName].spawnLimits = {};
       Memory.rooms[roomName].spawnLimits.haulers = target;
+      Memory.rooms[roomName].spawnLimits.maxHaulers = cap;
+      if (cap >= 0) {
+        spawnQueue.pruneRole(roomName, 'hauler', cap, {
+          liveCount: haulersAlive,
+        });
+      }
       const toQueue = Math.max(0, target - currentAmount);
 
       if (

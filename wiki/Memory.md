@@ -165,7 +165,13 @@ record spawn timing expectations:
 ```javascript
 memory: {
   role: 'hauler',
-  assignment: { routeId: 'r1', sourceId: 'src', destId: 'storage' },
+  assignment: {
+    routeId: 'r1',
+    sourceId: 'src',
+    destId: 'storage',
+    pickupId: 'container123',
+    pickupPos: { x: 12, y: 25, roomName: 'W1N1' }
+  },
   spawnedBy: 'lifecyclePredictor',
   originCreep: 'Hauler1234',
   originDeathTick: 123456
@@ -222,7 +228,13 @@ Memory.demand.routes[routeId] = {
   roundTripCount: 3,
   activeHaulers: ['H1'],
   totals: { demand: 0 },
-  assignmentInfo: { sourceId: 'src', destId: 'storage', type: 'remotePull' }
+  assignmentInfo: {
+    sourceId: 'src',
+    destId: 'storage',
+    pickupId: 'container123',
+    pickupPos: { x: 12, y: 25, roomName: 'W1N1' },
+    type: 'remotePull'
+  }
 };
 ```
 

@@ -6,13 +6,7 @@ const spawnQueue = require('./manager.spawnQueue');
 const MAX_QUEUE_LINES = 5;
 const STATUS_PLACEHOLDER = 'Status: TBD';
 
-const sortSpawnRequests = (requests) =>
-  requests.sort((a, b) => {
-    if (a.parentTick !== b.parentTick) return a.parentTick - b.parentTick;
-    if (a.subOrder !== b.subOrder) return a.subOrder - b.subOrder;
-    if (a.priority !== b.priority) return a.priority - b.priority;
-    return a.ticksToSpawn - b.ticksToSpawn;
-  });
+const sortSpawnRequests = (requests) => spawnQueue.getOrderedQueue(requests);
 
 const formatSpawnLabel = (request) => {
   const rawLabel =
@@ -40,7 +34,7 @@ const buildSpawnQueueLines = (room, requests = []) => {
     return lines;
   }
 
-  const ordered = sortSpawnRequests([...requests]).slice(0, MAX_QUEUE_LINES);
+  const ordered = sortSpawnRequests(requests).slice(0, MAX_QUEUE_LINES);
   for (const request of ordered) {
     lines.push(`  ${formatSpawnLabel(request)} - ${request.energyRequired}`);
   }

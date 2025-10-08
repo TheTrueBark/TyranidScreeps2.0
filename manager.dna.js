@@ -19,6 +19,8 @@ function getBodyParts(role, room, panic = false) {
       return buildMiner(available, panic);
     case "hauler":
       return buildHauler(available, panic);
+    case "scout":
+      return buildScout(available, panic);
     case "baseDistributor":
       return buildBaseDistributor();
     case "builder":
@@ -69,6 +71,15 @@ function buildWorker(energy, panic) {
 
 function buildBaseDistributor() {
   return [CARRY, CARRY, MOVE, MOVE];
+}
+
+function buildScout(energy, panic) {
+  const moveCost = BODYPART_COST[MOVE];
+  let moves = panic ? 1 : Math.min(5, Math.floor(energy / moveCost));
+  if (moves < 1) moves = 1;
+  const body = [];
+  for (let i = 0; i < moves; i++) body.push(MOVE);
+  return body;
 }
 
 module.exports = {

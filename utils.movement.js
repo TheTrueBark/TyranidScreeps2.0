@@ -12,13 +12,46 @@ const movementUtils = {
     // the restricted area around the spawn. Skip the restricted tile check for
     // that role so they don't get pushed away from containers.
     const roomMemory = Memory.rooms && Memory.rooms[creep.room.name];
-    if (
-      creep.memory.role !== 'miner' &&
+    const isMiner = creep.memory && creep.memory.role === 'miner';
+    const targetPos =
+      isMiner && creep.memory.miningPosition
+        ? creep.memory.miningPosition
+        : null;
+
+    const matchesMiningTile =
+      targetPos &&
+      (targetPos.roomName || creep.room.name) === creep.room.name &&
+      targetPos.x === creep.pos.x &&
+      targetPos.y === creep.pos.y;
+
+    const targetInsideRestricted =
+      isMiner &&
+      targetPos &&
       roomMemory &&
-      roomMemory.restrictedArea
+      Array.isArray(roomMemory.restrictedArea) &&
+      roomMemory.restrictedArea.some(
+        (p) =>
+          p.x === targetPos.x &&
+          p.y === targetPos.y &&
+          (targetPos.roomName || creep.room.name) === creep.room.name,
+      );
+
+    if (
+      roomMemory &&
+      roomMemory.restrictedArea &&
+      !(isMiner && (matchesMiningTile || targetInsideRestricted))
     ) {
       for (const p of roomMemory.restrictedArea) {
         if (creep.pos.x === p.x && creep.pos.y === p.y) {
+          if (
+            isMiner &&
+            targetPos &&
+            (targetPos.roomName || creep.room.name) === creep.room.name &&
+            targetPos.x === p.x &&
+            targetPos.y === p.y
+          ) {
+            return;
+          }
           creep.travelTo(spawn, { range: 2 });
           return;
         }

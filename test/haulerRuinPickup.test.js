@@ -3,21 +3,39 @@ const globals = require('./mocks/globals');
 
 const roleHauler = require('../role.hauler');
 
-// Minimal constants
-global.RESOURCE_ENERGY = 'energy';
-global.FIND_DROPPED_RESOURCES = 1;
-global.FIND_RUINS = 2;
-global.FIND_TOMBSTONES = 3;
-global.FIND_STRUCTURES = 4;
-global.STRUCTURE_CONTAINER = 'container';
-global.OK = 0;
-
 describe('hauler prefers nearby ruin', function() {
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
     Memory.energyReserves = {};
-    Game.rooms['W1N1'] = { name: 'W1N1', storage: null, find: () => [] };
+    global.RESOURCE_ENERGY = 'energy';
+    global.FIND_DROPPED_RESOURCES = 1;
+    global.FIND_RUINS = 2;
+    global.FIND_TOMBSTONES = 3;
+    global.FIND_STRUCTURES = 4;
+    global.FIND_SOURCES = 5;
+    global.STRUCTURE_CONTAINER = 'container';
+    global.OK = 0;
+    global.ERR_NOT_IN_RANGE = -9;
+    global.ERR_TIRED = -11;
+    const source = {
+      id: 'src1',
+      pos: {
+        x: 9,
+        y: 10,
+        roomName: 'W1N1',
+        findInRange: () => [],
+      },
+    };
+    Game.rooms['W1N1'] = {
+      name: 'W1N1',
+      storage: null,
+      find: (type) => {
+        if (type === FIND_SOURCES) return [source];
+        return [];
+      },
+    };
+    Game.getObjectById = (id) => (id === source.id ? source : null);
   });
 
   it('withdraws from ruin when closer than container', function() {
@@ -25,10 +43,11 @@ describe('hauler prefers nearby ruin', function() {
     const container = { id: 'c1', structureType: STRUCTURE_CONTAINER, store: { [RESOURCE_ENERGY]: 100 }, pos: { x: 20, y: 20, roomName: 'W1N1' } };
 
     const room = Game.rooms['W1N1'];
+    const previousFind = room.find;
     room.find = (type) => {
       if (type === FIND_RUINS) return [ruin];
       if (type === FIND_STRUCTURES) return [container];
-      return [];
+      return previousFind(type);
     };
 
     const creep = {

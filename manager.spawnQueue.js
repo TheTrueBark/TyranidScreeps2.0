@@ -283,9 +283,25 @@ const spawnQueue = {
       `Sorting queue for room ${room.name} by priority and ticksToSpawn`,
       2,
     );
-    const priorityMap = buildGroupPriorityMap(this.queue);
-    const comparator = compareRequestsFactory(priorityMap);
-    this.queue.sort(comparator);
+    if (
+      Memory.rooms &&
+      Memory.rooms[room.name] &&
+      Memory.rooms[room.name].spawnLimits &&
+      typeof Memory.rooms[room.name].spawnLimits.maxHaulers === 'number'
+    ) {
+      const liveHaulers = Object.values(Game.creeps || {}).filter(
+        (creep) =>
+          creep &&
+          creep.memory &&
+          creep.memory.role === 'hauler' &&
+          creep.room &&
+          creep.room.name === room.name,
+      ).length;
+      this.pruneRole(room.name, 'hauler', Memory.rooms[room.name].spawnLimits.maxHaulers, {
+        liveCount: liveHaulers,
+      });
+    }
+    this.queue = this.getOrderedQueue(this.queue);
   },
 
   /**
@@ -359,6 +375,84 @@ const spawnQueue = {
     if (removed > staleRemoved + orphanRemoved) {
       logger.log('spawnQueue', `Pruned ${removed} stale spawn requests`, 2);
     }
+  },
+
+  /**
+   * Trim queued requests for a role in a specific room so that the number of
+   * pending spawns aligns with the provided limit once alive creeps (and
+   * optionally delayed requests) are considered.
+   *
+   * @param {string} roomName Room to evaluate.
+   * @param {string} role Role/category to prune (matches queue.category or memory.role).
+   * @param {number} limit Maximum combined alive + queued creeps for the role.
+   * @param {object} options Optional configuration.
+   * @param {number} [options.liveCount=0] Number of living creeps already filling the role.
+   * @param {boolean} [options.respectDelayed=true] Whether to keep requests with ticksToSpawn > 0.
+   * @returns {number} Amount of requests removed.
+   */
+  pruneRole(roomName, role, limit, options = {}) {
+    if (typeof limit !== 'number' || !Number.isFinite(limit)) return 0;
+    const { liveCount = 0, respectDelayed = true } = options;
+    const relevant = this.queue.filter(
+      (req) =>
+        req.room === roomName &&
+        (req.category === role ||
+          (req.memory && req.memory.role === role)),
+    );
+    if (relevant.length === 0) return 0;
+
+    let delayedCount = 0;
+    const immediate = [];
+    for (const req of relevant) {
+      if (req.ignoreRestriction) continue;
+      const delay =
+        typeof req.ticksToSpawn === 'number' ? req.ticksToSpawn : 0;
+      if (respectDelayed && delay > 0) delayedCount += 1;
+      else immediate.push(req);
+    }
+
+    const allowedQueued = Math.max(
+      0,
+      Math.floor(limit) - liveCount - delayedCount,
+    );
+    if (immediate.length <= allowedQueued) return 0;
+
+    const overage = immediate.length - allowedQueued;
+    const priorityMap = buildGroupPriorityMap(immediate);
+    const comparator = compareRequestsFactory(priorityMap);
+    const ordered = immediate.slice().sort(comparator);
+
+    let removed = 0;
+    for (let i = ordered.length - 1; i >= 0 && removed < overage; i--) {
+      const req = ordered[i];
+      const index = this.queue.indexOf(req);
+      if (index !== -1) {
+        this.queue.splice(index, 1);
+        removed += 1;
+      }
+    }
+
+    if (removed > 0) {
+      logger.log(
+        'spawnQueue',
+        `Trimmed ${removed} ${role} request(s) for ${roomName} to satisfy cap ${limit}`,
+        2,
+      );
+    }
+    return removed;
+  },
+
+  /**
+   * Return a sorted copy of the provided requests using the queue comparator.
+   * @param {Array<object>} requests
+   * @returns {Array<object>} sorted requests
+   */
+  getOrderedQueue(requests = []) {
+    const list = Array.isArray(requests) ? [...requests] : [];
+    if (list.length === 0) return list;
+    const priorityMap = buildGroupPriorityMap(list);
+    const comparator = compareRequestsFactory(priorityMap);
+    return list.sort(comparator);
   },
 };
 

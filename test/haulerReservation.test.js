@@ -5,6 +5,8 @@ const roleHauler = require('../role.hauler');
 
 global.RESOURCE_ENERGY = 'energy';
 global.FIND_DROPPED_RESOURCES = 1;
+global.FIND_SOURCES = 2;
+global.STRUCTURE_CONTAINER = 'container';
 global.OK = 0;
 global.ERR_NOT_IN_RANGE = -9;
 
@@ -13,7 +15,24 @@ describe('hauler respects energy reservations', function() {
     globals.resetGame();
     globals.resetMemory();
     Memory.energyReserves = {};
-    Game.rooms['W1N1'] = { name: 'W1N1', storage: null, find: () => [] };
+    const source = {
+      id: 'src1',
+      pos: {
+        x: 5,
+        y: 5,
+        roomName: 'W1N1',
+        findInRange: () => [],
+      },
+    };
+    Game.rooms['W1N1'] = {
+      name: 'W1N1',
+      storage: null,
+      find: (type) => {
+        if (type === FIND_SOURCES) return [source];
+        return [];
+      },
+    };
+    Game.getObjectById = (id) => (id === source.id ? source : null);
   });
 
   it('picks non-reserved resource when closer one fully reserved', function() {
@@ -21,9 +40,10 @@ describe('hauler respects energy reservations', function() {
     const r2 = { id: 'r2', amount: 100, resourceType: RESOURCE_ENERGY, pos: { x: 10, y: 10, roomName: 'W1N1' } };
 
     const room = Game.rooms['W1N1'];
+    const previousFind = room.find;
     room.find = (type) => {
       if (type === FIND_DROPPED_RESOURCES) return [r1, r2];
-      return [];
+      return previousFind(type);
     };
 
     const creep = {

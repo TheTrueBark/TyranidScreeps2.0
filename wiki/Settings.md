@@ -1,4 +1,4 @@
-ï»¿# Settings
+# Settings
 
 This page lists runtime toggles stored under `Memory.settings` and related console commands. These options let you adjust visual overlays and logging from the game console.
 

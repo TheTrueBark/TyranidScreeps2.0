@@ -18,4 +18,9 @@ describe('dna.getBodyParts', function() {
     const parts = dna.getBodyParts('miner', Game.rooms['W1N1']);
     expect(parts).to.deep.equal(['work', 'work', 'move']);
   });
+
+  it('builds scout using move parts only', function() {
+    const parts = dna.getBodyParts('scout', Game.rooms['W1N1']);
+    expect(parts).to.deep.equal(['move', 'move', 'move', 'move', 'move']);
+  });
 });

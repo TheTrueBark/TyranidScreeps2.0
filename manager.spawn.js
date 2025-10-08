@@ -371,6 +371,10 @@ const spawnManager = {
       spawn.id,
       0,
       priority,
+      undefined,
+      {
+        ...(starter ? { ignoreRestriction: true } : {}),
+      },
       task
         ? {
             parentTaskId: task.parentTaskId,
@@ -382,6 +386,56 @@ const spawnManager = {
     logger.log(
       "spawnManager",
       `Added hauler creep to spawn queue in room ${room.name}`,
+      2,
+    );
+    return bodyParts.length;
+  },
+
+  spawnScout(spawn, room, energyCapacityAvailable, task = null) {
+    let bodyParts = dna.getBodyParts('scout', room);
+    let energyCost = bodyCost(bodyParts);
+
+    if (energyCost > room.energyAvailable) {
+      const fallbackBody = dna.getBodyParts('scout', room, true);
+      const fallbackCost = bodyCost(fallbackBody);
+      if (fallbackCost <= room.energyAvailable) {
+        bodyParts = fallbackBody;
+        energyCost = fallbackCost;
+      } else {
+        logger.log(
+          'spawnManager',
+          `Skipping scout request for ${room.name}: only ${room.energyAvailable} energy available`,
+          3,
+        );
+        return 0;
+      }
+    }
+
+    const priority = resolvePriority('scout', {
+      starter: Boolean(task && task.data && task.data.bootstrap),
+    });
+    spawnQueue.addToQueue(
+      'scout',
+      room.name,
+      bodyParts,
+      {
+        role: 'scout',
+        bootstrap: Boolean(task && task.data && task.data.bootstrap),
+      },
+      spawn.id,
+      0,
+      priority,
+      task
+        ? {
+            parentTaskId: task.id,
+            subOrder: task.data && task.data.subOrder,
+            parentTick: task.data && task.data.parentTick,
+          }
+        : undefined,
+    );
+    logger.log(
+      'spawnManager',
+      `Queued scout creep for ${room.name}`,
       2,
     );
     return bodyParts.length;
@@ -774,23 +828,42 @@ const spawnManager = {
             );
           }
           break;
-        }
-        case 'spawnUpgrader':
-          this.spawnUpgrader(spawn, room);
-          htm.claimTask(
-            htm.LEVELS.COLONY,
-            room.name,
-            task.name,
-            'spawnManager',
-            DEFAULT_CLAIM_COOLDOWN,
-            dna.getBodyParts('upgrader', room).length * CREEP_SPAWN_TIME,
-          );
-          break;
-        case 'spawnBuilder':
-          this.spawnBuilder(spawn, room);
-          htm.claimTask(
-            htm.LEVELS.COLONY,
-            room.name,
+          }
+          case 'spawnUpgrader':
+            this.spawnUpgrader(spawn, room);
+            htm.claimTask(
+              htm.LEVELS.COLONY,
+              room.name,
+              task.name,
+              'spawnManager',
+              DEFAULT_CLAIM_COOLDOWN,
+              dna.getBodyParts('upgrader', room).length * CREEP_SPAWN_TIME,
+            );
+            break;
+          case 'spawnScout': {
+            const scoutSize = this.spawnScout(
+              spawn,
+              room,
+              energyCapacityAvailable,
+              task,
+            );
+            if (scoutSize > 0) {
+              htm.claimTask(
+                htm.LEVELS.COLONY,
+                room.name,
+                task.name,
+                'spawnManager',
+                DEFAULT_CLAIM_COOLDOWN,
+                scoutSize * CREEP_SPAWN_TIME,
+              );
+            }
+            break;
+          }
+          case 'spawnBuilder':
+            this.spawnBuilder(spawn, room);
+            htm.claimTask(
+              htm.LEVELS.COLONY,
+              room.name,
             task.name,
             'spawnManager',
             DEFAULT_CLAIM_COOLDOWN,

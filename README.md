@@ -65,16 +65,6 @@ Below is a high-level checklist tracking progress. Priority ranges from 1 (low) 
 
 Next step: focus on the hierarchical task system so the scheduler can trigger colony and creep level tasks dynamically.
 
-## 📘 Documentation
-- [System Overview](./docs/SYSTEM_OVERVIEW.md)
+## Documentation
+- [Project Wiki](./wiki/Home.md) - architecture and system guides
 - [Roadmap](./ROADMAP.md)
-- [Logger](./docs/logger.md)
-- [Scheduler](./docs/scheduler.md)
-- [HTM](./docs/htm.md)
-- [HiveMind](./docs/hivemind.md)
-- [Console Stats](./docs/console.md)
-- [Spawn Queue](./docs/spawnQueue.md)
-- [HiveTravel](./docs/hiveTravel.md)
-- [Settings](./docs/settings.md)
-- [Runtime Environment](./docs/runtime.md)
-

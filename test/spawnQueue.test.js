@@ -66,4 +66,20 @@ describe('spawnQueue priority handling', function() {
     const next2 = spawnQueue.getNextSpawn('s1');
     expect(next2.category).to.equal('hauler');
   });
+
+  it('prunes immediate requests beyond cap while keeping delayed entries', function() {
+    Game.time = 50;
+    spawnQueue.queue = [];
+    spawnQueue.addToQueue('hauler', 'W1N1', [CARRY, MOVE], { role: 'hauler' }, 's1', 0, 30);
+    spawnQueue.addToQueue('hauler', 'W1N1', [CARRY, MOVE], { role: 'hauler' }, 's1', 0, 35);
+    spawnQueue.addToQueue('hauler', 'W1N1', [CARRY, MOVE], { role: 'hauler' }, 's1', 5, 40);
+
+    const removed = spawnQueue.pruneRole('W1N1', 'hauler', 2, { liveCount: 1 });
+    expect(removed).to.equal(2);
+
+    const delayed = spawnQueue.queue.filter(req => req.ticksToSpawn > 0);
+    expect(delayed.length).to.equal(1);
+    const immediate = spawnQueue.queue.filter(req => !req.ticksToSpawn || req.ticksToSpawn <= 0);
+    expect(immediate.length).to.equal(0);
+  });
 });

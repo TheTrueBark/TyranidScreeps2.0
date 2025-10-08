@@ -121,6 +121,34 @@ describe('hivemind spawn module', function () {
     expect(tasks).to.be.an('array');
   });
 
+  it('queues starter couples, high-priority upgraders, and a scout during bootstrap', function () {
+    Game.creeps = {
+      h1: { my: true, memory: { role: 'hauler' }, room: { name: 'W1N1' } },
+      m1: { my: true, memory: { role: 'miner' }, room: { name: 'W1N1' } },
+    };
+    if (!Memory.htm.colonies['W1N1']) {
+      Memory.htm.colonies['W1N1'] = { tasks: [] };
+    } else {
+      Memory.htm.colonies['W1N1'].tasks = [];
+    }
+    spawnQueue.queue = [];
+
+    spawnModule.run(Game.rooms['W1N1']);
+
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const starterTask = tasks.find(t => t.name === 'spawnStarterCouple');
+    const upgraderTask = tasks.find(t => t.name === 'spawnUpgrader');
+    const scoutTask = tasks.find(t => t.name === 'spawnScout');
+
+    expect(starterTask).to.exist;
+    expect(starterTask.priority).to.equal(0);
+    expect(upgraderTask).to.exist;
+    expect(upgraderTask.priority).to.equal(1);
+    expect(upgraderTask.amount).to.be.at.least(1);
+    expect(scoutTask).to.exist;
+    expect(scoutTask.priority).to.equal(4);
+  });
+
   it('caps builders to four per site with overall max', function () {
     Game.rooms['W1N1'].controller.level = 2;
     Game.rooms['W1N1'].memory.buildingQueue = [

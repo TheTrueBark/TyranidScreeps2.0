@@ -13,6 +13,115 @@ const taskExists = (roomName, name, manager = null) => {
   );
 };
 
+const countAliveCreeps = (roomName, role) =>
+  Object.values(Game.creeps || {}).filter(
+    (creep) =>
+      creep &&
+      creep.memory &&
+      creep.memory.role === role &&
+      creep.room &&
+      creep.room.name === roomName,
+  ).length;
+
+const countQueuedRequests = (roomName, role) =>
+  spawnQueue.queue.filter(
+    (req) =>
+      req.room === roomName &&
+      (req.category === role || (req.memory && req.memory.role === role)),
+  ).length;
+
+function ensureBootstrapPriorities(room, container) {
+  if (!container || !container.tasks) return;
+  const roomName = room.name;
+  const spawnLimits =
+    (Memory.rooms &&
+      Memory.rooms[roomName] &&
+      Memory.rooms[roomName].spawnLimits) ||
+    {};
+
+  const desiredMiners =
+    spawnLimits.miners ||
+    (room.find ? room.find(FIND_SOURCES).length : 1) ||
+    1;
+
+  const starterTask = container.tasks.find(
+    (t) => t.name === TASK_STARTER_COUPLE && t.manager === 'spawnManager',
+  );
+  const starterAmount = starterTask ? starterTask.amount || 0 : 0;
+  const minersAlive = countAliveCreeps(roomName, 'miner');
+  const queuedMiners = countQueuedRequests(roomName, 'miner');
+  const missingPairs = Math.max(
+    0,
+    desiredMiners - (minersAlive + queuedMiners + starterAmount),
+  );
+  if (missingPairs > 0) {
+    if (starterTask) {
+      starterTask.amount += missingPairs;
+      starterTask.priority = Math.min(starterTask.priority || 0, 0);
+    } else {
+      htm.addColonyTask(
+        roomName,
+        TASK_STARTER_COUPLE,
+        {},
+        0,
+        50,
+        missingPairs,
+        'spawnManager',
+      );
+    }
+  }
+
+  const bootstrapUpgraderTarget = 2;
+  const upgraderTask = container.tasks.find(
+    (t) => t.name === 'spawnUpgrader' && t.manager === 'spawnManager',
+  );
+  const upAlive = countAliveCreeps(roomName, 'upgrader');
+  const upQueued = countQueuedRequests(roomName, 'upgrader');
+  const upPending =
+    upAlive + upQueued + (upgraderTask ? upgraderTask.amount || 0 : 0);
+  const missingUpgraders = Math.max(0, bootstrapUpgraderTarget - upPending);
+  if (missingUpgraders > 0) {
+    if (upgraderTask) {
+      upgraderTask.amount = (upgraderTask.amount || 0) + missingUpgraders;
+      upgraderTask.priority =
+        typeof upgraderTask.priority === 'number'
+          ? Math.min(upgraderTask.priority, 1)
+          : 1;
+    } else {
+      htm.addColonyTask(
+        roomName,
+        'spawnUpgrader',
+        { role: 'upgrader', bootstrap: true },
+        1,
+        30,
+        missingUpgraders,
+        'spawnManager',
+      );
+    }
+  }
+
+  const scoutTask = container.tasks.find(
+    (t) => t.name === 'spawnScout' && t.manager === 'spawnManager',
+  );
+  const scoutAlive = countAliveCreeps(roomName, 'scout');
+  const scoutQueued = countQueuedRequests(roomName, 'scout');
+  const scoutPending =
+    scoutAlive + scoutQueued + (scoutTask ? scoutTask.amount || 0 : 0);
+  if (scoutPending === 0) {
+    htm.addColonyTask(
+      roomName,
+      'spawnScout',
+      { role: 'scout', bootstrap: true },
+      4,
+      50,
+      1,
+      'spawnManager',
+    );
+  } else if (scoutTask && (scoutTask.priority || 0) > 4) {
+    scoutTask.priority = 4;
+  }
+}
+
 const spawnModule = {
   /** Check if this module should run this tick for the given room */
   shouldRun(room) {
@@ -150,6 +259,10 @@ const spawnModule = {
     // Delegate role evaluation to hive.roles module
     const roles = require('./hive.roles');
     roles.evaluateRoom(room);
+
+    if (room.controller.level === 1) {
+      ensureBootstrapPriorities(room, container);
+    }
 
     // Fallback: ensure at least two haulers exist before spawning extras
     const haulerTask =
