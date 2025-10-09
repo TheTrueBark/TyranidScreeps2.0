@@ -94,6 +94,22 @@
 - [x] Global demand totals aggregate per room and supply rate only counts hauler deliveries
 - [x] Haulers prioritise ruins and tombstones when closer than containers
 
+### 🚚 Remote Harvest Pipeline (Prio 4)
+- [ ] Extend `manager.hiveGaze.remoteScoreRoom` to store per-source paths, terrain costs, and claimed-by data for downstream consumers.
+- [ ] Teach `manager.spawn` to size dedicated remote haulers using stored distances (round-trip energy > carry capacity → add CARRY/MOVE pairs).
+- [ ] Update `role.hauler` (or create `role.remoteHauler`) so creeps can accept `remote` pickup tasks, navigate across rooms, and unload to the owning colony’s link/storage.
+- [ ] Ensure remote miners auto-request containers and link them to dropoff points for hauler pathfinding.
+- [ ] Add lifecycle predictors that queue replacement miners/haulers/reservers based on travel time and TTL.
+- [ ] Cover the full pipeline in `test/remotePipeline.test.js`: remote claim queues miner+hauler, hauler delivers home, reservation upkeep respected.
+
+-### 🛰️ Empire Logistics Network (Prio 3)
+- [ ] Create `manager.logistics` to scan all owned terminals/storage each tick and compute surplus/deficit per resource.
+- [ ] Allow rooms to lodge logistics requests (energy, boosts, power) via memory schema consumed by HTM planners.
+- [ ] Implement terminal balancing: move excess energy > threshold to deficit rooms before market sales.
+- [ ] Add market hooks: sell surplus when empire buffer > target, buy deficit resources when no donor room exists.
+- [ ] Dispatch lightweight hauler tasks to move overflow energy into terminals/storage so buffers stay within min/max bands.
+- [ ] Write tests that simulate multi-room inventories and assert transfer orders.
+
 ---
 
 ## 🛰️ Map Awareness – Hive's Gaze (Prio 3)
@@ -103,6 +119,13 @@
 - [ ] Trigger HTM defensive tasks (e.g. defend room X)
 - [ ] Pattern analysis: recurring threats, raid timings
 - [ ] Persistent “intel” storage for enemy activity
+
+### 📈 Remote Profitability Modeling (Prio 4)
+- [ ] Calculate per-source net energy (`harvest - miner upkeep - hauler upkeep - reservation`) using existing DNA helpers.
+- [ ] Track spawn-time consumption per remote (ticks of spawn blocked) and expose it via `Memory.rooms[remote].profit`.
+- [ ] Use profitability and spawn budgets to rank candidate remotes in `selectExpansionTarget` (knapsack selection when multiple remotes compete for spawn time).
+- [ ] Persist profitability history to detect remotes that have fallen below configured net thresholds and trigger HTM “drop remote” tasks.
+- [ ] Unit test scoring behaviour with mocked path lengths and source energy densities.
 
 ### ✅ Room Intelligence (Prio 3)
 - [x] Distance transform for terrain analysis
@@ -169,25 +192,37 @@
 - [ ] Cost-aware scaling by room energy
 - [ ] Templates per role, RCL-dependent
 
-### 🧱 Auto-Layout System
-- [ ] Analyze room structures by RCL
-- [x] Auto-place extensions in plus-shaped stamps around the spawn
-- [ ] Auto-place roads, containers, towers
-- [ ] Plan paths from sources to controller/spawns/storage
-- [x] Declare spawn restricted area in memory for movement logic
-- [x] Haulers supply controller containers when energy drops below capacity
+### 🧱 Auto-Layout System (Prio 3)
+- [ ] Generate multiple base stamp candidates using distance transforms (11×11 bunker, 5×5 hybrid, etc.).
+- [ ] Score anchors by travel distance to controller/sources/minerals and defensive choke options.
+- [ ] Emit lab/extension/tower/road stamps as discrete layers consumable by `manager.building`.
+- [ ] Teach `manager.building.executeLayout` to respect reserved tiles, rampart overlays, and phased RCL unlocks.
+- [ ] Persist selected layout in `room.memory.layout` and add visual debug overlays for verification.
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
 - [ ] Live creep debug (e.g. display current task)
 - [ ] Visualize HTM task tree (`console.taskTree()`)
 - [x] `startFresh()` console helper to wipe all memory
+### 🛡️ Active Defense Orchestration (Prio 3)
+- [ ] Implement `manager.defense` to classify incoming raids (scout, poke, siege) using hive gaze threat feeds.
+- [ ] Subtract tower DPS from hostile EHP to determine required defender compositions.
+- [ ] Add `role.defender` (melee/ranged/healer mixes) with coordinated rampart movement and focus fire.
+- [ ] Expose HTM hooks to request/retire defenders and to queue rampart repair tasks post-fight.
+- [ ] Simulate invasion waves in tests to validate defender spawn triggers and targeting logic.
+
+### 🛸 Quad Combat Doctrine (Prio 2)
+- [ ] Build `combat.quad` helper that maintains 2×2 formations, adjusts cost matrices, and issues synchronized moves.
+- [ ] Create `role.quadMember` behaviour for attack/heal combos and retreat sequencing.
+- [ ] Add HTM tasks for assembling quads at staging rooms, including creep DNA templates and rally positions.
+- [ ] Provide sandbox/simulation coverage to ensure formation integrity across room transitions and through swamps.
 
 ---
 
 ## 🧭 Immediate Focus
 
-> Build out the **Hierarchical Task Management (HTM)** system:
-> - Define task levels and scopes
-> - Trigger dynamically via Scheduler
-> - Assign tasks to creeps and rooms based on need
+> 1. Build out the **Hierarchical Task Management (HTM)** system:
+>    - Define task levels and scopes
+>    - Trigger dynamically via Scheduler
+>    - Assign tasks to creeps and rooms based on need
+> 2. Prototype the **Remote Profitability Modeling** + **Remote Harvest Pipeline** to unlock net-positive remote mining before adding more remotes.
