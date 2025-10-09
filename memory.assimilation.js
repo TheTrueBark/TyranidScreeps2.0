@@ -36,15 +36,67 @@ function safeInvoke(fn, context, name) {
 }
 
 function removeFromRoomStructureMemory(structureId) {
-  if (!Memory.rooms) return;
+  const removed = [];
+  if (!Memory.rooms) return removed;
   for (const roomName of Object.keys(Memory.rooms)) {
     const roomMem = Memory.rooms[roomName];
     if (Array.isArray(roomMem.structures)) {
-      roomMem.structures = roomMem.structures.filter((s) => s.id !== structureId);
+      const remaining = [];
+      for (const entry of roomMem.structures) {
+        if (entry && entry.id === structureId) {
+          removed.push({
+            roomName,
+            id: entry.id,
+            structureType: entry.structureType,
+            pos: entry.pos
+              ? {
+                  x: entry.pos.x,
+                  y: entry.pos.y,
+                  roomName: entry.pos.roomName || roomName,
+                }
+              : null,
+          });
+        } else {
+          remaining.push(entry);
+        }
+      }
+      roomMem.structures = remaining;
     }
     if (Array.isArray(roomMem.buildingQueue)) {
       roomMem.buildingQueue = roomMem.buildingQueue.filter((entry) => entry.id !== structureId);
     }
+  }
+  return removed;
+}
+
+function queueStructureRebuilds(entries) {
+  if (!entries || entries.length === 0) return;
+  for (const entry of entries) {
+    if (!entry || !entry.roomName || !entry.structureType || !entry.pos) continue;
+    const roomMem = Memory.rooms && Memory.rooms[entry.roomName];
+    if (!roomMem) continue;
+    roomMem.rebuildQueue = roomMem.rebuildQueue || [];
+    const exists = roomMem.rebuildQueue.some(
+      (queued) =>
+        queued &&
+        queued.structureType === entry.structureType &&
+        queued.pos &&
+        queued.pos.x === entry.pos.x &&
+        queued.pos.y === entry.pos.y &&
+        (queued.pos.roomName || entry.roomName) === entry.pos.roomName,
+    );
+    if (exists) continue;
+    roomMem.rebuildQueue.push({
+      structureType: entry.structureType,
+      pos: {
+        x: entry.pos.x,
+        y: entry.pos.y,
+        roomName: entry.pos.roomName || entry.roomName,
+      },
+      queued:
+        typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0,
+      reason: 'assimilation',
+    });
   }
 }
 
@@ -99,7 +151,8 @@ const assimilation = {
     energyRequests.clearStructure(structureId);
     energyDemand.cleanupRequester(structureId);
     purgeMaintenanceRequest(structureId);
-    removeFromRoomStructureMemory(structureId);
+    const removed = removeFromRoomStructureMemory(structureId);
+    queueStructureRebuilds(removed);
   },
 };
 

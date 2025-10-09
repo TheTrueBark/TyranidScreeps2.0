@@ -59,4 +59,47 @@ describe('structure maintenance requests', function () {
     const summary = maintenance.getRoomRepairSummary('W1N1');
     expect(summary).to.be.an('array').that.is.empty;
   });
+
+  it('queues rebuild when tracked structure vanishes', function () {
+    Game.time = 2468;
+    Memory.rooms = {
+      W1N1: {
+        structures: [
+          { id: 'contMissing', structureType: STRUCTURE_CONTAINER, pos: { x: 7, y: 7 } },
+        ],
+      },
+    };
+    Memory.maintenance = {
+      rooms: {
+        W1N1: {
+          requests: {
+            contMissing: {
+              id: 'contMissing',
+              structureType: STRUCTURE_CONTAINER,
+              pos: { x: 7, y: 7, roomName: 'W1N1' },
+              assignedTo: null,
+              ratio: 0.2,
+              threshold: 0.75,
+            },
+          },
+          lastRun: 0,
+        },
+      },
+    };
+
+    const room = {
+      name: 'W1N1',
+      controller: { my: true },
+      find: () => [],
+    };
+
+    maintenance.run(room);
+
+    expect(Memory.rooms.W1N1.structures).to.be.an('array').that.is.empty;
+    expect(Memory.rooms.W1N1.rebuildQueue).to.be.an('array').with.lengthOf(1);
+    const queued = Memory.rooms.W1N1.rebuildQueue[0];
+    expect(queued.structureType).to.equal(STRUCTURE_CONTAINER);
+    expect(queued.pos).to.deep.equal({ x: 7, y: 7, roomName: 'W1N1' });
+    expect(queued.queued).to.equal(Game.time);
+  });
 });

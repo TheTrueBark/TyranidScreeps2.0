@@ -6,6 +6,14 @@ const layoutVisualizer = require('./layoutVisualizer');
 const htm = require('./manager.htm');
 const constructionBlocker = require('./constructionBlocker');
 
+const REBUILD_RETRY_TICKS = 25;
+const OK_CODE = typeof OK !== 'undefined' ? OK : 0;
+const ERR_FULL_CODE = typeof ERR_FULL !== 'undefined' ? ERR_FULL : -8;
+const ERR_RCL_NOT_ENOUGH_CODE =
+  typeof ERR_RCL_NOT_ENOUGH !== 'undefined' ? ERR_RCL_NOT_ENOUGH : -14;
+const ERR_INVALID_TARGET_CODE =
+  typeof ERR_INVALID_TARGET !== 'undefined' ? ERR_INVALID_TARGET : -7;
+
 // Configurable weights for different structures
 const constructionWeights = {
   spawn: 1000,
@@ -99,6 +107,7 @@ const buildingManager = {
   buildInfrastructure: function (room) {
     this.processHTMTasks(room);
     this.monitorClusterTasks(room);
+    this.processRebuildQueue(room);
     if (this.shouldUpdateCache(room)) {
       this.cacheBuildableAreas(room);
       statsConsole.log(`Recalculated buildable areas for room ${room.name}`, 6);
@@ -117,6 +126,74 @@ const buildingManager = {
     }
 
     this.executeLayout(room);
+  },
+
+  processRebuildQueue: function (room) {
+    if (!room || !room.memory) return;
+    const queue = Array.isArray(room.memory.rebuildQueue)
+      ? room.memory.rebuildQueue
+      : [];
+    if (queue.length === 0) return;
+
+    const nextQueue = [];
+    for (const entry of queue) {
+      if (!entry || !entry.structureType || !entry.pos) continue;
+      const targetRoom = entry.pos.roomName || room.name;
+      if (targetRoom !== room.name) {
+        nextQueue.push(entry);
+        continue;
+      }
+
+      const { x, y } = entry.pos;
+      if (typeof x !== 'number' || typeof y !== 'number') continue;
+
+      if (entry.retryAt && typeof entry.retryAt === 'number' && entry.retryAt > Game.time) {
+        nextQueue.push(entry);
+        continue;
+      }
+
+      const structures = room.lookForAt
+        ? room.lookForAt(LOOK_STRUCTURES, x, y)
+        : [];
+      const sites = room.lookForAt
+        ? room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
+        : [];
+
+      const hasStructure = structures.some((s) => s.structureType === entry.structureType);
+      if (hasStructure) {
+        continue;
+      }
+
+      const hasSite = sites.some((s) => s.structureType === entry.structureType);
+      if (hasSite) {
+        continue;
+      }
+
+      if (constructionBlocker.isTileBlocked(room.name, x, y)) {
+        nextQueue.push(entry);
+        continue;
+      }
+
+      const result = room.createConstructionSite
+        ? room.createConstructionSite(x, y, entry.structureType)
+        : ERR_INVALID_TARGET_CODE;
+
+      if (result === OK_CODE) {
+        statsConsole.log(
+          `Requeued construction for missing ${entry.structureType} at ${room.name} (${x}, ${y})`,
+          6,
+        );
+        continue;
+      }
+
+      if (result === ERR_FULL_CODE || result === ERR_RCL_NOT_ENOUGH_CODE) {
+        entry.retryAt = Game.time + REBUILD_RETRY_TICKS;
+        entry.lastError = result;
+        nextQueue.push(entry);
+      }
+    }
+
+    room.memory.rebuildQueue = nextQueue;
   },
 
   /**
