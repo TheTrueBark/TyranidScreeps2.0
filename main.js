@@ -12,6 +12,8 @@ const roleHauler = require("role.hauler");
 const roleRemoteMiner = require('./role.remoteMiner');
 const roleReservist = require('./role.reservist');
 const roleBaseDistributor = require('./role.baseDistributor');
+const maintenanceManager = require('./manager.maintenance');
+const assimilation = require('./memory.assimilation');
 const distanceTransform = require("algorithm.distanceTransform");
 const hudManager = require("manager.hud");
 const stampManager = require("manager.stamps");
@@ -206,32 +208,10 @@ scheduler.addTask(
 ); // @codex-owner main @codex-trigger once
 
 scheduler.addTask("clearMemory", 100, () => {
-  const roleMap = {
-    upgrader: roleUpgrader,
-    miner: roleMiner,
-    builder: roleBuilder,
-    hauler: roleHauler,
-    remoteMiner: roleRemoteMiner,
-    reservist: roleReservist,
-  };
   let removed = false;
   for (const name in Memory.creeps) {
     if (!Game.creeps[name]) {
-      const mem = Memory.creeps[name];
-      const mod = roleMap[mem.role];
-      if (mod && typeof mod.onDeath === 'function') {
-        try {
-          mod.onDeath({ name, memory: mem });
-        } catch (e) {
-          logger.log('memory', `onDeath error for ${name}: ${e}`, 4);
-        }
-      }
-      logger.log('memory', `Clearing memory of dead creep: ${name}`, 2);
-      energyDemand.cleanupCreep(name);
-      delete Memory.creeps[name];
-      if (Memory.htm && Memory.htm.creeps && Memory.htm.creeps[name]) {
-        delete Memory.htm.creeps[name];
-      }
+      assimilation.assimilateCreep(name);
       removed = true;
     }
   }
@@ -280,6 +260,13 @@ scheduler.addTask("buildInfrastructure", 0, () => {
     buildingManager.buildInfrastructure(room);
   }
 }); // @codex-owner buildingManager @codex-trigger {"type":"interval","interval":0}
+
+scheduler.addTask('maintainStructures', 5, () => {
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    maintenanceManager.run(room);
+  }
+}); // @codex-owner maintenanceManager @codex-trigger {"type":"interval","interval":5}
 
 // Lifecycle-based miner replacement
 scheduler.addTask('predictMinerLifecycles', 25, () => {

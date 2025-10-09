@@ -13,6 +13,25 @@ const ensureDeliveryMemory = () => {
   return Memory[DELIVERY_MEMORY_KEY];
 };
 
+const clearStructureState = (structureId) => {
+  if (!structureId) return;
+  const memory = ensureDeliveryMemory();
+  if (memory[structureId]) delete memory[structureId];
+  removeDeliverTask(structureId);
+};
+
+const pruneMissingStates = (roomName = null) => {
+  const memory = ensureDeliveryMemory();
+  for (const id of Object.keys(memory)) {
+    const state = memory[id];
+    if (roomName && state.roomName !== roomName) continue;
+    const object = typeof Game.getObjectById === 'function' ? Game.getObjectById(id) : null;
+    if (!object) {
+      clearStructureState(id);
+    }
+  }
+};
+
 const ensureStructureState = (structure, fallback = {}) => {
   if (!structure || !structure.id) return null;
   const memory = ensureDeliveryMemory();
@@ -193,6 +212,8 @@ const energyRequests = {
   run(room) {
     if (!room) return;
 
+    pruneMissingStates(room.name);
+
     const activeIds = new Set();
 
     const spawns =
@@ -318,6 +339,9 @@ const energyRequests = {
       }))
       .sort((a, b) => (b.outstanding || 0) - (a.outstanding || 0));
   },
+
+  clearStructure: clearStructureState,
+  pruneMissingStates,
 };
 
 module.exports = energyRequests;
