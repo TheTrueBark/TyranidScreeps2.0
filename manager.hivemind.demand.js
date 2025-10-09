@@ -193,11 +193,26 @@ const demandModule = {
    * @param {string} name - The creep name to purge from memory
    */
   cleanupCreep(name) {
+    if (!name) return;
+    this.cleanupDeliverer(name);
+    this.cleanupRequester(name);
+  },
+
+  cleanupRequester(id) {
+    if (!id) return;
     initMemory();
     for (const roomName in Memory.demand.rooms) {
       const mem = Memory.demand.rooms[roomName];
-      if (mem.requesters[name]) delete mem.requesters[name];
-      if (mem.deliverers[name]) delete mem.deliverers[name];
+      if (mem.requesters && mem.requesters[id]) delete mem.requesters[id];
+    }
+  },
+
+  cleanupDeliverer(name) {
+    if (!name) return;
+    initMemory();
+    for (const roomName in Memory.demand.rooms) {
+      const mem = Memory.demand.rooms[roomName];
+      if (mem.deliverers && mem.deliverers[name]) delete mem.deliverers[name];
     }
   },
 
