@@ -3,6 +3,7 @@ const visualizer = require('manager.visualizer');
 const layoutVisualizer = require('./layoutVisualizer');
 const spawnQueue = require('./manager.spawnQueue');
 const energyRequests = require('./manager.energyRequests');
+const maintenance = require('./manager.maintenance');
 
 const MAX_QUEUE_LINES = 5;
 const MAX_TASK_LINES = 6;
@@ -129,26 +130,46 @@ const buildColonyTaskLines = (room) => {
 };
 
 const buildEnergySummaryLines = (room) => {
-  const summaries = energyRequests
+  const deliveries = energyRequests
     .getRoomDeliverySummary(room.name)
-    .filter(
-      (entry) =>
-        (entry.outstanding || 0) > 0 || (entry.reserved || 0) > 0,
-    )
-    .slice(0, MAX_ENERGY_LINES);
+    .filter((entry) => (entry.outstanding || 0) > 0 || (entry.reserved || 0) > 0);
+  const repairs = maintenance.getRoomRepairSummary(room.name);
 
-  if (!summaries.length) return [];
+  const deliverySlice = deliveries.slice(0, MAX_ENERGY_LINES);
+  const repairSlice = repairs.slice(0, MAX_ENERGY_LINES);
+
+  if (!deliverySlice.length && !repairSlice.length) return [];
 
   const lines = ['Energy Logistics', '-----------------'];
-  summaries.forEach((entry) => {
-    const label = prettifyWords(entry.structureType || 'structure');
-    const outstanding = entry.outstanding || 0;
-    const reserved = entry.reserved || 0;
-    lines.push(`  ${label}: need ${outstanding}, reserved ${reserved}`);
-  });
-  if (summaries.length < energyRequests.getRoomDeliverySummary(room.name).length) {
-    lines.push('  …');
+
+  if (deliverySlice.length) {
+    deliverySlice.forEach((entry) => {
+      const label = prettifyWords(entry.structureType || 'structure');
+      const outstanding = entry.outstanding || 0;
+      const reserved = entry.reserved || 0;
+      lines.push(`  ${label}: need ${outstanding}, reserved ${reserved}`);
+    });
+    if (deliveries.length > deliverySlice.length) {
+      lines.push('  …');
+    }
+  } else {
+    lines.push('  Deliveries: none');
   }
+
+  if (repairSlice.length) {
+    if (deliverySlice.length) lines.push('');
+    lines.push('Repair Requests');
+    repairSlice.forEach((entry) => {
+      const label = prettifyWords(entry.structureType || 'structure');
+      const missing = Math.max(0, Math.ceil(entry.outstanding || 0));
+      const integrity = Math.max(0, Math.min(100, Math.round((entry.ratio || 0) * 100)));
+      lines.push(`  ${label}: repair ${missing} (${integrity}% hp)`);
+    });
+    if (repairs.length > repairSlice.length) {
+      lines.push('  …');
+    }
+  }
+
   return lines;
 };
 

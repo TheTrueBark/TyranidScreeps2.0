@@ -2,6 +2,7 @@ const htm = require('./manager.htm');
 const spawnQueue = require('./manager.spawnQueue');
 const dna = require('./manager.dna');
 const statsConsole = require('console.console');
+const maintenance = require('./manager.maintenance');
 const _ = require('lodash');
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 
@@ -168,6 +169,7 @@ const roles = {
 
     // --- Builder calculation ---
     const sites = room.find(FIND_CONSTRUCTION_SITES);
+    const repairDemand = maintenance.getActiveRepairDemand(roomName);
     let desiredBuilders = Math.min(6, sites.length * 2);
     const liveBuilders = _.filter(
       Game.creeps,
@@ -181,6 +183,8 @@ const roles = {
     const manualBuilders = manualLimits.builders;
     if (manualBuilders !== undefined && manualBuilders !== 'auto') {
       desiredBuilders = manualBuilders;
+    } else if (repairDemand > 0) {
+      desiredBuilders = Math.max(desiredBuilders, 1);
     }
     const buildersNeeded = Math.max(
       0,

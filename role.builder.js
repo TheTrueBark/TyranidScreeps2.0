@@ -1,5 +1,6 @@
 const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
+const maintenance = require('./manager.maintenance');
 const _ = require('lodash');
 
 /**
@@ -97,6 +98,34 @@ function chooseSite(creep) {
   return null;
 }
 
+function fetchRepairTarget(creep) {
+  const { repairTarget } = creep.memory;
+  let target = repairTarget ? Game.getObjectById(repairTarget) : null;
+
+  if (
+    target &&
+    target.hits >= target.hitsMax * maintenance.CLEAR_RATIO
+  ) {
+    maintenance.completeRepair(creep.room.name, target.id, creep.name);
+    creep.memory.repairTarget = null;
+    target = null;
+  }
+
+  if (!target) {
+    const request = maintenance.assignRepairTarget(creep.room.name, creep.name);
+    if (request) {
+      creep.memory.repairTarget = request.id;
+      target = Game.getObjectById(request.id) || null;
+      if (!target) {
+        maintenance.completeRepair(creep.room.name, request.id, creep.name);
+        creep.memory.repairTarget = null;
+      }
+    }
+  }
+
+  return target;
+}
+
 const roleBuilder = {
   run(creep) {
     movementUtils.avoidSpawnArea(creep);
@@ -111,6 +140,25 @@ const roleBuilder = {
 
     if (!creep.memory.working) {
       gatherEnergy(creep);
+      return;
+    }
+
+    const repairTarget = fetchRepairTarget(creep);
+    if (repairTarget) {
+      const repairResult = creep.repair(repairTarget);
+      if (repairResult === ERR_NOT_IN_RANGE) {
+        creep.travelTo(repairTarget, { visualizePathStyle: { stroke: '#ffffff' } });
+      } else if (repairResult === OK) {
+        if (
+          repairTarget.hits >= repairTarget.hitsMax ||
+          repairTarget.hits / repairTarget.hitsMax >= maintenance.CLEAR_RATIO
+        ) {
+          maintenance.completeRepair(creep.room.name, repairTarget.id, creep.name);
+          creep.memory.repairTarget = null;
+        }
+      } else if (repairResult === ERR_NOT_ENOUGH_ENERGY) {
+        creep.memory.working = false;
+      }
       return;
     }
 
@@ -156,6 +204,7 @@ const roleBuilder = {
     // Clean up any lingering task references when the creep dies
     delete creep.memory.mainTask;
     delete creep.memory.targetId;
+    delete creep.memory.repairTarget;
   },
 };
 
