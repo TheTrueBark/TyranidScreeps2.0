@@ -21,7 +21,7 @@ describe('hauler assignment preference', function() {
     global.ERR_TIRED = -11;
   });
 
-  it('prefers assigned drop location even if another has more energy', function() {
+  it('picks the most efficient drop even when another source is assigned', function() {
     const source = {
       id: 'src1',
       pos: {
@@ -64,8 +64,8 @@ describe('hauler assignment preference', function() {
       store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 50 },
       room: Game.rooms['W1N1'],
       pos: {
-        x: 0,
-        y: 0,
+        x: 9,
+        y: 9,
         roomName: 'W1N1',
         getRangeTo(target) {
           const pos = target.pos || target;
@@ -91,7 +91,7 @@ describe('hauler assignment preference', function() {
     Game.creeps['hauler1'] = creep;
 
     roleHauler.run(creep);
-    expect(creep.memory.reserving.id).to.equal('drop1');
-    expect(creep.lastPickup).to.equal(assignedDrop);
+    expect(creep.memory.reserving).to.exist;
+    expect(creep.memory.reserving.id).to.equal('drop2');
   });
 });

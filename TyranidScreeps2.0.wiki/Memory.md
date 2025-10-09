@@ -243,10 +243,11 @@ Memory.demand.routes[routeId] = {
 @codex-owner role.hauler
 @codex-path Memory.energyReserves
 
-Records temporary energy reservations for pickup targets. Each key is a resource or
-structure id and the value is the amount currently reserved by haulers.
-`memoryManager.cleanUpEnergyReserves` periodically removes entries when the
-target no longer exists or contains no energy.
+Stores temporary energy reservations for pickup targets. Each key is a resource or
+structure id and the value is the amount currently promised to haulers, which may
+temporarily exceed the physical energy present when a forecasted drop or container
+fill is in progress. `memoryManager.cleanUpEnergyReserves` periodically removes entries
+when the target no longer exists or has been emptied.
 
 ### Runtime Settings
 

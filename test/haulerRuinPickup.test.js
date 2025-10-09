@@ -65,11 +65,12 @@ describe('hauler prefers nearby ruin', function() {
       },
       travelTo: () => {},
       pickup: () => OK,
-      withdraw(target) { this.target = target; return OK; },
+      withdraw: () => OK,
       memory: {},
     };
 
     roleHauler.run(creep);
-    expect(creep.target).to.equal(ruin);
+    expect(creep.memory.reserving).to.exist;
+    expect(creep.memory.reserving.id).to.equal(ruin.id);
   });
 });
