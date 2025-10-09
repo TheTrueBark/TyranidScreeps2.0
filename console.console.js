@@ -542,15 +542,14 @@ var statsConsole = {
     let vbar = opts.vBar || "|";
     let spacing = opts.spacing || " ";
 
+    const safeRepeat = (value, count) =>
+      value.repeat(Math.max(0, Math.floor(count)));
+
     const filteredLogs = logs.filter((l) => l.severity >= minSeverity);
     let boxHeight = filteredLogs.length - 1;
     let boxWidth = totalWidth - 3; // Inside of the box
     let borderWidth = 5;
 
-    let addSpace = 0;
-    if (!(boxWidth % 2 === 0)) {
-      addSpace = 1;
-    }
     var colors = {
       5: "#ff0066",
       4: "#e65c00",
@@ -561,13 +560,18 @@ var statsConsole = {
       highlight: "#ffff00",
     };
 
+    const headerPadding = Math.max(0, boxWidth - title.length);
+    const headerLeft = Math.floor(headerPadding / 2);
+    const headerRight = headerPadding - headerLeft;
+
     var outputLog =
       leftTopCorner +
-      hBar.repeat((boxWidth - title.length) / 2) +
+      safeRepeat(hBar, headerLeft) +
       title +
-      hBar.repeat((boxWidth - title.length) / 2 + addSpace) +
+      safeRepeat(hBar, headerRight) +
       rightTopCorner +
       "\n";
+    const contentWidth = Math.max(1, boxWidth - borderWidth);
     for (let i = 0; i < boxHeight; i++) {
       let severity = filteredLogs[i].severity;
       let message = `${filteredLogs[i].time}: ${filteredLogs[i].message}`;
@@ -604,66 +608,28 @@ var statsConsole = {
         htmlStart = htmlFontStart;
       }
 
-      if (message.length > boxWidth) {
+      let remaining = message;
+      let isFirstChunk = true;
+      while (remaining.length > 0 || isFirstChunk) {
+        const chunk = remaining.substring(0, contentWidth);
+        const visibleChunk = chunk || "";
         outputLog =
           outputLog +
           vbar +
           htmlStart +
-          message.substring(0, boxWidth - borderWidth) +
+          visibleChunk +
           htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
+          safeRepeat(spacing, boxWidth - visibleChunk.length) +
           vbar +
           "\n";
-        outputLog =
-          outputLog +
-          vbar +
-          htmlStart +
-          message.substring(boxWidth - borderWidth) +
-          htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
-          vbar +
-          "\n";
-      } else if (message.length > boxWidth * 2) {
-        outputLog =
-          outputLog +
-          vbar +
-          htmlStart +
-          message.substring(0, boxWidth - borderWidth) +
-          htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
-          vbar +
-          "\n";
-        outputLog =
-          outputLog +
-          vbar +
-          htmlStart +
-          message.substring(
-            boxWidth - borderWidth,
-            boxWidth * 2 - borderWidth,
-          ) +
-          htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
-          vbar +
-          "\n";
-        outputLog =
-          outputLog +
-          vbar +
-          htmlStart +
-          message.substring(boxWidth * 2 - borderWidth) +
-          htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
-          vbar +
-          "\n";
-      } else {
-        outputLog =
-          outputLog +
-          vbar +
-          htmlStart +
-          message +
-          htmlEnd +
-          spacing.repeat(boxWidth - message.length) +
-          vbar +
-          "\n";
+        if (!chunk && isFirstChunk) {
+          break;
+        }
+        remaining = remaining.substring(chunk.length);
+        isFirstChunk = false;
+        if (!remaining.length) {
+          break;
+        }
       }
     }
     let tick = hBar + " Tick: " + Game.time + " ";
@@ -671,7 +637,7 @@ var statsConsole = {
       outputLog +
       leftBottomCorner +
       tick +
-      hBar.repeat(boxWidth - tick.length) +
+      safeRepeat(hBar, boxWidth - tick.length) +
       rightBottomCorner +
       "\n";
     let style = {
