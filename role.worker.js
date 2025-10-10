@@ -17,13 +17,26 @@ const ERR_NOT_ENOUGH_ENERGY_CODE =
   typeof ERR_NOT_ENOUGH_ENERGY !== 'undefined' ? ERR_NOT_ENOUGH_ENERGY : -6;
 const ERR_INVALID_TARGET_CODE =
   typeof ERR_INVALID_TARGET !== 'undefined' ? ERR_INVALID_TARGET : -7;
+function getGlobalConstant(name, fallback) {
+  if (typeof global !== 'undefined' && Object.prototype.hasOwnProperty.call(global, name)) {
+    return global[name];
+  }
+  if (
+    typeof globalThis !== 'undefined' &&
+    Object.prototype.hasOwnProperty.call(globalThis, name)
+  ) {
+    return globalThis[name];
+  }
+  return fallback;
+}
+
 const FINDERS = {
-  DROPPED: typeof FIND_DROPPED_RESOURCES !== 'undefined' ? FIND_DROPPED_RESOURCES : 'FIND_DROPPED_RESOURCES',
-  TOMBSTONES: typeof FIND_TOMBSTONES !== 'undefined' ? FIND_TOMBSTONES : 'FIND_TOMBSTONES',
-  RUINS: typeof FIND_RUINS !== 'undefined' ? FIND_RUINS : 'FIND_RUINS',
-  STRUCTURES: typeof FIND_STRUCTURES !== 'undefined' ? FIND_STRUCTURES : 'FIND_STRUCTURES',
-  MY_SPAWNS: typeof FIND_MY_SPAWNS !== 'undefined' ? FIND_MY_SPAWNS : 'FIND_MY_SPAWNS',
-  SOURCES: typeof FIND_SOURCES !== 'undefined' ? FIND_SOURCES : 'FIND_SOURCES',
+  DROPPED: () => getGlobalConstant('FIND_DROPPED_RESOURCES', 'FIND_DROPPED_RESOURCES'),
+  TOMBSTONES: () => getGlobalConstant('FIND_TOMBSTONES', 'FIND_TOMBSTONES'),
+  RUINS: () => getGlobalConstant('FIND_RUINS', 'FIND_RUINS'),
+  STRUCTURES: () => getGlobalConstant('FIND_STRUCTURES', 'FIND_STRUCTURES'),
+  MY_SPAWNS: () => getGlobalConstant('FIND_MY_SPAWNS', 'FIND_MY_SPAWNS'),
+  SOURCES: () => getGlobalConstant('FIND_SOURCES', 'FIND_SOURCES'),
 };
 const STRUCTURE_TYPES = {
   CONTAINER: typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container',
@@ -122,7 +135,7 @@ function requestEnergy(creep) {
     Game.time % 10 !== 0
   )
     return;
-  const spawn = creep.room.find(FINDERS.MY_SPAWNS)[0];
+  const spawn = creep.room.find(FINDERS.MY_SPAWNS())[0];
   const distance = spawn ? spawn.pos.getRangeTo(creep) : 10;
   htm.addCreepTask(
     creep.name,
@@ -183,28 +196,31 @@ function collectEnergyCandidates(creep) {
     });
   };
 
-  const drops = creep.room.find(FINDERS.DROPPED, {
+  const drops = creep.room.find(FINDERS.DROPPED(), {
     filter: res => res.resourceType === ENERGY && res.amount > 0,
   });
   for (const drop of drops || []) {
+    if (!drop || drop.resourceType !== ENERGY || !(drop.amount > 0)) continue;
     addCandidate(drop, 'pickup', 0, drop.amount);
   }
 
-  const tombstones = creep.room.find(FINDERS.TOMBSTONES, {
+  const tombstones = creep.room.find(FINDERS.TOMBSTONES(), {
     filter: tomb => getStructureEnergy(tomb) > 0,
   });
   for (const tomb of tombstones || []) {
+    if (!tomb || getStructureEnergy(tomb) <= 0) continue;
     addCandidate(tomb, 'withdraw', 1);
   }
 
-  const ruins = creep.room.find(FINDERS.RUINS, {
+  const ruins = creep.room.find(FINDERS.RUINS(), {
     filter: ruin => getStructureEnergy(ruin) > 0,
   });
   for (const ruin of ruins || []) {
+    if (!ruin || getStructureEnergy(ruin) <= 0) continue;
     addCandidate(ruin, 'withdraw', 1);
   }
 
-  const structures = creep.room.find(FINDERS.STRUCTURES, {
+  const structures = creep.room.find(FINDERS.STRUCTURES(), {
     filter: structure => {
       if (!structure || !structure.structureType) return false;
       const types = [
@@ -221,19 +237,77 @@ function collectEnergyCandidates(creep) {
     },
   });
   for (const structure of structures || []) {
+    if (!structure || !structure.structureType) continue;
+    const allowedTypes = [
+      STRUCTURE_TYPES.CONTAINER,
+      STRUCTURE_TYPES.STORAGE,
+      STRUCTURE_TYPES.LINK,
+      STRUCTURE_TYPES.TERMINAL,
+      STRUCTURE_TYPES.FACTORY,
+      STRUCTURE_TYPES.LAB,
+      STRUCTURE_TYPES.POWER_SPAWN,
+    ];
+    if (!allowedTypes.includes(structure.structureType)) continue;
+    if (getStructureEnergy(structure) <= 0) continue;
     const base =
       structure.structureType === STRUCTURE_TYPES.CONTAINER ? 2 : 3;
     addCandidate(structure, 'withdraw', base);
   }
 
-  const spawns = creep.room.find(FINDERS.MY_SPAWNS, {
+  const spawns = creep.room.find(FINDERS.MY_SPAWNS(), {
     filter: spawn => getStructureEnergy(spawn) > 0,
   });
   for (const spawn of spawns || []) {
+    if (!spawn || getStructureEnergy(spawn) <= 0) continue;
     addCandidate(spawn, 'withdraw', 4);
   }
 
-  if (result.length === 0) {\n  const sources = creep.room.find(FINDERS.SOURCES, {\n    filter: source =>\n      source &&\n      ((typeof source.energy === 'number' && source.energy > 0) ||\n        (typeof source.ticksToRegeneration === 'number' && source.ticksToRegeneration === 0)),\n  });\n  for (const source of sources || []) {\n    addCandidate(source, 'harvest', 5);\n  }\n}\nreturn result;
+  if (result.length === 0) {
+    const sources = creep.room.find(FINDERS.SOURCES(), {
+      filter: source =>
+        source &&
+        ((typeof source.energy === 'number' && source.energy > 0) ||
+          (typeof source.ticksToRegeneration === 'number' && source.ticksToRegeneration === 0)),
+    });
+    for (const source of sources || []) {
+      const amount =
+        typeof source.energy === 'number'
+          ? source.energy
+          : typeof source.energyCapacity === 'number'
+          ? source.energyCapacity
+          : 0;
+      addCandidate(source, 'harvest', 5, amount);
+    }
+  }
+
+  const hasBuildAssignment =
+    (creep.memory && creep.memory.constructionTask) ||
+    (creep.memory && creep.memory.mainTask && creep.memory.mainTask.type === 'build');
+
+  if (
+    result.length === 0 &&
+    hasBuildAssignment &&
+    creep.pos &&
+    typeof creep.pos.findClosestByRange === 'function'
+  ) {
+    const closest = creep.pos.findClosestByRange(FINDERS.SOURCES(), {
+      filter: source =>
+        source &&
+        ((typeof source.energy === 'number' && source.energy > 0) ||
+          (typeof source.ticksToRegeneration === 'number' && source.ticksToRegeneration === 0)),
+    });
+    if (closest) {
+      const inferred =
+        typeof closest.energy === 'number'
+          ? closest.energy
+          : typeof closest.energyCapacity === 'number'
+          ? closest.energyCapacity
+          : freeCapacity;
+      addCandidate(closest, 'harvest', 5, inferred || freeCapacity || 1);
+    }
+  }
+
+  return result;
 }
 
 function reserveEnergyForTask(creep, candidate) {
@@ -243,11 +317,13 @@ function reserveEnergyForTask(creep, candidate) {
   if (freeCapacity <= 0) return null;
   const desired = Math.min(candidate.available, freeCapacity);
   if (desired <= 0) return null;
-  reserveEnergy(candidate.id, desired);
+  if (candidate.type !== 'harvest') {
+    reserveEnergy(candidate.id, desired);
+  }
   creep.memory.energyTask = {
     id: candidate.id,
     type: candidate.type,
-    reserved: desired,
+    reserved: candidate.type !== 'harvest' ? desired : undefined,
     structureType: candidate.target.structureType || null,
     pos: candidate.target.pos
       ? {
@@ -266,7 +342,7 @@ function executeEnergyTask(creep) {
   let target = typeof Game.getObjectById === 'function' ? Game.getObjectById(task.id) : null;
   if (!target && creep.room) {
     if (task.type === 'pickup') {
-      const drops = creep.room.find(FINDERS.DROPPED, {
+      const drops = creep.room.find(FINDERS.DROPPED(), {
         filter: res =>
           res.id === task.id ||
           (task.pos &&
@@ -276,8 +352,19 @@ function executeEnergyTask(creep) {
             res.pos.roomName === task.pos.roomName),
       });
       target = drops && drops[0];
+    } else if (task.type === 'harvest') {
+      const sources = creep.room.find(FINDERS.SOURCES(), {
+        filter: source =>
+          source.id === task.id ||
+          (task.pos &&
+            source.pos &&
+            source.pos.x === task.pos.x &&
+            source.pos.y === task.pos.y &&
+            source.pos.roomName === task.pos.roomName),
+      });
+      target = sources && sources[0];
     } else if (task.structureType) {
-      const structures = creep.room.find(FINDERS.STRUCTURES, {
+      const structures = creep.room.find(FINDERS.STRUCTURES(), {
         filter: s =>
           s.id === task.id ||
           (task.pos &&
@@ -291,7 +378,9 @@ function executeEnergyTask(creep) {
     }
   }
   if (!target) {
-    releaseEnergy(task.id, task.reserved || 0);
+    if (task.type !== 'harvest') {
+      releaseEnergy(task.id, task.reserved || 0);
+    }
     delete creep.memory.energyTask;
     return false;
   }
@@ -300,9 +389,27 @@ function executeEnergyTask(creep) {
   let result = ERR_INVALID_TARGET_CODE;
 
   if (task.type === 'pickup') {
+    if (typeof creep.pickup !== 'function') {
+      if (task.type !== 'harvest') {
+        releaseEnergy(task.id, task.reserved || 0);
+      }
+      delete creep.memory.energyTask;
+      return false;
+    }
     result = creep.pickup(target);
-  } else {
+  } else if (task.type === 'withdraw') {
+    if (typeof creep.withdraw !== 'function') {
+      releaseEnergy(task.id, task.reserved || 0);
+      delete creep.memory.energyTask;
+      return false;
+    }
     result = creep.withdraw(target, ENERGY);
+  } else if (task.type === 'harvest') {
+    if (typeof creep.harvest !== 'function') {
+      delete creep.memory.energyTask;
+      return false;
+    }
+    result = creep.harvest(target);
   }
 
   if (result === ERR_NOT_IN_RANGE_CODE) {
@@ -311,13 +418,17 @@ function executeEnergyTask(creep) {
   }
 
   if (result === OK) {
-    releaseEnergy(task.id, task.reserved || 0);
+    if (task.type !== 'harvest') {
+      releaseEnergy(task.id, task.reserved || 0);
+    }
     delete creep.memory.energyTask;
     return true;
   }
 
   if (result === ERR_NOT_ENOUGH_ENERGY_CODE || result === ERR_INVALID_TARGET_CODE) {
-    releaseEnergy(task.id, task.reserved || 0);
+    if (task.type !== 'harvest') {
+      releaseEnergy(task.id, task.reserved || 0);
+    }
     delete creep.memory.energyTask;
     return false;
   }
@@ -470,8 +581,19 @@ function run(creep) {
   const primary = creep.memory.primaryRole || 'builder';
 
   if (creep.store[ENERGY] === 0) creep.memory.working = false;
-  if (!creep.memory.working && creep.store[ENERGY] > 0) creep.memory.working = true;
-  if (creep.store.getFreeCapacity && creep.store.getFreeCapacity(ENERGY) === 0) {
+  if (creep.store.getFreeCapacity && typeof creep.store.getFreeCapacity === 'function') {
+    if (creep.store.getFreeCapacity(ENERGY) === 0) {
+      creep.memory.working = true;
+    } else if (primary === 'builder' && creep.store[ENERGY] > 0) {
+      creep.memory.working = true;
+    }
+  } else if (typeof creep.storeCapacity === 'number' && creep.storeCapacity > 0) {
+    if (creep.store[ENERGY] >= creep.storeCapacity) {
+      creep.memory.working = true;
+    } else if (primary === 'builder' && creep.store[ENERGY] > 0) {
+      creep.memory.working = true;
+    }
+  } else if (creep.store[ENERGY] > 0) {
     creep.memory.working = true;
   }
 
