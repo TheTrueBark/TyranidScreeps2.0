@@ -10,6 +10,14 @@ const SCOUT_REVISIT_TICKS = 5000;
 const SCOUT_SEED_DEPTH = 3;
 const SCOUT_INIT_VERSION = 1;
 
+function needsScoutAttention(intel) {
+  if (!intel) return false;
+  if (intel.scoutCooldownUntil && intel.scoutCooldownUntil > Game.time) return false;
+  if (!intel.scouted) return true;
+  if (typeof intel.lastScouted !== 'number') return true;
+  return Game.time - intel.lastScouted >= SCOUT_REVISIT_TICKS;
+}
+
 /**
  * HiveGaze explores exits and queues scout tasks.
  * @codex-owner hiveGaze
@@ -188,7 +196,28 @@ const hiveGaze = {
         }
       }
     }
-    if (!tasksByColony.size) return;
+    if (!tasksByColony.size) {
+      if (!Memory.rooms) return;
+
+      const coloniesNeedingTasks = new Set();
+      for (const roomName of Object.keys(Memory.rooms)) {
+        const intel = Memory.rooms[roomName];
+        if (!intel || !intel.homeColony) continue;
+        if (needsScoutAttention(intel)) {
+          coloniesNeedingTasks.add(intel.homeColony);
+        }
+      }
+
+      if (coloniesNeedingTasks.size > 0) {
+        if (!Memory.hive) Memory.hive = {};
+        Memory.hive.scoutRescanRequested = true;
+        if (Memory.hive.expansionVisionLastCheck !== Game.time) {
+          this.evaluateExpansionVision();
+        }
+      }
+
+      return;
+    }
 
     for (const [colony] of tasksByColony.entries()) {
       const existing = scouts.filter(
