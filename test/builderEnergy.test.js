@@ -4,24 +4,6 @@ const globals = require('./mocks/globals');
 const htm = require('../manager.htm');
 const roleBuilder = require('../role.builder');
 
-global.FIND_MY_SPAWNS = 1;
-global.FIND_DROPPED_RESOURCES = 2;
-global.FIND_STRUCTURES = 3;
-global.FIND_CONSTRUCTION_SITES = 4;
-global.FIND_TOMBSTONES = 5;
-global.FIND_RUINS = 6;
-global.STRUCTURE_CONTAINER = 'container';
-global.STRUCTURE_STORAGE = 'storage';
-global.STRUCTURE_LINK = 'link';
-global.STRUCTURE_TERMINAL = 'terminal';
-global.STRUCTURE_FACTORY = 'factory';
-global.STRUCTURE_LAB = 'lab';
-global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
-global.STRUCTURE_SPAWN = 'spawn';
-global.RESOURCE_ENERGY = 'energy';
-global.OK = 0;
-global.ERR_NOT_IN_RANGE = -9;
-
 function createCreep(name) {
   return {
     name,
@@ -53,6 +35,23 @@ function createCreep(name) {
 
 describe('builder energy evaluation', function () {
   beforeEach(function () {
+    global.FIND_MY_SPAWNS = 1;
+    global.FIND_DROPPED_RESOURCES = 2;
+    global.FIND_STRUCTURES = 3;
+    global.FIND_CONSTRUCTION_SITES = 4;
+    global.FIND_TOMBSTONES = 5;
+    global.FIND_RUINS = 6;
+    global.STRUCTURE_CONTAINER = 'container';
+    global.STRUCTURE_STORAGE = 'storage';
+    global.STRUCTURE_LINK = 'link';
+    global.STRUCTURE_TERMINAL = 'terminal';
+    global.STRUCTURE_FACTORY = 'factory';
+    global.STRUCTURE_LAB = 'lab';
+    global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
+    global.STRUCTURE_SPAWN = 'spawn';
+    global.RESOURCE_ENERGY = 'energy';
+    global.OK = 0;
+    global.ERR_NOT_IN_RANGE = -9;
     globals.resetGame();
     globals.resetMemory();
     Game.rooms['W1N1'] = { name: 'W1N1', find: () => [], controller: {} };
@@ -84,7 +83,11 @@ describe('builder energy evaluation', function () {
     roleBuilder.run(creep);
     expect(Memory.htm.creeps['b2']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'drop1', type: 'pickup' });
-    expect(Memory.energyReserves['drop1']).to.equal(50);
+    const dropEntry = Memory.energyReserves['drop1'];
+    expect(dropEntry).to.include({ reserved: 50, available: 80, type: 'droppedEnergy' });
+    expect(dropEntry.haulersMayWithdraw).to.be.true;
+    expect(dropEntry.haulersMayDeposit).to.be.false;
+    expect(dropEntry.buildersMayWithdraw).to.be.true;
   });
 
   it('reserves container energy when available', function () {
@@ -103,7 +106,47 @@ describe('builder energy evaluation', function () {
     roleBuilder.run(creep);
     expect(Memory.htm.creeps['b3']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'cont1', type: 'withdraw' });
-    expect(Memory.energyReserves['cont1']).to.equal(50);
+    const containerEntry = Memory.energyReserves['cont1'];
+    expect(containerEntry).to.include({ reserved: 50, available: 200, type: 'container' });
+    expect(containerEntry.haulersMayWithdraw).to.be.true;
+    expect(containerEntry.haulersMayDeposit).to.be.true;
+    expect(containerEntry.buildersMayWithdraw).to.be.true;
+  });
+
+  it('prefers controller containers over small drops nearby', function () {
+    const creep = createCreep('b5');
+    const controllerPos = { x: 12, y: 12, roomName: 'W1N1' };
+    Game.rooms['W1N1'].controller = { pos: controllerPos };
+    const drop = {
+      id: 'drop2',
+      resourceType: RESOURCE_ENERGY,
+      amount: 10,
+      pos: { x: 9, y: 10, roomName: 'W1N1' },
+    };
+    const container = {
+      id: 'cont2',
+      structureType: STRUCTURE_CONTAINER,
+      store: { [RESOURCE_ENERGY]: 400, getCapacity: () => 400 },
+      pos: { x: 11, y: 12, roomName: 'W1N1' },
+    };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_DROPPED_RESOURCES) return [drop];
+      if (type === FIND_STRUCTURES) return [container];
+      return [];
+    };
+    Game.getObjectById = id => {
+      if (id === 'drop2') return drop;
+      if (id === 'cont2') return container;
+      return null;
+    };
+    creep.pickup = () => ERR_NOT_IN_RANGE;
+    creep.withdraw = () => ERR_NOT_IN_RANGE;
+    creep.room = Game.rooms['W1N1'];
+    roleBuilder.run(creep);
+    const containerEntry = Memory.energyReserves['cont2'];
+    expect(containerEntry).to.exist;
+    expect(containerEntry.type).to.equal('controllerContainer');
+    expect(creep.memory.energyTask).to.deep.include({ id: 'cont2', type: 'withdraw' });
   });
 
   it('considers spawn energy when efficient', function () {
@@ -126,6 +169,10 @@ describe('builder energy evaluation', function () {
     expect(Memory.htm.creeps['b4']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'spawn1', type: 'withdraw' });
     expect(creep.memory.energyTask.structureType).to.equal(STRUCTURE_SPAWN);
-    expect(Memory.energyReserves['spawn1']).to.equal(50);
+    const spawnEntry = Memory.energyReserves['spawn1'];
+    expect(spawnEntry).to.include({ reserved: 50, available: 300, type: 'spawn' });
+    expect(spawnEntry.haulersMayDeposit).to.be.true;
+    expect(spawnEntry.haulersMayWithdraw).to.be.false;
+    expect(spawnEntry.buildersMayWithdraw).to.be.true;
   });
 });

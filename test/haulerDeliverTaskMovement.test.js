@@ -118,7 +118,7 @@ describe('hauler delivery task movement', function() {
     };
 
     Game.creeps[creep.name] = creep;
-    Memory.energyReserves[drop.id] = 0;
+    Memory.energyReserves[drop.id] = { reserved: 0 };
 
     roleHauler.run(creep);
 

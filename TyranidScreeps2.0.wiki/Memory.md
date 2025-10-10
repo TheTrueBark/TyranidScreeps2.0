@@ -243,11 +243,25 @@ Memory.demand.routes[routeId] = {
 @codex-owner role.hauler
 @codex-path Memory.energyReserves
 
-Stores temporary energy reservations for pickup targets. Each key is a resource or
-structure id and the value is the amount currently promised to haulers, which may
-temporarily exceed the physical energy present when a forecasted drop or container
-fill is in progress. `memoryManager.cleanUpEnergyReserves` periodically removes entries
-when the target no longer exists or has been emptied.
+Tracks observed energy sources and depots along with the swarm roles that may
+interact with them. Each key is a resource or structure id and the value
+includes the currently reserved energy plus metadata describing who may
+withdraw from or deposit into that location.
+
+```javascript
+Memory.energyReserves[sourceId] = {
+  reserved: 100,        // energy promised to creeps
+  available: 400,       // most recently observed energy on the target
+  type: 'harvestContainer',
+  haulersMayWithdraw: true,
+  haulersMayDeposit: false,
+  buildersMayWithdraw: true,
+  buildersMayDeposit: false,
+};
+```
+
+`memoryManager.cleanUpEnergyReserves` removes entries for destroyed objects and
+cleans up empty sources that no role may deposit to.
 
 ### Runtime Settings
 

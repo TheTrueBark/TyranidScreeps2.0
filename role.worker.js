@@ -7,6 +7,8 @@ const {
   reserveEnergy,
   releaseEnergy,
   getReserved,
+  updateReserveInfo,
+  describeReserveTarget,
 } = require('./utils.energyReserve');
 
 const MAX_BUILDERS_PER_SITE = 3;
@@ -194,6 +196,15 @@ function collectEnergyCandidates(creep) {
     ? creep.store.getFreeCapacity(ENERGY)
     : (creep.storeCapacity || 0) - (creep.store[ENERGY] || 0);
   if (freeCapacity <= 0) return [];
+  const totalCapacityRaw = creep.store.getCapacity
+    ? creep.store.getCapacity(ENERGY)
+    : typeof creep.storeCapacity === 'number'
+      ? creep.storeCapacity
+      : creep.carryCapacity || 0;
+  const totalCapacity =
+    typeof totalCapacityRaw === 'number' && totalCapacityRaw > 0
+      ? totalCapacityRaw
+      : freeCapacity + (creep.store[ENERGY] || 0);
   const result = [];
 
   const addCandidate = (target, type, priority, amountOverride) => {
@@ -204,6 +215,18 @@ function collectEnergyCandidates(creep) {
     const reserved = getReserved(id);
     const available = total - reserved;
     if (available <= 0) return;
+    let descriptor = null;
+    if (target.id && type !== 'harvest') {
+      descriptor = describeReserveTarget(target, type, { room: creep.room });
+      updateReserveInfo(target.id, {
+        available: Math.max(0, total),
+        type: descriptor.type,
+        haulersMayWithdraw: descriptor.haulersMayWithdraw,
+        haulersMayDeposit: descriptor.haulersMayDeposit,
+        buildersMayWithdraw: descriptor.buildersMayWithdraw,
+        buildersMayDeposit: descriptor.buildersMayDeposit,
+      });
+    }
     const distance =
       typeof creep.pos.getRangeTo === 'function'
         ? creep.pos.getRangeTo(target)
@@ -215,6 +238,7 @@ function collectEnergyCandidates(creep) {
       available,
       priority,
       distance,
+      descriptor,
     });
   };
 
@@ -334,6 +358,53 @@ function collectEnergyCandidates(creep) {
     }
   }
 
+  const controllerContainers = result.filter(
+    candidate => candidate.descriptor && candidate.descriptor.type === 'controllerContainer',
+  );
+  let preferredContainer = null;
+  for (const candidate of controllerContainers) {
+    if (
+      !preferredContainer ||
+      candidate.available > preferredContainer.available ||
+      (candidate.available === preferredContainer.available && candidate.distance < preferredContainer.distance)
+    ) {
+      preferredContainer = candidate;
+    }
+  }
+
+  const effectiveCapacity =
+    totalCapacity > 0 ? totalCapacity : freeCapacity + (creep.store[ENERGY] || 0);
+  const containerThreshold = Math.max(
+    50,
+    Math.min(freeCapacity, Math.ceil((effectiveCapacity || freeCapacity || 0) * 0.5)),
+  );
+  const significantDropThreshold = Math.max(
+    100,
+    Math.ceil((effectiveCapacity || freeCapacity || 0) * 0.5),
+  );
+  const abundantLooseEnergy = result.some(
+    candidate => candidate.type === 'pickup' && candidate.available >= significantDropThreshold,
+  );
+
+  if (preferredContainer) {
+    preferredContainer.priority = Math.min(preferredContainer.priority, 0);
+  }
+
+  if (
+    preferredContainer &&
+    preferredContainer.available >= containerThreshold &&
+    !abundantLooseEnergy
+  ) {
+    for (const candidate of result) {
+      if (candidate === preferredContainer) continue;
+      if (candidate.type === 'pickup') {
+        candidate.priority = Math.max(preferredContainer.priority + 5, candidate.priority + 5);
+      } else if (candidate.type === 'withdraw') {
+        candidate.priority += 1;
+      }
+    }
+  }
+
   return result;
 }
 
@@ -412,7 +483,7 @@ function executeEnergyTask(creep) {
     return false;
   }
 
-  const moveOpts = { visualizePathStyle: { stroke: '#ffaa00' } };
+  const moveOpts = { range: 1, visualizePathStyle: { stroke: '#ffaa00' } };
   let result = ERR_INVALID_TARGET_CODE;
 
   if (task.type === 'pickup') {
@@ -558,7 +629,7 @@ function buildStructure(creep) {
 
   const result = creep.build(target);
   if (result === ERR_NOT_IN_RANGE_CODE) {
-    creep.travelTo(target, { visualizePathStyle: { stroke: '#ffffff' } });
+    creep.travelTo(target, { range: 1, visualizePathStyle: { stroke: '#ffffff' } });
     return true;
   }
   if (result === OK) {
@@ -581,10 +652,7 @@ function buildStructure(creep) {
 function upgradeController(creep) {
   const controller = creep.room.controller;
   if (!controller) return false;
-  const range = creep.pos.getRangeTo(controller);
-  if (range > 3) {
-    creep.travelTo(controller, { range: 3, visualizePathStyle: { stroke: '#ffffff' } });
-  }
+  creep.travelTo(controller, { range: 3, visualizePathStyle: { stroke: '#ffffff' } });
   if (creep.pos.getRangeTo(controller) <= 3) {
     creep.upgradeController(controller);
   }
@@ -639,7 +707,7 @@ function run(creep) {
   if (repairTarget) {
     const repairResult = creep.repair(repairTarget);
     if (repairResult === ERR_NOT_IN_RANGE_CODE) {
-      creep.travelTo(repairTarget, { visualizePathStyle: { stroke: '#ffffff' } });
+      creep.travelTo(repairTarget, { range: 3, visualizePathStyle: { stroke: '#ffffff' } });
     } else if (repairResult === OK) {
       if (
         repairTarget.hits >= repairTarget.hitsMax ||
