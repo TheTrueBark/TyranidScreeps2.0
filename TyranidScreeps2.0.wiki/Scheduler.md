@@ -79,6 +79,11 @@ The main loop registers several core jobs which drive the colony:
 | `htmCleanup`         | 50 ticks       | `htm`              | Removes memory for dead creeps. |
 | `showScheduled`      | 50 ticks       | `scheduler`        | Optional debug output of task list. |
 
+When a colony gains its first spawn (or after a respawn) the main loop queues a
+one-off `initializeScoutMemory_<room>` task. This low-priority job seeds
+scouting memory via `hiveGaze.initializeScoutMemory` before the regular
+15 000‑tick vision refresh resumes.
+
 Use `scheduler.listTasks()` to see current timers and next execution tick for each job.
 
 `consoleDisplay` only executes when the CPU bucket exceeds 1000 thanks to its `minBucket` setting. Likewise `showScheduled` respects `Memory.settings.showTaskList` before printing.

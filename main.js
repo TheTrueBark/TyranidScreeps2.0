@@ -29,6 +29,7 @@ const savestate = require('./debug.savestate');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
+const hiveGaze = require('./manager.hiveGaze');
 const lifecycle = require('./hiveMind.lifecycle');
 const haulerLifecycle = require('./haulerLifecycle');
 const movementUtils = require("./utils.movement");
@@ -418,6 +419,34 @@ module.exports.loop = function () {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     roomManager.scanRoom(room);
+  }
+
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) continue;
+    const hasSpawns =
+      typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
+        ? room.find(FIND_MY_SPAWNS).length > 0
+        : false;
+    if (!hasSpawns) continue;
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    const scoutInit = Memory.rooms[roomName].scoutInit;
+    const needsInit =
+      !scoutInit ||
+      scoutInit.version !== hiveGaze.SCOUT_INIT_VERSION ||
+      !scoutInit.completed;
+    if (!needsInit) continue;
+    if (scoutInit && scoutInit.pending) continue;
+    const taskName = `initializeScoutMemory_${roomName}`;
+    scheduler.addTask(taskName, 0, () => hiveGaze.initializeScoutMemory(roomName), {
+      once: true,
+    });
+    Memory.rooms[roomName].scoutInit = {
+      version: hiveGaze.SCOUT_INIT_VERSION,
+      pending: true,
+      queuedAt: Game.time,
+    };
   }
 
   scheduler.run();
