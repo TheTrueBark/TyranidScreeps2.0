@@ -84,7 +84,11 @@ describe('builder energy evaluation', function () {
     roleBuilder.run(creep);
     expect(Memory.htm.creeps['b2']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'drop1', type: 'pickup' });
-    expect(Memory.energyReserves['drop1']).to.equal(50);
+    const dropEntry = Memory.energyReserves['drop1'];
+    expect(dropEntry).to.include({ reserved: 50, available: 80, type: 'droppedEnergy' });
+    expect(dropEntry.haulersMayWithdraw).to.be.true;
+    expect(dropEntry.haulersMayDeposit).to.be.false;
+    expect(dropEntry.buildersMayWithdraw).to.be.true;
   });
 
   it('reserves container energy when available', function () {
@@ -103,7 +107,11 @@ describe('builder energy evaluation', function () {
     roleBuilder.run(creep);
     expect(Memory.htm.creeps['b3']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'cont1', type: 'withdraw' });
-    expect(Memory.energyReserves['cont1']).to.equal(50);
+    const containerEntry = Memory.energyReserves['cont1'];
+    expect(containerEntry).to.include({ reserved: 50, available: 200, type: 'container' });
+    expect(containerEntry.haulersMayWithdraw).to.be.true;
+    expect(containerEntry.haulersMayDeposit).to.be.true;
+    expect(containerEntry.buildersMayWithdraw).to.be.true;
   });
 
   it('considers spawn energy when efficient', function () {
@@ -126,6 +134,10 @@ describe('builder energy evaluation', function () {
     expect(Memory.htm.creeps['b4']).to.be.undefined;
     expect(creep.memory.energyTask).to.deep.include({ id: 'spawn1', type: 'withdraw' });
     expect(creep.memory.energyTask.structureType).to.equal(STRUCTURE_SPAWN);
-    expect(Memory.energyReserves['spawn1']).to.equal(50);
+    const spawnEntry = Memory.energyReserves['spawn1'];
+    expect(spawnEntry).to.include({ reserved: 50, available: 300, type: 'spawn' });
+    expect(spawnEntry.haulersMayDeposit).to.be.true;
+    expect(spawnEntry.haulersMayWithdraw).to.be.false;
+    expect(spawnEntry.buildersMayWithdraw).to.be.true;
   });
 });

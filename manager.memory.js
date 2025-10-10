@@ -132,9 +132,30 @@ const memoryManager = {
   cleanUpEnergyReserves() {
     if (!Memory.energyReserves) return;
     for (const id in Memory.energyReserves) {
-      const obj = Game.getObjectById(id);
-      const hasEnergy = obj && ((obj.amount || (obj.store && obj.store[RESOURCE_ENERGY])) > 0);
-      if (!obj || !hasEnergy) {
+      const entry = Memory.energyReserves[id];
+      const obj =
+        typeof Game !== 'undefined' && typeof Game.getObjectById === 'function'
+          ? Game.getObjectById(id)
+          : null;
+      if (!obj) {
+        delete Memory.energyReserves[id];
+        continue;
+      }
+      const store = obj.store;
+      let stored = 0;
+      if (typeof obj.amount === 'number') {
+        stored = obj.amount;
+      } else if (store) {
+        if (typeof store.getUsedCapacity === 'function') {
+          stored = store.getUsedCapacity(RESOURCE_ENERGY) || 0;
+        } else if (typeof store[RESOURCE_ENERGY] === 'number') {
+          stored = store[RESOURCE_ENERGY];
+        }
+      } else if (typeof obj.energy === 'number') {
+        stored = obj.energy;
+      }
+      const canReceive = entry && (entry.haulersMayDeposit || entry.buildersMayDeposit);
+      if (!canReceive && stored <= 0) {
         delete Memory.energyReserves[id];
       }
     }

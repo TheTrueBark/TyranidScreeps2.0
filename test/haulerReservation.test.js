@@ -60,7 +60,9 @@ describe('hauler respects energy reservations', function() {
         },
         findClosestByPath(type) {
           if (type === FIND_DROPPED_RESOURCES) {
-            return Memory.energyReserves[r1.id] >= r1.amount ? r2 : r1;
+            const entry = Memory.energyReserves[r1.id];
+            const reserved = entry && entry.reserved ? entry.reserved : 0;
+            return reserved >= r1.amount ? r2 : r1;
           }
           return null;
         },
@@ -71,7 +73,7 @@ describe('hauler respects energy reservations', function() {
       memory: {},
     };
 
-    Memory.energyReserves[r1.id] = 20; // fully reserved
+    Memory.energyReserves[r1.id] = { reserved: 20 }; // fully reserved
     roleHauler.run(creep);
     expect(creep.memory.reserving.id).to.equal('r2');
   });

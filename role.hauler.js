@@ -11,6 +11,8 @@ const {
   reserveEnergy,
   releaseEnergy,
   getReserved,
+  updateReserveInfo,
+  describeReserveTarget,
 } = require('./utils.energyReserve');
 
 const MAX_PICKUP_CANDIDATES = 6;
@@ -152,6 +154,20 @@ function getTargetEnergy(target, type) {
     return target.energy;
   }
   return 0;
+}
+
+function recordReserveObservation(target, intent, amount, context = {}) {
+  if (!target || !target.id) return;
+  const observed = amount !== undefined ? amount : getTargetEnergy(target, intent);
+  const descriptor = describeReserveTarget(target, intent, context);
+  updateReserveInfo(target.id, {
+    available: Math.max(0, observed || 0),
+    type: descriptor.type,
+    haulersMayWithdraw: descriptor.haulersMayWithdraw,
+    haulersMayDeposit: descriptor.haulersMayDeposit,
+    buildersMayWithdraw: descriptor.buildersMayWithdraw,
+    buildersMayDeposit: descriptor.buildersMayDeposit,
+  });
 }
 
 function identifySourceForTarget(target, type, assignment = null) {
@@ -545,6 +561,7 @@ const gatherEnergyCandidates = (creep) => {
     const netAvailable = amount - reserved;
     const pos = extractPos(target);
     if (!pos) return;
+    recordReserveObservation(target, type, amount, { assignment, room });
     const preferred = isPreferredTarget(assignment, target);
     const priority = determineCandidatePriority(type, target, assignment, preferred);
     const sourceId = identifySourceForTarget(target, type, assignment);
@@ -998,6 +1015,12 @@ function deliverEnergy(creep, target = null) {
       : null;
   const structure = spawnTarget || extensionTarget;
   if (structure) {
+    recordReserveObservation(
+      structure,
+      'deposit',
+      getTargetEnergy(structure, 'withdraw'),
+      { room: creep.room },
+    );
     const result = creep.transfer(structure, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, {
@@ -1005,6 +1028,12 @@ function deliverEnergy(creep, target = null) {
         allowRestricted: structure.structureType === STRUCTURE_SPAWN,
       });
     } else if (result === OK) {
+      recordReserveObservation(
+        structure,
+        'deposit',
+        getTargetEnergy(structure, 'withdraw'),
+        { room: creep.room },
+      );
       clearPickupPlan(creep);
       if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
         const duration = Game.time - creep.memory.roundTripStartTick;
@@ -1043,10 +1072,22 @@ function deliverEnergy(creep, target = null) {
           })[0]
       : null;
   if (ctrlContainer) {
+    recordReserveObservation(
+      ctrlContainer,
+      'deposit',
+      getTargetEnergy(ctrlContainer, 'withdraw'),
+      { room: creep.room },
+    );
     const result = creep.transfer(ctrlContainer, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
     } else if (result === OK) {
+      recordReserveObservation(
+        ctrlContainer,
+        'deposit',
+        getTargetEnergy(ctrlContainer, 'withdraw'),
+        { room: creep.room },
+      );
       if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
         const duration = Game.time - creep.memory.roundTripStartTick;
         const routeId = creep.memory.assignment.routeId;
@@ -1068,10 +1109,22 @@ function deliverEnergy(creep, target = null) {
   }
 
   if (creep.room.storage && creep.room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+    recordReserveObservation(
+      creep.room.storage,
+      'deposit',
+      getTargetEnergy(creep.room.storage, 'withdraw'),
+      { room: creep.room },
+    );
     const result = creep.transfer(creep.room.storage, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
     } else if (result === OK) {
+      recordReserveObservation(
+        creep.room.storage,
+        'deposit',
+        getTargetEnergy(creep.room.storage, 'withdraw'),
+        { room: creep.room },
+      );
       if (creep.memory.roundTripStartTick !== undefined && creep.memory.assignment && creep.memory.assignment.routeId) {
         const duration = Game.time - creep.memory.roundTripStartTick;
         const routeId = creep.memory.assignment.routeId;
