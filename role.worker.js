@@ -7,6 +7,8 @@ const {
   reserveEnergy,
   releaseEnergy,
   getReserved,
+  updateReserveInfo,
+  describeReserveTarget,
 } = require('./utils.energyReserve');
 
 const MAX_BUILDERS_PER_SITE = 3;
@@ -204,6 +206,17 @@ function collectEnergyCandidates(creep) {
     const reserved = getReserved(id);
     const available = total - reserved;
     if (available <= 0) return;
+    if (target.id && type !== 'harvest') {
+      const descriptor = describeReserveTarget(target, type, { room: creep.room });
+      updateReserveInfo(target.id, {
+        available: Math.max(0, total),
+        type: descriptor.type,
+        haulersMayWithdraw: descriptor.haulersMayWithdraw,
+        haulersMayDeposit: descriptor.haulersMayDeposit,
+        buildersMayWithdraw: descriptor.buildersMayWithdraw,
+        buildersMayDeposit: descriptor.buildersMayDeposit,
+      });
+    }
     const distance =
       typeof creep.pos.getRangeTo === 'function'
         ? creep.pos.getRangeTo(target)
