@@ -83,6 +83,25 @@ describe('role.scout', function() {
     expect(moved).to.be.true;
   });
 
+  it('targets earliest memory room needing scouting', function() {
+    Memory.settings = { enableAutoScout: true };
+    Memory.rooms = {
+      W1N2: { scouted: true, lastScouted: Game.time },
+      W1N3: { scouted: false },
+      W1N4: { scouted: true, lastScouted: Game.time - 10000 },
+    };
+    Memory.htm.colonies['W1N1'].tasks = [];
+    const creep = Game.creeps.sc1;
+    creep.room = Game.rooms['W1N1'];
+    let travelledTo = null;
+    creep.travelTo = (pos) => { travelledTo = pos.roomName; };
+
+    roleScout.run(creep);
+
+    expect(creep.memory.targetRoom).to.equal('W1N3');
+    expect(travelledTo).to.equal('W1N3');
+  });
+
   it('logs when debug enabled', function() {
     globals.resetMemory({ stats: { logs: [] }, settings: { debugHiveGaze: true } });
     htm.init();

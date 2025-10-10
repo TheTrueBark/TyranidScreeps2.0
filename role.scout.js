@@ -40,10 +40,36 @@ const getRoomIntel = (roomName) => {
   return Memory.rooms[roomName];
 };
 
+const roomNeedsScout = (roomIntel) => {
+  if (!roomIntel) return false;
+  if (roomIntel.scoutCooldownUntil && roomIntel.scoutCooldownUntil > Game.time) return false;
+  if (!roomIntel.scouted) return true;
+  const last = roomIntel.lastScouted;
+  if (last === undefined) return true;
+  return Game.time - last >= SCOUT_REVISIT_TICKS;
+};
+
+const pickMemoryScoutTarget = (creep) => {
+  if (!Memory.rooms) return null;
+  const visitedRecently = new Set((creep.memory.recentTargets || []).slice(-6));
+  for (const roomName of Object.keys(Memory.rooms)) {
+    if (visitedRecently.has(roomName)) continue;
+    const intel = Memory.rooms[roomName];
+    if (roomNeedsScout(intel)) {
+      return roomName;
+    }
+  }
+  return null;
+};
+
 const pickAutoScoutTarget = (creep) => {
   if (!Memory.settings || Memory.settings.enableAutoScout !== true) {
     return null;
   }
+
+  const memoryTarget = pickMemoryScoutTarget(creep);
+  if (memoryTarget) return memoryTarget;
+
   const home = creep.memory.homeRoom || creep.room.name;
   const visitedRecently = (creep.memory.recentTargets || []).slice(-6);
   const neighbors = gatherNearbyRooms(home, SCOUT_MAX_DEPTH);
