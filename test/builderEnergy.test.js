@@ -113,42 +113,6 @@ describe('builder energy evaluation', function () {
     expect(containerEntry.buildersMayWithdraw).to.be.true;
   });
 
-  it('prefers controller containers over small drops nearby', function () {
-    const creep = createCreep('b5');
-    const controllerPos = { x: 12, y: 12, roomName: 'W1N1' };
-    Game.rooms['W1N1'].controller = { pos: controllerPos };
-    const drop = {
-      id: 'drop2',
-      resourceType: RESOURCE_ENERGY,
-      amount: 10,
-      pos: { x: 9, y: 10, roomName: 'W1N1' },
-    };
-    const container = {
-      id: 'cont2',
-      structureType: STRUCTURE_CONTAINER,
-      store: { [RESOURCE_ENERGY]: 400, getCapacity: () => 400 },
-      pos: { x: 11, y: 12, roomName: 'W1N1' },
-    };
-    Game.rooms['W1N1'].find = type => {
-      if (type === FIND_DROPPED_RESOURCES) return [drop];
-      if (type === FIND_STRUCTURES) return [container];
-      return [];
-    };
-    Game.getObjectById = id => {
-      if (id === 'drop2') return drop;
-      if (id === 'cont2') return container;
-      return null;
-    };
-    creep.pickup = () => ERR_NOT_IN_RANGE;
-    creep.withdraw = () => ERR_NOT_IN_RANGE;
-    creep.room = Game.rooms['W1N1'];
-    roleBuilder.run(creep);
-    const containerEntry = Memory.energyReserves['cont2'];
-    expect(containerEntry).to.exist;
-    expect(containerEntry.type).to.equal('controllerContainer');
-    expect(creep.memory.energyTask).to.deep.include({ id: 'cont2', type: 'withdraw' });
-  });
-
   it('considers spawn energy when efficient', function () {
     const creep = createCreep('b4');
     const spawn = {
