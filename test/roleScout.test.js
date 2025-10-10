@@ -60,6 +60,7 @@ describe('role.scout', function() {
   it('suppresses task claims when idle', function() {
     Game.creeps.sc1.room = Game.rooms['W1N1'];
     Game.creeps.sc1.travelTo = () => {};
+    Memory.rooms['W1N2'] = { scouted: true, lastScouted: Game.time };
     Memory.htm.colonies['W1N1'].tasks = [];
     Memory.hive = { clusters: { W1N1: { colonies: { W1N1: { meta: { basePos: { x:5, y:5 } } } } } } };
     roleScout.run(Game.creeps.sc1);
@@ -83,23 +84,45 @@ describe('role.scout', function() {
     expect(moved).to.be.true;
   });
 
-  it('targets earliest memory room needing scouting', function() {
-    Memory.settings = { enableAutoScout: true };
+  it('targets topmost memory room needing scouting using room center', function() {
     Memory.rooms = {
       W1N2: { scouted: true, lastScouted: Game.time },
-      W1N3: { scouted: false },
-      W1N4: { scouted: true, lastScouted: Game.time - 10000 },
+      W3N8: { scouted: false },
+      E2S1: { scouted: false },
     };
     Memory.htm.colonies['W1N1'].tasks = [];
     const creep = Game.creeps.sc1;
     creep.room = Game.rooms['W1N1'];
-    let travelledTo = null;
-    creep.travelTo = (pos) => { travelledTo = pos.roomName; };
+    let travelArgs = null;
+    creep.travelTo = (pos) => { travelArgs = pos; };
 
     roleScout.run(creep);
 
+    expect(creep.memory.targetRoom).to.equal('W3N8');
+    expect(travelArgs.roomName).to.equal('W3N8');
+    expect(travelArgs.x).to.equal(25);
+    expect(travelArgs.y).to.equal(25);
+  });
+
+  it('records intel then proceeds to next memory room', function() {
+    Memory.rooms = {
+      W1N2: { scouted: false },
+      W1N3: { scouted: false },
+    };
+    Memory.htm.colonies['W1N1'].tasks = [];
+    const creep = Game.creeps.sc1;
+    creep.memory.targetRoom = 'W1N2';
+    creep.memory.targetSource = 'memory';
+    creep.memory.targetPos = { x: 25, y: 25, roomName: 'W1N2' };
+    creep.room = Game.rooms['W1N2'];
+    let travelDestinations = [];
+    creep.travelTo = (pos) => { travelDestinations.push(pos); };
+
+    roleScout.run(creep);
+
+    expect(Memory.rooms['W1N2'].scouted).to.be.true;
     expect(creep.memory.targetRoom).to.equal('W1N3');
-    expect(travelledTo).to.equal('W1N3');
+    expect(travelDestinations[0].roomName).to.equal('W1N3');
   });
 
   it('logs when debug enabled', function() {
