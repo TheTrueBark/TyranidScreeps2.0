@@ -2,6 +2,7 @@ const htm = require('./manager.htm');
 const movementUtils = require('./utils.movement');
 const maintenance = require('./manager.maintenance');
 const statsConsole = require('console.console');
+const spawnQueue = require('./manager.spawnQueue');
 const {
   reserveEnergy,
   releaseEnergy,
@@ -166,6 +167,27 @@ function getStructureEnergy(target) {
   return 0;
 }
 
+function getSpawnQueueEnergy(spawn) {
+  if (!spawn || !spawn.id) return 0;
+  let queue;
+  try {
+    queue = spawnQueue && spawnQueue.queue;
+  } catch (error) {
+    queue = [];
+  }
+  if (!Array.isArray(queue) || queue.length === 0) return 0;
+  let total = 0;
+  for (const request of queue) {
+    if (!request || request.spawnId !== spawn.id) continue;
+    const amount =
+      typeof request.energyRequired === 'number' && Number.isFinite(request.energyRequired)
+        ? request.energyRequired
+        : 0;
+    if (amount > 0) total += amount;
+  }
+  return total;
+}
+
 function collectEnergyCandidates(creep) {
   if (!creep.room || typeof creep.room.find !== 'function') return [];
   const freeCapacity = creep.store.getFreeCapacity
@@ -258,8 +280,13 @@ function collectEnergyCandidates(creep) {
     filter: spawn => getStructureEnergy(spawn) > 0,
   });
   for (const spawn of spawns || []) {
-    if (!spawn || getStructureEnergy(spawn) <= 0) continue;
-    addCandidate(spawn, 'withdraw', 4);
+    if (!spawn) continue;
+    const energy = getStructureEnergy(spawn);
+    if (energy <= 0) continue;
+    const reserved = getSpawnQueueEnergy(spawn);
+    const withdrawable = energy - reserved;
+    if (withdrawable <= 0) continue;
+    addCandidate(spawn, 'withdraw', 4, withdrawable);
   }
 
   if (result.length === 0) {

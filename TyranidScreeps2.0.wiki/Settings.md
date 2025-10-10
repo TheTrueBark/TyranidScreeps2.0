@@ -4,7 +4,7 @@ This page lists runtime toggles stored under Memory.settings and related console
 
 ## Memory.settings
 
-`javascript
+```javascript
 Memory.settings = {
   enableVisuals: true,      // HUD and layout overlays
   showTaskList: false,      // print scheduled tasks periodically
@@ -14,13 +14,15 @@ Memory.settings = {
   debugHiveGaze: false,     // verbose scout & hiveGaze logging
   pauseBot: false,          // stop main loop when true
 };
-`
+```
 
-enableVisuals toggles the heads-up display drawn by hudManager. Set showTaskList to 	rue to print scheduled jobs every 50 ticks. showSpawnQueueHud is enabled by default so that the spawn queue and task boards are always visible. energyLogs controls debug output from manager.energyRequests and manager.hivemind.demand. Flip pauseBot to 	rue when you need the main loop to stay idle while you run manual tests; set it back to alse to resume automation.
-
-## Console helpers
-
-* isual.overlay(1) / (0) - toggle HUD visuals
+enableVisuals toggles the heads-up display drawn by hudManager. Set showTaskList to true to print scheduled jobs every 50 ticks. showSpawnQueueHud is enabled by default so that the spawn queue and task boards are always visible. energyLogs controls debug output from manager.energyRequests and manager.hivemind.demand. Flip pauseBot to true when you need the main loop to stay idle while you run manual tests; set it back to false to resume automation.
+* visual.overlay(1) / (0) - toggle HUD visuals
+* visual.DT(1) / (0) - distance transform overlay
+* visual.spawnQueue(1) / (0) - show the spawn queue HUD panel
+* debug.setSpawnLimit(room, role, amount) - override or reset creep limits for miner, hauler, worker, builder and upgrader roles
+```javascript
+```
 * isual.DT(1) / (0) - distance transform overlay
 * isual.spawnQueue(1) / (0) - show the spawn queue HUD panel
 * debug.toggle('module', true) - enable logging for a module
