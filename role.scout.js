@@ -3,6 +3,7 @@ const hiveGaze = require('./manager.hiveGaze');
 const movementUtils = require('./utils.movement');
 const _ = require('lodash');
 const statsConsole = require('console.console');
+const terrainMemory = require('./memory.terrain');
 
 const SCOUT_MAX_DEPTH = 2;
 const SCOUT_REVISIT_TICKS = 5000;
@@ -83,6 +84,8 @@ const recordRoomIntel = (creep) => {
   if (!room) return;
   const intel = getRoomIntel(room.name);
 
+  terrainMemory.captureRoomTerrain(room.name, { force: true });
+
   const sources = typeof FIND_SOURCES !== 'undefined' && typeof room.find === 'function'
     ? room.find(FIND_SOURCES) || []
     : [];
@@ -126,6 +129,7 @@ const recordRoomIntel = (creep) => {
 
   Object.assign(intel, {
     lastScouted: Game.time,
+    scouted: true,
     sourceCount: sources.length,
     structures: structureCounts,
     homeColony: creep.memory.homeRoom,

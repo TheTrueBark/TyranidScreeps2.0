@@ -384,6 +384,49 @@ creep.memory.retiring = true;
 Rooms that have failed scouting multiple times will be skipped until this
 timestamp. The cooldown prevents endless re-queuing of unreachable scout tasks.
 
+### Scout Initialization Status
+
+@codex-owner hiveGaze
+@codex-path Memory.rooms[roomName].scoutInit
+
+Tracks one-time scouting seeding per colony. When a room gains a spawn or the
+hive respawns, `initializeScoutMemory` queues a low-priority job that seeds
+adjacent rooms and captures baseline intel.
+
+```javascript
+Memory.rooms['W1N1'].scoutInit = {
+  version: 1,
+  completed: 12345,
+};
+```
+
+### Scout Visibility Flag
+
+@codex-owner hiveGaze
+@codex-path Memory.rooms[roomName].scouted
+
+Boolean marker indicating whether the room has been successfully scouted at
+least once since initialization. Newly seeded rooms start as `false` and scouts
+flip the flag to `true` when room intel is recorded.
+
+### Terrain Snapshot
+
+@codex-owner memoryManager
+@codex-path Memory.rooms[roomName].terrainInfo
+
+Compressed terrain payloads matching the savestate format. The blob stores a
+50x50 tile matrix encoded with `plain=0`, `swamp=1`, and `wall=2` plus a wall
+mask for quick distance-transform reuse.
+
+```javascript
+Memory.rooms['W1N1'].terrainInfo = {
+  version: 1,
+  compressed: '<LZString base64 payload>',
+  generated: 12345,
+  format: 'lz-base64-json',
+};
+```
+
 ### Remote Scoring
 
 @codex-owner hiveGaze

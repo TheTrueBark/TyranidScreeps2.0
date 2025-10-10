@@ -2,6 +2,7 @@ const { expect } = require('chai');
 const globals = require('./mocks/globals');
 const roleScout = require('../role.scout');
 const htm = require('../manager.htm');
+const terrainMemory = require('../memory.terrain');
 
 global.FIND_SOURCES = 1;
 global.FIND_HOSTILE_CREEPS = 2;
@@ -25,6 +26,8 @@ describe('role.scout', function() {
   it('updates memory when scouting room', function() {
     roleScout.run(Game.creeps.sc1);
     expect(Memory.rooms['W1N2'].lastScouted).to.equal(Game.time);
+    expect(Memory.rooms['W1N2'].scouted).to.be.true;
+    expect(Memory.rooms['W1N2'].terrainInfo.version).to.equal(terrainMemory.TERRAIN_VERSION);
     const tasks = Memory.htm.colonies['W1N1'].tasks;
     expect(tasks[0].name).to.equal('REMOTE_SCORE_ROOM');
   });

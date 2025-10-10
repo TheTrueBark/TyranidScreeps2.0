@@ -4,9 +4,11 @@ const spawnManager = require('./manager.spawn');
 const _ = require('lodash');
 const statsConsole = require('console.console');
 const { getRandomTyranidQuote } = require('./utils.quotes');
+const terrainMemory = require('./memory.terrain');
 
 const SCOUT_REVISIT_TICKS = 5000;
 const SCOUT_SEED_DEPTH = 3;
+const SCOUT_INIT_VERSION = 1;
 
 /**
  * HiveGaze explores exits and queues scout tasks.
@@ -70,6 +72,7 @@ function seedReachableRoomMemory(origin, depth = SCOUT_SEED_DEPTH) {
       if (mem.lastScouted === undefined) mem.lastScouted = 0;
       if (!mem.homeColony) mem.homeColony = origin;
       if (!Array.isArray(mem.scoutFailLog)) mem.scoutFailLog = [];
+      if (mem.scouted === undefined) mem.scouted = false;
     }
   }
 }
@@ -77,6 +80,39 @@ function seedReachableRoomMemory(origin, depth = SCOUT_SEED_DEPTH) {
 const hiveGaze = {
   scoreTerrain,
   seedReachableRoomMemory,
+  SCOUT_INIT_VERSION,
+
+  initializeScoutMemory(roomName) {
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    const mem = Memory.rooms[roomName];
+
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) {
+      mem.scoutInit = {
+        version: SCOUT_INIT_VERSION,
+        completed: null,
+        error: 'noVision',
+        lastAttempt: Game && typeof Game.time === 'number' ? Game.time : null,
+      };
+      return;
+    }
+
+    this.seedReachableRoomMemory(roomName);
+
+    mem.lastScouted = Game.time;
+    mem.scouted = true;
+    mem.scoutInit = {
+      version: SCOUT_INIT_VERSION,
+      completed: Game.time,
+    };
+
+    terrainMemory.captureRoomTerrain(roomName, { force: true });
+
+    if (!Memory.hive) Memory.hive = {};
+    Memory.hive.scoutRescanRequested = true;
+    this.evaluateExpansionVision();
+  },
 
   /** Evaluate exits and queue scouting tasks
    *  @codex-owner hiveGaze
