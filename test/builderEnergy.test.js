@@ -4,24 +4,6 @@ const globals = require('./mocks/globals');
 const htm = require('../manager.htm');
 const roleBuilder = require('../role.builder');
 
-global.FIND_MY_SPAWNS = 1;
-global.FIND_DROPPED_RESOURCES = 2;
-global.FIND_STRUCTURES = 3;
-global.FIND_CONSTRUCTION_SITES = 4;
-global.FIND_TOMBSTONES = 5;
-global.FIND_RUINS = 6;
-global.STRUCTURE_CONTAINER = 'container';
-global.STRUCTURE_STORAGE = 'storage';
-global.STRUCTURE_LINK = 'link';
-global.STRUCTURE_TERMINAL = 'terminal';
-global.STRUCTURE_FACTORY = 'factory';
-global.STRUCTURE_LAB = 'lab';
-global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
-global.STRUCTURE_SPAWN = 'spawn';
-global.RESOURCE_ENERGY = 'energy';
-global.OK = 0;
-global.ERR_NOT_IN_RANGE = -9;
-
 function createCreep(name) {
   return {
     name,
@@ -53,6 +35,23 @@ function createCreep(name) {
 
 describe('builder energy evaluation', function () {
   beforeEach(function () {
+    global.FIND_MY_SPAWNS = 1;
+    global.FIND_DROPPED_RESOURCES = 2;
+    global.FIND_STRUCTURES = 3;
+    global.FIND_CONSTRUCTION_SITES = 4;
+    global.FIND_TOMBSTONES = 5;
+    global.FIND_RUINS = 6;
+    global.STRUCTURE_CONTAINER = 'container';
+    global.STRUCTURE_STORAGE = 'storage';
+    global.STRUCTURE_LINK = 'link';
+    global.STRUCTURE_TERMINAL = 'terminal';
+    global.STRUCTURE_FACTORY = 'factory';
+    global.STRUCTURE_LAB = 'lab';
+    global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
+    global.STRUCTURE_SPAWN = 'spawn';
+    global.RESOURCE_ENERGY = 'energy';
+    global.OK = 0;
+    global.ERR_NOT_IN_RANGE = -9;
     globals.resetGame();
     globals.resetMemory();
     Game.rooms['W1N1'] = { name: 'W1N1', find: () => [], controller: {} };

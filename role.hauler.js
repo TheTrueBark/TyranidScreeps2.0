@@ -868,6 +868,14 @@ function finalizePickupSuccess(creep, targetId, reservedAmount, gainedAmount) {
   }
   if (gainedAmount > 0) {
     completePickupStep(creep, targetId, gainedAmount);
+    if (
+      creep &&
+      creep.store &&
+      typeof creep.store.getFreeCapacity === 'function' &&
+      creep.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    ) {
+      ensurePickupPlan(creep, true);
+    }
   } else {
     clearPickupPlan(creep);
   }
@@ -1024,6 +1032,7 @@ function deliverEnergy(creep, target = null) {
     const result = creep.transfer(structure, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
       creep.travelTo(structure, {
+        range: 1,
         visualizePathStyle: { stroke: '#ffffff' },
         allowRestricted: structure.structureType === STRUCTURE_SPAWN,
       });
@@ -1080,7 +1089,10 @@ function deliverEnergy(creep, target = null) {
     );
     const result = creep.transfer(ctrlContainer, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.travelTo(ctrlContainer, { visualizePathStyle: { stroke: '#ffffff' } });
+      creep.travelTo(ctrlContainer, {
+        range: 1,
+        visualizePathStyle: { stroke: '#ffffff' },
+      });
     } else if (result === OK) {
       recordReserveObservation(
         ctrlContainer,
@@ -1117,7 +1129,10 @@ function deliverEnergy(creep, target = null) {
     );
     const result = creep.transfer(creep.room.storage, RESOURCE_ENERGY);
     if (result === ERR_NOT_IN_RANGE) {
-      creep.travelTo(creep.room.storage, { visualizePathStyle: { stroke: '#ffffff' } });
+      creep.travelTo(creep.room.storage, {
+        range: 1,
+        visualizePathStyle: { stroke: '#ffffff' },
+      });
     } else if (result === OK) {
       recordReserveObservation(
         creep.room.storage,
@@ -1207,7 +1222,10 @@ module.exports = {
         }
         const before = creep.store[RESOURCE_ENERGY];
         if (creep.transfer(target, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.travelTo(target, { visualizePathStyle: { stroke: "#ffffff" } });
+          creep.travelTo(target, {
+            range: 1,
+            visualizePathStyle: { stroke: "#ffffff" },
+          });
         } else {
           const delivered = before - creep.store[RESOURCE_ENERGY];
           if (delivered > 0) {
@@ -1338,7 +1356,10 @@ module.exports = {
             typeof creep.pos.getRangeTo === 'function' &&
             creep.pos.getRangeTo(target) > 1
           ) {
-            creep.travelTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
+            creep.travelTo(target, {
+              range: 1,
+              visualizePathStyle: { stroke: '#ffaa00' },
+            });
           }
           return;
         }
@@ -1361,7 +1382,10 @@ module.exports = {
           ? creep.pickup(target)
           : creep.withdraw(target, RESOURCE_ENERGY);
       if (action === ERR_NOT_IN_RANGE) {
-        creep.travelTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
+        creep.travelTo(target, {
+          range: 1,
+          visualizePathStyle: { stroke: '#ffaa00' },
+        });
         return;
       }
       if (action === ERR_NOT_ENOUGH_RESOURCES) {
@@ -1494,36 +1518,55 @@ module.exports = {
       break;
     }
 
-    if (creep.store[RESOURCE_ENERGY] > 0) {
+    const freeCapacity =
+      creep.store && typeof creep.store.getFreeCapacity === 'function'
+        ? creep.store.getFreeCapacity(RESOURCE_ENERGY)
+        : Math.max(
+            0,
+            (creep.storeCapacity || 0) - (creep.store[RESOURCE_ENERGY] || 0),
+          );
+    const plan = creep.memory.pickupPlan;
+    const hasPlanSteps =
+      plan && Array.isArray(plan.steps) && plan.steps.length > 0;
+    const continuingPickup =
+      freeCapacity > 0 && (creep.memory.reserving || hasPlanSteps);
+
+    if (creep.store[RESOURCE_ENERGY] > 0 && !continuingPickup) {
       clearPickupPlan(creep);
       if (deliverEnergy(creep)) return;
     }
 
-    const source = findEnergySource(creep);
-    if (source) {
-      const capacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-      const desired = Math.min(
-        capacity,
-        source.available !== undefined ? source.available : capacity,
-      );
-      if (desired > 0) {
-        if (!source.planStepId) {
-          reserveEnergy(source.target.id, desired);
+    if (freeCapacity > 0) {
+      const source = findEnergySource(creep);
+      if (source) {
+        const capacity =
+          typeof creep.store.getFreeCapacity === 'function'
+            ? creep.store.getFreeCapacity(RESOURCE_ENERGY)
+            : freeCapacity;
+        const desired = Math.min(
+          capacity,
+          source.available !== undefined ? source.available : capacity,
+        );
+        if (desired > 0) {
+          if (!source.planStepId) {
+            reserveEnergy(source.target.id, desired);
+          }
+          creep.memory.reserving = {
+            id: source.target.id,
+            amount: desired,
+            type: source.type,
+            planStepId: source.planStepId || null,
+            expectedAt: source.expectedAt || (Game.time + 1),
+            maxWait: source.maxWait || FORECAST_WAIT_MIN,
+            productionRate: source.productionRate || 0,
+            waitTicks: 0,
+          };
+          return;
         }
-        creep.memory.reserving = {
-          id: source.target.id,
-          amount: desired,
-          type: source.type,
-          planStepId: source.planStepId || null,
-          expectedAt: source.expectedAt || (Game.time + 1),
-          maxWait: source.maxWait || FORECAST_WAIT_MIN,
-          productionRate: source.productionRate || 0,
-          waitTicks: 0,
-        };
-        return;
       }
+    } else {
+      clearPickupPlan(creep);
     }
-
 
     const spawn =
       creep.room &&
