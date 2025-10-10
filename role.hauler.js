@@ -23,6 +23,14 @@ const FORECAST_WAIT_MIN = 1;
 const ENERGY_RESOURCE =
   typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
 
+const CONTAINER_TYPE =
+  typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container';
+const LINK_TYPE = typeof STRUCTURE_LINK !== 'undefined' ? STRUCTURE_LINK : 'link';
+const TOMBSTONE_TYPE =
+  typeof STRUCTURE_TOMBSTONE !== 'undefined' ? STRUCTURE_TOMBSTONE : 'tombstone';
+const RUIN_TYPE =
+  typeof STRUCTURE_RUIN !== 'undefined' ? STRUCTURE_RUIN : 'ruin';
+
 const WORK_CONSTANT = typeof WORK !== 'undefined' ? WORK : 'work';
 const SOURCE_REGEN_TIME =
   typeof SOURCE_ENERGY_REGEN_TIME !== 'undefined'
@@ -162,21 +170,15 @@ function identifySourceForTarget(target, type, assignment = null) {
   const sources = getRoomSources(roomName);
   let selected = null;
   let bestRange = Infinity;
-  const containerType =
-    typeof STRUCTURE_CONTAINER !== 'undefined'
-      ? STRUCTURE_CONTAINER
-      : 'container';
-  const linkType =
-    typeof STRUCTURE_LINK !== 'undefined' ? STRUCTURE_LINK : 'link';
   for (const source of sources) {
     if (!source || !source.pos) continue;
     const range = chebyshevDistance(source.pos, pos);
     let allowed =
       type === 'pickup'
         ? 1
-        : target.structureType === containerType
+        : target.structureType === CONTAINER_TYPE
           ? 1
-          : target.structureType === linkType
+          : target.structureType === LINK_TYPE
             ? 2
             : 1;
     if (range <= allowed && range < bestRange) {
@@ -511,6 +513,23 @@ function isPreferredTarget(assignment, target) {
   return false;
 }
 
+function determineCandidatePriority(type, target, assignment, preferred = false) {
+  if (!target) return 2;
+  if (type === 'pickup') return 0;
+
+  const structureType = target.structureType;
+  if (structureType === TOMBSTONE_TYPE || structureType === RUIN_TYPE) {
+    return 0;
+  }
+
+  if (structureType === CONTAINER_TYPE) {
+    if (preferred || isPreferredTarget(assignment, target)) return 1;
+    return 2;
+  }
+
+  return 2;
+}
+
 const gatherEnergyCandidates = (creep) => {
   const room = creep.room;
   if (!room || typeof room.find !== 'function') return [];
@@ -527,6 +546,7 @@ const gatherEnergyCandidates = (creep) => {
     const pos = extractPos(target);
     if (!pos) return;
     const preferred = isPreferredTarget(assignment, target);
+    const priority = determineCandidatePriority(type, target, assignment, preferred);
     const sourceId = identifySourceForTarget(target, type, assignment);
     const productionRate = getSourceProductionRate(sourceId);
     if (amount <= 0 && productionRate <= 0 && netAvailable <= 0) return;
@@ -543,6 +563,7 @@ const gatherEnergyCandidates = (creep) => {
       productionRate,
       sourceId,
       preferred,
+      priority,
       pos: new RoomPosition(pos.x, pos.y, pos.roomName || (target.room && target.room.name) || room.name),
       range: type === 'pickup' ? 1 : 1,
     });
@@ -708,6 +729,9 @@ function buildPickupPlan(creep) {
       .map((c) => evaluateCandidate(creep, currentPos, c, remaining))
       .filter(Boolean)
       .sort((a, b) => {
+        const aPriority = a.candidate.priority !== undefined ? a.candidate.priority : 2;
+        const bPriority = b.candidate.priority !== undefined ? b.candidate.priority : 2;
+        if (aPriority !== bPriority) return aPriority - bPriority;
         if (a.efficiency !== b.efficiency) return a.efficiency - b.efficiency;
         if (a.candidate.preferred !== b.candidate.preferred) {
           return a.candidate.preferred ? -1 : 1;
@@ -725,6 +749,7 @@ function buildPickupPlan(creep) {
       amount: best.amount,
       remaining: best.amount,
       preferred: Boolean(best.candidate.preferred),
+      priority: best.candidate.priority !== undefined ? best.candidate.priority : 2,
       pos: {
         x: best.candidate.pos.x,
         y: best.candidate.pos.y,
