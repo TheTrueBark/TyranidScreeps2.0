@@ -548,21 +548,6 @@ const gatherEnergyCandidates = (creep) => {
     });
   };
 
-  const spawns =
-    typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
-      ? room.find(FIND_MY_SPAWNS, {
-          filter: (s) =>
-            s &&
-            s.store &&
-            typeof s.store.getFreeCapacity === 'function' &&
-            s.store.getFreeCapacity(RESOURCE_ENERGY) < s.store.getCapacity(RESOURCE_ENERGY),
-        }) || []
-      : [];
-  for (const spawn of spawns) {
-    const stored = spawn.store[RESOURCE_ENERGY] || 0;
-    if (stored > 0) pushCandidate('withdraw', spawn, stored);
-  }
-
   const dropped =
     typeof FIND_DROPPED_RESOURCES !== 'undefined' && typeof room.find === 'function'
       ? room.find(FIND_DROPPED_RESOURCES, {

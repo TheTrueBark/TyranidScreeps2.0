@@ -141,7 +141,7 @@ incremented. Tasks stay queued until a site is placed or the structure exists.
 When `Memory.settings.debugBuilding` is `true`, every task execution logs the
 result to the console and draws a small overlay via `RoomVisual`:
 
-```
+```text
 [BUILD] Placed EXTENSION at (17, 24) in W1N1
 [BUILD] Skipped TOWER at (20, 21): RCL limit reached
 [BUILD] Cannot place SPAWN at (10, 10) in W1N1 — unwalkable terrain
