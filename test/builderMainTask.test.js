@@ -17,6 +17,7 @@ describe('builder retains mainTask while refueling', function() {
     globals.resetMemory();
     htm.init();
     Memory.htm.creeps = {};
+    Memory.constructionReservations = {};
     const site = { id: 's1', progress: 0, progressTotal: 100, pos: { x: 1, y: 1, roomName: 'W1N1', lookFor: () => [] } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
@@ -31,7 +32,7 @@ describe('builder retains mainTask while refueling', function() {
   it('keeps mainTask id after requesting energy', function() {
     const creep = {
       name: 'b1',
-      memory: { working: false, mainTask: 's1' },
+      memory: { working: false, mainTask: { type: 'build', id: 's1' } },
       room: Game.rooms['W1N1'],
       store: { [RESOURCE_ENERGY]: 0, getFreeCapacity: () => 50 },
       pos: {
@@ -49,6 +50,6 @@ describe('builder retains mainTask while refueling', function() {
       harvest: () => OK,
     };
     roleBuilder.run(creep);
-    expect(creep.memory.mainTask).to.equal('s1');
+    expect(creep.memory.mainTask).to.deep.equal({ type: 'build', id: 's1' });
   });
 });

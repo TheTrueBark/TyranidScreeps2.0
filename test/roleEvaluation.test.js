@@ -47,7 +47,12 @@ describe('hive.roles evaluateRoom', function() {
     spawnQueue.queue = [];
     const room = createRoom();
     Game.rooms['W1N1'] = room;
-    Memory.rooms = { W1N1: { miningPositions: { s1: { positions: { a:{}, b:{}, c:{} } } } } };
+    Memory.rooms = {
+      W1N1: {
+        miningPositions: { s1: { positions: { a: {}, b: {}, c: {} } } },
+        controllerUpgradeSpots: 4,
+      },
+    };
     htm.init();
   });
 
@@ -64,10 +69,10 @@ describe('hive.roles evaluateRoom', function() {
   it('stores spawn limits in room memory', function() {
     roles.evaluateRoom(Game.rooms['W1N1']);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits).to.include.keys('miners', 'builders', 'upgraders');
+    expect(limits).to.include.keys('miners', 'builders', 'upgraders', 'workers');
   });
 
-  it('caps builders at RCL1', function() {
+  it('scales workers with construction demand', function() {
     const room = Game.rooms['W1N1'];
     room.find = type => {
       if (type === FIND_SOURCES) {
@@ -86,20 +91,19 @@ describe('hive.roles evaluateRoom', function() {
       { id: 'c1', priority: 100 },
       { id: 'c2', priority: 80 },
     ];
-    Game.creeps = {
-      h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
-      h2: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
-    };
+    Memory.rooms['W1N1'].controllerUpgradeSpots = 5;
     roles.evaluateRoom(room);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits.builders).to.equal(4);
+    expect(limits.workers).to.equal(4);
+    expect(limits.builders).to.equal(3);
   });
 
-  it('limits upgraders to four', function() {
+  it('maintains at least one primary upgrader', function() {
     const room = Game.rooms['W1N1'];
     Memory.rooms['W1N1'].controllerUpgradeSpots = 8;
     roles.evaluateRoom(room);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits.upgraders).to.equal(4);
+    expect(limits.upgraders).to.be.at.least(1);
+    expect(limits.workers).to.be.at.least(limits.upgraders);
   });
 });

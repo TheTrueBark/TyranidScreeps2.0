@@ -356,14 +356,6 @@ var statsConsole = {
             q.room === room.name &&
             (q.category === 'builder' || (q.memory && q.memory.role === 'builder')),
         ).length;
-        secondLineName = secondLineName.concat(['Builders']);
-        secondLineStat = secondLineStat.concat([
-          `${buildersAlive + queuedBuilders}/${limits.builders || 0}` +
-            (manual.builders !== undefined && manual.builders !== 'auto'
-              ? ` manual limit: ${manual.builders}`
-              : ''),
-        ]);
-
         const upgradersAlive = _.filter(
           Game.creeps,
           c => c.memory.role === 'upgrader' && c.room.name === room.name,
@@ -373,13 +365,26 @@ var statsConsole = {
             q.room === room.name &&
             (q.category === 'upgrader' || (q.memory && q.memory.role === 'upgrader')),
         ).length;
-        secondLineName = secondLineName.concat(['Upgraders']);
-        secondLineStat = secondLineStat.concat([
-          `${upgradersAlive + queuedUpgraders}/${limits.upgraders || 0}` +
-            (manual.upgraders !== undefined && manual.upgraders !== 'auto'
-              ? ` manual limit: ${manual.upgraders}`
-              : ''),
-        ]);
+        const totalWorkers = buildersAlive + queuedBuilders + upgradersAlive + queuedUpgraders;
+        const workerLimit =
+          limits.workers !== undefined
+            ? limits.workers
+            : (limits.builders || 0) + (limits.upgraders || 0);
+        let workerStat = `${totalWorkers}/${workerLimit || 0}`;
+        const manualWorkerLimit =
+          manual.workers !== undefined && manual.workers !== 'auto'
+            ? manual.workers
+            : manual.builders !== undefined && manual.builders !== 'auto'
+              ? manual.builders
+              : manual.upgraders !== undefined && manual.upgraders !== 'auto'
+                ? manual.upgraders
+                : null;
+        if (manualWorkerLimit !== null) {
+          workerStat += ` manual limit: ${manualWorkerLimit}`;
+        }
+        workerStat += ` (B:${buildersAlive + queuedBuilders} U:${upgradersAlive + queuedUpgraders})`;
+        secondLineName = secondLineName.concat(['Workers']);
+        secondLineStat = secondLineStat.concat([workerStat]);
       }
     }
 

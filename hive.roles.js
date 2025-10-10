@@ -6,6 +6,36 @@ const maintenance = require('./manager.maintenance');
 const _ = require('lodash');
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 
+const DEFAULT_BODY_COSTS = {
+  move: 50,
+  work: 100,
+  carry: 50,
+  attack: 80,
+  ranged_attack: 150,
+  tough: 10,
+  heal: 250,
+  claim: 600,
+};
+
+const ENERGY_REGEN = typeof ENERGY_REGEN_TIME !== 'undefined' ? ENERGY_REGEN_TIME : 300;
+
+function partCost(part) {
+  if (typeof BODYPART_COST !== 'undefined' && BODYPART_COST[part] !== undefined) {
+    return BODYPART_COST[part];
+  }
+  const key = typeof part === 'string' ? part.toLowerCase() : part;
+  return DEFAULT_BODY_COSTS[key] || 0;
+}
+
+function calculateBodyCost(parts = []) {
+  return parts.reduce((total, part) => total + partCost(part), 0);
+}
+
+function countWorkParts(parts = []) {
+  const workConstant = typeof WORK !== 'undefined' ? WORK : 'work';
+  return parts.filter(part => part === workConstant).length;
+}
+
 /**
  * Evaluate workforce requirements for a room and queue HTM spawn tasks.
  * Miners, upgraders and builders are considered. Haulers are handled
@@ -128,30 +158,122 @@ const roles = {
       }
     }
 
-    // --- Upgrader calculation ---
+    // --- Worker (builder/upgrader) calculation ---
+    const workerBody = dna.getBodyParts('builder', room);
+    const workPartsPerBody = Math.max(1, countWorkParts(workerBody));
+    const workerBodyCost = calculateBodyCost(workerBody);
+    const roomSources = room.find(FIND_SOURCES) || [];
+    const energyPerTick = roomSources.reduce((total, source) => {
+      const capacity =
+        typeof source.energyCapacity === 'number' && source.energyCapacity > 0
+          ? source.energyCapacity
+          : 3000;
+      return total + capacity / ENERGY_REGEN;
+    }, 0);
+    const maxWorkParts = Math.max(1, Math.floor(energyPerTick * 0.75));
+    const capByEnergy = Math.max(1, Math.floor(maxWorkParts / workPartsPerBody));
     const availableSpots =
       (Memory.rooms[roomName] && Memory.rooms[roomName].controllerUpgradeSpots) || 1;
-    const activeBuilders = _.filter(
+    const hardCap = Math.max(1, availableSpots);
+    let dynamicCap = Math.max(1, Math.min(hardCap, capByEnergy));
+
+    const buildingQueue = (room.memory && room.memory.buildingQueue) || [];
+    const constructionSites =
+      buildingQueue.length > 0
+        ? buildingQueue.length
+        : room.find(FIND_CONSTRUCTION_SITES).length;
+    const repairDemand = maintenance.getActiveRepairDemand(roomName);
+    let baselineWorkers =
+      constructionSites > 0
+        ? Math.min(dynamicCap, Math.min(6, constructionSites * 2))
+        : 1;
+    if (repairDemand > 0) baselineWorkers = Math.max(baselineWorkers, 1);
+
+    const liveBuilders = _.filter(
       Game.creeps,
       c => c.memory.role === 'builder' && c.room.name === roomName,
     ).length;
-    let desiredUpgraders = Math.min(4, Math.max(1, availableSpots - activeBuilders));
     const liveUpgraders = _.filter(
       Game.creeps,
       c => c.memory.role === 'upgrader' && c.room.name === roomName,
     ).length;
-    const queuedUpgraders = spawnQueue.queue.filter(
-      q => q.memory.role === 'upgrader' && q.room === roomName,
+    const liveWorkers = liveBuilders + liveUpgraders;
+
+    const queuedWorkers = spawnQueue.queue.filter(
+      q =>
+        q.room === roomName &&
+        q.memory &&
+        (q.memory.role === 'builder' || q.memory.role === 'upgrader'),
     ).length;
+
+    let manualWorkerLimit =
+      manualLimits.workers !== undefined && manualLimits.workers !== 'auto'
+        ? manualLimits.workers
+        : null;
+    if (manualWorkerLimit === null) {
+      const manualBuilderLimit =
+        manualLimits.builders !== undefined && manualLimits.builders !== 'auto'
+          ? manualLimits.builders
+          : null;
+      const manualUpgraderLimit =
+        manualLimits.upgraders !== undefined && manualLimits.upgraders !== 'auto'
+          ? manualLimits.upgraders
+          : null;
+      if (manualBuilderLimit !== null && manualUpgraderLimit !== null) {
+        manualWorkerLimit = Math.max(manualBuilderLimit, manualUpgraderLimit);
+      } else if (manualBuilderLimit !== null) {
+        manualWorkerLimit = manualBuilderLimit;
+      } else if (manualUpgraderLimit !== null) {
+        manualWorkerLimit = manualUpgraderLimit;
+      }
+    }
+
+    let targetWorkers = Math.min(dynamicCap, Math.max(1, baselineWorkers));
+    if (manualWorkerLimit !== null) {
+      targetWorkers = manualWorkerLimit;
+      dynamicCap = Math.max(0, manualWorkerLimit);
+    } else {
+      const roomQueue = spawnQueue.queue.filter(req => req.room === roomName);
+      const queueEmpty = roomQueue.length === 0;
+      const canSpawnWorker = room.energyAvailable >= workerBodyCost;
+      if (
+        queueEmpty &&
+        canSpawnWorker &&
+        targetWorkers < dynamicCap &&
+        liveWorkers + queuedWorkers < dynamicCap
+      ) {
+        targetWorkers = Math.min(
+          dynamicCap,
+          Math.max(targetWorkers, liveWorkers + queuedWorkers + 1),
+        );
+      }
+    }
+    if (manualWorkerLimit !== null) {
+      targetWorkers = Math.max(0, Math.min(dynamicCap, targetWorkers));
+    } else {
+      targetWorkers = Math.max(1, Math.min(dynamicCap, targetWorkers));
+    }
+
+    let desiredUpgraders = Math.min(targetWorkers, 1);
+    if (constructionSites === 0 && targetWorkers > 1) {
+      desiredUpgraders = Math.min(
+        targetWorkers,
+        Math.min(hardCap, Math.max(1, Math.ceil(targetWorkers / 2))),
+      );
+    }
+    const desiredBuilders = Math.max(0, targetWorkers - desiredUpgraders);
+
+    const queuedBuilders = spawnQueue.queue.filter(
+      q => q.room === roomName && q.memory && q.memory.role === 'builder',
+    ).length;
+    const queuedUpgraders = spawnQueue.queue.filter(
+      q => q.room === roomName && q.memory && q.memory.role === 'upgrader',
+    ).length;
+
     const upgraderTask = tasks.find(t => t.name === 'spawnUpgrader' && t.manager === 'spawnManager');
     const upgraderTaskAmount = upgraderTask ? upgraderTask.amount || 0 : 0;
-    if (manualLimits.upgraders !== undefined && manualLimits.upgraders !== 'auto') {
-      desiredUpgraders = manualLimits.upgraders;
-    }
-    const upgradersNeeded = Math.max(
-      0,
-      desiredUpgraders - liveUpgraders - queuedUpgraders - upgraderTaskAmount,
-    );
+    const totalPlannedUpgraders = liveUpgraders + queuedUpgraders + upgraderTaskAmount;
+    const upgradersNeeded = Math.max(0, desiredUpgraders - totalPlannedUpgraders);
     if (upgradersNeeded > 0) {
       if (upgraderTask) upgraderTask.amount += upgradersNeeded;
       else
@@ -167,29 +289,10 @@ const roles = {
       statsConsole.log(`RoleEval queued ${upgradersNeeded} upgrader(s) for ${roomName}`, 2);
     }
 
-    // --- Builder calculation ---
-    const sites = room.find(FIND_CONSTRUCTION_SITES);
-    const repairDemand = maintenance.getActiveRepairDemand(roomName);
-    let desiredBuilders = Math.min(6, sites.length * 2);
-    const liveBuilders = _.filter(
-      Game.creeps,
-      c => c.memory.role === 'builder' && c.room.name === roomName,
-    ).length;
-    const queuedBuilders = spawnQueue.queue.filter(
-      q => q.memory.role === 'builder' && q.room === roomName,
-    ).length;
     const builderTask = tasks.find(t => t.name === 'spawnBuilder' && t.manager === 'spawnManager');
     const builderTaskAmount = builderTask ? builderTask.amount || 0 : 0;
-    const manualBuilders = manualLimits.builders;
-    if (manualBuilders !== undefined && manualBuilders !== 'auto') {
-      desiredBuilders = manualBuilders;
-    } else if (repairDemand > 0) {
-      desiredBuilders = Math.max(desiredBuilders, 1);
-    }
-    const buildersNeeded = Math.max(
-      0,
-      desiredBuilders - liveBuilders - queuedBuilders - builderTaskAmount,
-    );
+    const totalPlannedBuilders = liveBuilders + queuedBuilders + builderTaskAmount;
+    const buildersNeeded = Math.max(0, desiredBuilders - totalPlannedBuilders);
     if (buildersNeeded > 0) {
       if (builderTask) builderTask.amount += buildersNeeded;
       else
@@ -212,13 +315,27 @@ const roles = {
     if (!Memory.rooms[roomName].spawnLimits)
       Memory.rooms[roomName].spawnLimits = {};
     Memory.rooms[roomName].spawnLimits.miners = desiredMiners;
+    Memory.rooms[roomName].spawnLimits.workers = targetWorkers;
     Memory.rooms[roomName].spawnLimits.upgraders = desiredUpgraders;
     Memory.rooms[roomName].spawnLimits.builders = desiredBuilders;
-    if (manualLimits.miners !== undefined || manualLimits.builders !== undefined || manualLimits.upgraders !== undefined) {
-      if (!Memory.rooms[roomName].manualSpawnLimits) Memory.rooms[roomName].manualSpawnLimits = {};
-      if (manualLimits.miners !== undefined) Memory.rooms[roomName].manualSpawnLimits.miners = manualLimits.miners;
-      if (manualLimits.builders !== undefined) Memory.rooms[roomName].manualSpawnLimits.builders = manualLimits.builders;
-      if (manualLimits.upgraders !== undefined) Memory.rooms[roomName].manualSpawnLimits.upgraders = manualLimits.upgraders;
+
+    if (!Memory.rooms[roomName].manualSpawnLimits)
+      Memory.rooms[roomName].manualSpawnLimits = {};
+    if (manualLimits.miners !== undefined) {
+      Memory.rooms[roomName].manualSpawnLimits.miners = manualLimits.miners;
+    }
+    if (manualLimits.workers !== undefined) {
+      Memory.rooms[roomName].manualSpawnLimits.workers = manualLimits.workers;
+    } else if (manualWorkerLimit !== null) {
+      Memory.rooms[roomName].manualSpawnLimits.workers = manualWorkerLimit;
+    } else {
+      Memory.rooms[roomName].manualSpawnLimits.workers = 'auto';
+    }
+    if (manualLimits.builders !== undefined) {
+      Memory.rooms[roomName].manualSpawnLimits.builders = manualLimits.builders;
+    }
+    if (manualLimits.upgraders !== undefined) {
+      Memory.rooms[roomName].manualSpawnLimits.upgraders = manualLimits.upgraders;
     }
 
     Memory.roleEval.lastRun = Game.time;

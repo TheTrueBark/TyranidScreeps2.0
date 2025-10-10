@@ -19,6 +19,7 @@ describe('upgrader upgrades when powered', function() {
       find: () => [],
     };
     Game.getObjectById = id => container;
+    Memory.constructionReservations = {};
   });
 
   it('calls upgradeController when in range and has energy', function() {

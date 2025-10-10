@@ -18,9 +18,10 @@ describe('upgrader withdraws from nearby container when not full', function() {
     Game.rooms['W1N1'] = {
       name: 'W1N1',
       controller: { pos: { findInRange: () => [container] } },
-      find: () => [],
+      find: type => (type === FIND_STRUCTURES ? [container] : []),
     };
     Game.getObjectById = id => container;
+    Memory.constructionReservations = {};
   });
 
   it('calls withdraw when container in range and creep not full', function() {

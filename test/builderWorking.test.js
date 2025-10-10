@@ -51,6 +51,7 @@ describe('builder working state', function () {
     globals.resetMemory();
     htm.init();
     Memory.htm.creeps = {};
+    Memory.constructionReservations = {};
     const site = createSite('s1');
     Game.rooms['W1N1'] = {
       name: 'W1N1',

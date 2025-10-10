@@ -7,6 +7,11 @@ const demand = require("./manager.hivemind.demand");
 const energyRequests = require('./manager.energyRequests');
 const Traveler = require('./manager.hiveTravel');
 const _ = require('lodash');
+const {
+  reserveEnergy,
+  releaseEnergy,
+  getReserved,
+} = require('./utils.energyReserve');
 
 const MAX_PICKUP_CANDIDATES = 6;
 const PICKUP_PLAN_VERSION = 2;
@@ -216,22 +221,6 @@ function forecastCandidateAmount(candidate, travelTicks) {
     projected = Math.max(projected, candidate.available);
   }
   return projected;
-}
-
-function reserveEnergy(id, amount) {
-  if (!id || amount <= 0) return;
-  if (!Memory.energyReserves[id]) Memory.energyReserves[id] = 0;
-  Memory.energyReserves[id] += amount;
-}
-
-function releaseEnergy(id, amount = 0) {
-  if (!id || !Memory.energyReserves[id]) return;
-  if (amount <= 0) {
-    delete Memory.energyReserves[id];
-    return;
-  }
-  Memory.energyReserves[id] = Math.max(0, Memory.energyReserves[id] - amount);
-  if (Memory.energyReserves[id] === 0) delete Memory.energyReserves[id];
 }
 
 function isRestricted(room, pos) {
@@ -533,7 +522,7 @@ const gatherEnergyCandidates = (creep) => {
 
   const pushCandidate = (type, target, amount) => {
     if (!target || !target.id || seen.has(target.id)) return;
-    const reserved = Memory.energyReserves[target.id] || 0;
+    const reserved = getReserved(target.id);
     const netAvailable = amount - reserved;
     const pos = extractPos(target);
     if (!pos) return;
@@ -900,7 +889,7 @@ function findEnergySource(creep) {
       continue;
     }
 
-    const totalReserved = Memory.energyReserves[step.id] || 0;
+      const totalReserved = getReserved(step.id);
     const alreadyReserved = step.reserved || 0;
     const otherReserved = Math.max(0, totalReserved - alreadyReserved);
     const effectiveAvailable = Math.max(0, currentEnergy - otherReserved);
@@ -1265,7 +1254,7 @@ module.exports = {
         delete creep.memory.reserving;
         return;
       }
-      const totalReserved = Memory.energyReserves[reservation.id] || 0;
+      const totalReserved = getReserved(reservation.id);
       const stepReserved =
         planStep && planStep.reserved !== undefined
           ? planStep.reserved

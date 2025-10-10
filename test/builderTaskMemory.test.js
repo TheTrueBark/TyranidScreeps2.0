@@ -16,6 +16,7 @@ describe('builder task memory', function () {
     globals.resetGame();
     globals.resetMemory();
     htm.init();
+    Memory.constructionReservations = {};
     const site = { id: 's1', pos: { x: 1, y: 1, roomName: 'W1N1', lookFor: () => [] } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',

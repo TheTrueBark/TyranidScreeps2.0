@@ -31,6 +31,7 @@ describe('manual spawn limits', function() {
     Memory.rooms = {
       W1N1: {
         miningPositions: { s1: { positions: { a: {}, b: {} } } },
+        controllerUpgradeSpots: 4,
         manualSpawnLimits: { builders: 0 },
       },
     };
@@ -40,6 +41,7 @@ describe('manual spawn limits', function() {
   it('respects manual builder limit', function() {
     roles.evaluateRoom(Game.rooms['W1N1']);
     const limits = Memory.rooms['W1N1'].spawnLimits;
+    expect(limits.workers).to.equal(0);
     expect(limits.builders).to.equal(0);
   });
 
@@ -60,6 +62,7 @@ describe('manual spawn limits', function() {
     Memory.rooms['W1N1'].manualSpawnLimits.builders = 'auto';
     roles.evaluateRoom(Game.rooms['W1N1']);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits.builders).to.equal(4);
+    expect(limits.workers).to.equal(4);
+    expect(limits.builders).to.equal(3);
   });
 });

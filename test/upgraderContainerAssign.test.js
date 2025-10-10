@@ -20,6 +20,7 @@ describe('upgrader moves toward controller when not in range', function() {
       find: () => [],
     };
     Game.getObjectById = () => null;
+    Memory.constructionReservations = {};
   });
 
   it('calls travelTo when controller is farther than range 3', function() {

@@ -5,6 +5,8 @@ const htm = require('../manager.htm');
 const roleUpgrader = require('../role.upgrader');
 
 global.FIND_MY_SPAWNS = 1;
+global.FIND_SOURCES = 2;
+global.FIND_STRUCTURES = 3;
 global.RESOURCE_ENERGY = 'energy';
 global.OK = 0;
 global.STRUCTURE_CONTAINER = 'container';
@@ -28,6 +30,7 @@ describe('energy request tasks', function() {
     Game.rooms['W1N1'] = { name: 'W1N1', find: () => [], controller: {} };
     Game.getObjectById = () => null;
     Memory.rooms = { W1N1: {} };
+    Memory.constructionReservations = {};
     htm.init();
   });
 
@@ -37,6 +40,11 @@ describe('energy request tasks', function() {
 
   it('does not request hauled energy when empty', function() {
     const creep = createCreep('u1');
+    const source = { id: 'src1', energy: 3000, pos: { x: 5, y: 5, roomName: 'W1N1' } };
+    Game.rooms['W1N1'].find = type =>
+      (type === FIND_SOURCES ? [source] : []);
+    creep.harvest = () => OK;
+    creep.room = Game.rooms['W1N1'];
     roleUpgrader.run(creep);
     expect(Memory.htm.creeps['u1']).to.be.undefined;
   });
@@ -51,10 +59,13 @@ describe('energy request tasks', function() {
     Game.rooms['W1N1'].controller = {
       pos: { findInRange: () => [container] },
     };
+    Game.rooms['W1N1'].find = type =>
+      (type === FIND_STRUCTURES ? [container] : []);
     Game.getObjectById = id => container;
     const creep = createCreep('u2');
     creep.withdraw = () => OK;
     creep.pos.getRangeTo = () => 1;
+    creep.room = Game.rooms['W1N1'];
     roleUpgrader.run(creep);
     expect(Memory.htm.creeps['u2']).to.be.undefined;
   });

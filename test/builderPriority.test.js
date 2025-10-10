@@ -18,6 +18,7 @@ describe('builder prioritization', function () {
     globals.resetGame();
     globals.resetMemory();
     htm.init();
+    Memory.constructionReservations = {};
     const extSite = {
       id: 'ext1',
       structureType: STRUCTURE_EXTENSION,
