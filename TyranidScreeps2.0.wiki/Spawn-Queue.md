@@ -26,7 +26,7 @@ Use `spawnQueue.processQueue(spawn)` each tick. It checks energy and spawns the 
 
 ## Adding requests
 
-```
+```javascript
 const priority = spawnManager.resolvePriority('miner', { starter: true });
 spawnQueue.addToQueue('miner', room.name, body, { role: 'miner' }, spawn.id, 0, priority);
 ```

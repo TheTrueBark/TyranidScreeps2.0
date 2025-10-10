@@ -3,7 +3,7 @@
 If `Memory.settings.debugLayoutProgress` is `true`, the layout planner and building manager
 log cluster progress every 1000 ticks. Example console line:
 
-```
+```text
 [cluster] W1N1:extCluster1 3/5
 ```
 

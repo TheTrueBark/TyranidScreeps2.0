@@ -13,7 +13,7 @@ This document maps the main subsystems of the Tyranid Screeps AI and how they in
 | **HiveTravel** | Pathing helper storing hostile rooms under `Memory.empire`. | part of [Memory](./memory.md) |
 | **Logger** | Aggregates stats and console output in `Memory.stats`. | [Logger](./logger.md) |
 
-```
+```text
 Scheduler -> HiveMind -> HTM -> Spawn Queue -> Spawn Manager -> Creeps
                 \-> Demand Tracker ----/
 ```
