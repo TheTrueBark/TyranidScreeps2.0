@@ -29,6 +29,48 @@
 
 const { MEMORY_VERSION, runMigrations } = require('./memory.migrations');
 
+const ENERGY_RESERVE_EVENT_MAX_AGE = 400;
+const ENERGY_RESERVE_EVENT_LIMIT = 200;
+
+function getGameTime() {
+  return typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0;
+}
+
+function extractPos(value) {
+  if (!value) return null;
+  if (value.pos) return extractPos(value.pos);
+  const { x, y } = value;
+  if (typeof x !== 'number' || typeof y !== 'number') return null;
+  const roomName = value.roomName || (value.room && value.room.name) || null;
+  return { x, y, roomName };
+}
+
+function ensureEnergyReserveEventsMemory() {
+  if (typeof Memory === 'undefined') return null;
+  if (!Memory.energyReserveEvents) {
+    Memory.energyReserveEvents = {};
+  }
+  const data = Memory.energyReserveEvents;
+  if (!Array.isArray(data.deaths)) data.deaths = [];
+  if (!data.vitals) data.vitals = {};
+  if (!data.tombstones) data.tombstones = {};
+  return data;
+}
+
+function determineFriendlyDeathCause(entry) {
+  if (!entry) return 'unknown';
+  const current = getGameTime();
+  if (
+    typeof entry.lastDamageTick === 'number' &&
+    (!current || current - entry.lastDamageTick <= 3)
+  ) {
+    return 'combat';
+  }
+  if (entry.retiring) return 'lifespan';
+  if (typeof entry.ticksToLive === 'number' && entry.ticksToLive <= 5) return 'lifespan';
+  return 'unknown';
+}
+
 const DEFAULT_COLONY_MEMORY = {
   creeps: {},
   structures: {},
@@ -133,12 +175,25 @@ const memoryManager = {
     if (!Memory.energyReserves) return;
     for (const id in Memory.energyReserves) {
       const entry = Memory.energyReserves[id];
-      const obj =
-        typeof Game !== 'undefined' && typeof Game.getObjectById === 'function'
-          ? Game.getObjectById(id)
-          : null;
-      if (!obj) {
+      if (!entry || typeof entry !== 'object') {
         delete Memory.energyReserves[id];
+        continue;
+      }
+      let obj = null;
+      if (typeof Game !== 'undefined' && typeof Game.getObjectById === 'function') {
+        try {
+          obj = Game.getObjectById(id);
+        } catch (error) {
+          obj = null;
+        }
+      }
+      if (!obj) {
+        if (entry.flaggedForRemoval) {
+          delete Memory.energyReserves[id];
+        } else {
+          entry.flaggedForRemoval = true;
+          entry.removalFlaggedAt = getGameTime();
+        }
         continue;
       }
       const store = obj.store;
@@ -156,8 +211,118 @@ const memoryManager = {
       }
       const canReceive = entry && (entry.haulersMayDeposit || entry.buildersMayDeposit);
       if (!canReceive && stored <= 0) {
-        delete Memory.energyReserves[id];
+        if (entry.flaggedForRemoval) {
+          delete Memory.energyReserves[id];
+        } else {
+          entry.flaggedForRemoval = true;
+          entry.removalFlaggedAt = getGameTime();
+        }
+      } else if (entry.flaggedForRemoval) {
+        entry.flaggedForRemoval = false;
+        entry.removalFlaggedAt = null;
       }
+    }
+  },
+
+  observeEnergyReserveEvents() {
+    const events = ensureEnergyReserveEventsMemory();
+    if (!events) return;
+
+    const vitals = events.vitals;
+    const seenCreeps = new Set();
+
+    if (typeof Game !== 'undefined' && Game.creeps) {
+      for (const name in Game.creeps) {
+        const creep = Game.creeps[name];
+        if (!creep || !creep.pos) continue;
+        const pos = extractPos(creep.pos);
+        if (!pos) continue;
+        const entry = vitals[name] || {};
+        entry.pos = pos;
+        entry.hits = creep.hits;
+        entry.hitsMax = creep.hitsMax;
+        if (typeof entry.lastHits === 'number' && creep.hits < entry.lastHits) {
+          entry.lastDamageTick = getGameTime();
+        }
+        entry.lastHits = creep.hits;
+        entry.ticksToLive = creep.ticksToLive;
+        entry.role = creep.memory && creep.memory.role;
+        entry.retiring = Boolean(
+          creep.memory && (creep.memory.retiring || creep.memory.retired || creep.memory.recycle),
+        );
+        entry.lastSeen = getGameTime();
+        vitals[name] = entry;
+        seenCreeps.add(name);
+      }
+    }
+
+    for (const name of Object.keys(vitals)) {
+      if (seenCreeps.has(name)) continue;
+      const entry = vitals[name];
+      if (!entry || !entry.pos) {
+        delete vitals[name];
+        continue;
+      }
+      events.deaths.push({
+        tick: getGameTime(),
+        pos: entry.pos,
+        type: 'friendly',
+        cause: determineFriendlyDeathCause(entry),
+        name,
+        role: entry.role || null,
+      });
+      delete vitals[name];
+    }
+
+    const seenTombstones = new Set();
+    if (
+      typeof FIND_TOMBSTONES !== 'undefined' &&
+      typeof Game !== 'undefined' &&
+      Game.rooms
+    ) {
+      for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        if (!room || typeof room.find !== 'function') continue;
+        let tombstones = [];
+        try {
+          tombstones = room.find(FIND_TOMBSTONES) || [];
+        } catch (error) {
+          tombstones = [];
+        }
+        for (const tomb of tombstones) {
+          if (!tomb || !tomb.id) continue;
+          seenTombstones.add(tomb.id);
+          if (events.tombstones[tomb.id]) continue;
+          events.tombstones[tomb.id] = { recorded: getGameTime() };
+          if (tomb.my) continue;
+          const pos = extractPos(tomb);
+          if (!pos) continue;
+          events.deaths.push({
+            tick: getGameTime(),
+            pos,
+            type: 'hostile',
+            cause: 'combat',
+            owner: tomb.owner && tomb.owner.username ? tomb.owner.username : null,
+            tombstoneId: tomb.id,
+          });
+        }
+      }
+    }
+
+    for (const id of Object.keys(events.tombstones)) {
+      if (!seenTombstones.has(id)) {
+        delete events.tombstones[id];
+      }
+    }
+
+    const now = getGameTime();
+    events.deaths = events.deaths.filter((event) => {
+      if (!event) return false;
+      if (typeof event.tick !== 'number') return true;
+      return !now || now - event.tick <= ENERGY_RESERVE_EVENT_MAX_AGE;
+    });
+    if (events.deaths.length > ENERGY_RESERVE_EVENT_LIMIT) {
+      events.deaths.splice(0, events.deaths.length - ENERGY_RESERVE_EVENT_LIMIT);
     }
   },
 
