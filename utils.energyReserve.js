@@ -23,6 +23,12 @@ const TOMBSTONE_TYPE =
   typeof STRUCTURE_TOMBSTONE !== 'undefined' ? STRUCTURE_TOMBSTONE : 'tombstone';
 const RUIN_TYPE = typeof STRUCTURE_RUIN !== 'undefined' ? STRUCTURE_RUIN : 'ruin';
 
+const DEFAULT_DEATH_EVENT_MAX_AGE = 300;
+const DEFAULT_DEATH_EVENT_RANGE = 1;
+
+let cachedUsernameTick = -1;
+let cachedUsername = null;
+
 function getGameTime() {
   return typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0;
 }
@@ -43,6 +49,8 @@ function normalizeEntry(entry) {
       buildersMayWithdraw: false,
       buildersMayDeposit: false,
       type: 'unknown',
+      flaggedForRemoval: false,
+      removalFlaggedAt: null,
       lastUpdated: getGameTime(),
     };
   }
@@ -55,6 +63,8 @@ function normalizeEntry(entry) {
       buildersMayWithdraw: false,
       buildersMayDeposit: false,
       type: 'unknown',
+      flaggedForRemoval: false,
+      removalFlaggedAt: null,
     },
     entry,
   );
@@ -80,6 +90,11 @@ function ensureEntry(id) {
   }
   if (typeof existing.reserved !== 'number') existing.reserved = 0;
   if (typeof existing.available !== 'number') existing.available = 0;
+  if (typeof existing.flaggedForRemoval !== 'boolean') existing.flaggedForRemoval = false;
+  if (existing.flaggedForRemoval && existing.available > 0) {
+    existing.flaggedForRemoval = false;
+    existing.removalFlaggedAt = null;
+  }
   return existing;
 }
 
@@ -89,6 +104,10 @@ function updateReserveInfo(id, data = {}) {
   if (!entry) return null;
   if (data.available !== undefined) {
     entry.available = Math.max(0, data.available || 0);
+    if (entry.available > 0 && entry.flaggedForRemoval) {
+      entry.flaggedForRemoval = false;
+      entry.removalFlaggedAt = null;
+    }
   }
   if (data.type !== undefined) {
     entry.type = data.type;
@@ -164,6 +183,171 @@ function positionsMatch(a, b) {
     posA.y === posB.y &&
     (roomA === roomB || roomA === undefined || roomB === undefined)
   );
+}
+
+function getMyUsername() {
+  if (cachedUsernameTick === getGameTime()) return cachedUsername;
+  cachedUsernameTick = getGameTime();
+  cachedUsername = null;
+  if (typeof Game === 'undefined') return cachedUsername;
+  if (Game.spawns) {
+    for (const name in Game.spawns) {
+      const spawn = Game.spawns[name];
+      if (spawn && spawn.my && spawn.owner && spawn.owner.username) {
+        cachedUsername = spawn.owner.username;
+        return cachedUsername;
+      }
+    }
+  }
+  if (Game.creeps) {
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      if (creep && creep.my && creep.owner && creep.owner.username) {
+        cachedUsername = creep.owner.username;
+        return cachedUsername;
+      }
+    }
+  }
+  if (Memory && Memory.username) {
+    cachedUsername = Memory.username;
+  }
+  return cachedUsername;
+}
+
+function ensureEnergyReserveEventsMemory() {
+  if (typeof Memory === 'undefined') return null;
+  if (!Memory.energyReserveEvents) {
+    Memory.energyReserveEvents = { deaths: [] };
+  }
+  if (!Array.isArray(Memory.energyReserveEvents.deaths)) {
+    Memory.energyReserveEvents.deaths = [];
+  }
+  return Memory.energyReserveEvents;
+}
+
+function findRecentDeathEvent(pos, options = {}) {
+  const eventsMem = ensureEnergyReserveEventsMemory();
+  if (!eventsMem || !pos) return null;
+  const range = options.range === undefined ? DEFAULT_DEATH_EVENT_RANGE : options.range;
+  const maxAge = options.maxAge === undefined ? DEFAULT_DEATH_EVENT_MAX_AGE : options.maxAge;
+  const current = getGameTime();
+  let latest = null;
+  for (const event of eventsMem.deaths) {
+    if (!event || !event.pos) continue;
+    if (typeof event.tick === 'number' && current && current - event.tick > maxAge) {
+      continue;
+    }
+    if (!event.pos.roomName || !pos.roomName || event.pos.roomName === pos.roomName) {
+      const distance = chebyshevDistance(event.pos, pos);
+      if (distance <= range) {
+        if (!latest || (typeof event.tick === 'number' && event.tick > (latest.tick || -Infinity))) {
+          latest = event;
+        }
+      }
+    }
+  }
+  return latest;
+}
+
+function isMiningDropPosition(pos, context = {}) {
+  if (!pos) return false;
+  const assignment = context.assignment || null;
+  if (assignment) {
+    if (assignment.pickupPos && positionsMatch(assignment.pickupPos, pos)) return true;
+    if (assignment.sourceId && typeof Game !== 'undefined' && typeof Game.getObjectById === 'function') {
+      const source = Game.getObjectById(assignment.sourceId);
+      if (source && source.pos && chebyshevDistance(source.pos, pos) <= 1) return true;
+    }
+  }
+  const roomName = pos.roomName || (context.room && context.room.name) || null;
+  if (
+    roomName &&
+    typeof Memory !== 'undefined' &&
+    Memory.rooms &&
+    Memory.rooms[roomName] &&
+    Memory.rooms[roomName].miningPositions
+  ) {
+    const mining = Memory.rooms[roomName].miningPositions;
+    for (const sourceId in mining) {
+      const data = mining[sourceId];
+      if (!data || !data.positions) continue;
+      for (const key in data.positions) {
+        const entry = data.positions[key];
+        if (!entry) continue;
+        const entryRoom = entry.roomName || roomName;
+        if (entry.x === pos.x && entry.y === pos.y && entryRoom === (pos.roomName || roomName)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function classifyDroppedEnergy(target, context, descriptor) {
+  const pos = extractPos(target);
+  const deathEvent = pos ? findRecentDeathEvent(pos, { range: 1 }) : null;
+  if (deathEvent) {
+    if (deathEvent.type === 'friendly') {
+      if (deathEvent.cause === 'lifespan') {
+        descriptor.type = 'friendlyLifespanDrop';
+      } else if (deathEvent.cause === 'combat') {
+        descriptor.type = 'friendlyCombatDrop';
+      } else {
+        descriptor.type = 'friendlyDeathDrop';
+      }
+      descriptor.haulersMayWithdraw = true;
+      descriptor.buildersMayWithdraw = true;
+      descriptor.haulersMayDeposit = false;
+      return descriptor;
+    }
+    if (deathEvent.type === 'hostile') {
+      descriptor.type = 'hostileDeathDrop';
+      descriptor.haulersMayWithdraw = true;
+      descriptor.buildersMayWithdraw = true;
+      descriptor.haulersMayDeposit = false;
+      return descriptor;
+    }
+  }
+  if (pos && isMiningDropPosition(pos, context)) {
+    descriptor.type = 'miningDrop';
+    descriptor.haulersMayWithdraw = true;
+    descriptor.buildersMayWithdraw = true;
+    descriptor.haulersMayDeposit = false;
+    return descriptor;
+  }
+  descriptor.type = 'droppedEnergy';
+  descriptor.haulersMayWithdraw = true;
+  descriptor.buildersMayWithdraw = true;
+  descriptor.haulersMayDeposit = false;
+  return descriptor;
+}
+
+function isFriendlyOwned(target) {
+  if (!target) return false;
+  if (target.my !== undefined) return Boolean(target.my);
+  const username = getMyUsername();
+  if (!username) return false;
+  const owner = target.owner && target.owner.username;
+  return owner === username;
+}
+
+function classifyTombstone(target, descriptor) {
+  const friendly = isFriendlyOwned(target);
+  descriptor.type = friendly ? 'friendlyTombstone' : 'hostileTombstone';
+  descriptor.haulersMayWithdraw = true;
+  descriptor.buildersMayWithdraw = true;
+  descriptor.haulersMayDeposit = false;
+  return descriptor;
+}
+
+function classifyRuin(target, descriptor) {
+  const friendly = isFriendlyOwned(target);
+  descriptor.type = friendly ? 'friendlyRuin' : 'hostileRuin';
+  descriptor.haulersMayWithdraw = true;
+  descriptor.buildersMayWithdraw = true;
+  descriptor.haulersMayDeposit = false;
+  return descriptor;
 }
 
 function getRoomByName(roomName, fallbackRoom) {
@@ -246,10 +430,7 @@ function describeReserveTarget(target, intent = 'withdraw', context = {}) {
   const pos = extractPos(target);
 
   if (intent === 'pickup' && target.resourceType === ENERGY) {
-    descriptor.type = 'droppedEnergy';
-    descriptor.haulersMayWithdraw = true;
-    descriptor.buildersMayWithdraw = true;
-    return descriptor;
+    return classifyDroppedEnergy(target, context, descriptor);
   }
 
   const structureType = target.structureType;
@@ -260,14 +441,10 @@ function describeReserveTarget(target, intent = 'withdraw', context = {}) {
 
   switch (structureType) {
     case TOMBSTONE_TYPE:
-      descriptor.type = 'tombstone';
-      descriptor.haulersMayWithdraw = true;
-      descriptor.buildersMayWithdraw = true;
+      classifyTombstone(target, descriptor);
       break;
     case RUIN_TYPE:
-      descriptor.type = 'ruin';
-      descriptor.haulersMayWithdraw = true;
-      descriptor.buildersMayWithdraw = true;
+      classifyRuin(target, descriptor);
       break;
     case CONTAINER_TYPE: {
       const isController = isControllerContainer(target, pos, context);

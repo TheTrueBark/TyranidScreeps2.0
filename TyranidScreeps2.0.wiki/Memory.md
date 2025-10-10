@@ -252,16 +252,25 @@ withdraw from or deposit into that location.
 Memory.energyReserves[sourceId] = {
   reserved: 100,        // energy promised to creeps
   available: 400,       // most recently observed energy on the target
-  type: 'harvestContainer',
+  type: 'harvestContainer', // or miningDrop, friendlyCombatDrop, hostileDeathDrop, etc
   haulersMayWithdraw: true,
   haulersMayDeposit: false,
   buildersMayWithdraw: true,
   buildersMayDeposit: false,
+  flaggedForRemoval: false, // set when cleanup sees an empty target; cleared on next observation
+  removalFlaggedAt: null,   // tick recorded when flagged; null once active again
 };
 ```
 
-`memoryManager.cleanUpEnergyReserves` removes entries for destroyed objects and
-cleans up empty sources that no role may deposit to.
+`memoryManager.cleanUpEnergyReserves` now marks empty or missing targets for
+removal on the first pass by setting `flaggedForRemoval`. If the entry is still
+invalid the next time the garbage collector runs the entry is deleted. This
+prevents rapid churn when resource counts briefly hit zero.
+
+`Memory.energyReserveEvents` records recent friendly and hostile deaths so
+reserve descriptors can tag energy as `friendlyCombatDrop`, `friendlyLifespanDrop`
+or `hostileDeathDrop`. The observer tracks creep vitals each tick and remembers
+new tombstones to avoid classifying stale combat zones as safe.
 
 ### Runtime Settings
 

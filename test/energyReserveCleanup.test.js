@@ -21,7 +21,15 @@ describe('cleanUpEnergyReserves', function() {
     };
   });
 
-  it('removes missing or empty entries', function() {
+  it('flags empty entries before removing them', function() {
+    memoryManager.cleanUpEnergyReserves();
+    expect(Memory.energyReserves.old).to.include({ flaggedForRemoval: true });
+    expect(Memory.energyReserves.empty).to.include({ flaggedForRemoval: true });
+    expect(Memory.energyReserves.good).to.deep.include({
+      reserved: 10,
+      haulersMayDeposit: true,
+    });
+
     memoryManager.cleanUpEnergyReserves();
     expect(Memory.energyReserves).to.deep.equal({
       good: { reserved: 10, available: 0, haulersMayDeposit: true },

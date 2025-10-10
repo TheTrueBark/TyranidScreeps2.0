@@ -396,6 +396,8 @@ scheduler.addTask(
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();
 
+  memoryManager.observeEnergyReserveEvents();
+
   if (Memory.settings.pauseBot) {
     if (!Memory.stats) Memory.stats = {};
     if (
