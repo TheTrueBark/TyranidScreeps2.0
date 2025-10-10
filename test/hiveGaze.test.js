@@ -64,5 +64,36 @@ describe('hiveGaze.manageScouts', function() {
     expect(spawnQueue.queue.length).to.equal(1);
     expect(spawnQueue.queue[0].category).to.equal('scout');
   });
+
+  it('requests new scout tasks when memory needs scouting but none queued', function() {
+    const original = hiveGaze.evaluateExpansionVision;
+    let called = 0;
+    hiveGaze.evaluateExpansionVision = function() {
+      called++;
+      if (!Memory.htm.colonies) Memory.htm.colonies = {};
+      Memory.htm.colonies['W1N1'] = {
+        tasks: [{ name: 'SCOUT_ROOM', id: 't2', data: { roomName: 'W1N3' }, priority: 5, ttl: 500, age: 0, amount: 1 }],
+      };
+      if (!Memory.hive) Memory.hive = {};
+      Memory.hive.expansionVisionLastCheck = Game.time;
+    };
+
+    try {
+      Memory.htm.colonies = {};
+      Memory.rooms = {
+        W1N1: { scouted: true, lastScouted: Game.time, homeColony: 'W1N1' },
+        W1N3: { homeColony: 'W1N1', scouted: false },
+      };
+      Memory.hive = { scoutRescanRequested: false };
+
+      hiveGaze.manageScouts();
+
+      expect(called).to.equal(1);
+      expect(Memory.hive.scoutRescanRequested).to.be.true;
+      expect(Memory.htm.colonies['W1N1'].tasks[0].name).to.equal('SCOUT_ROOM');
+    } finally {
+      hiveGaze.evaluateExpansionVision = original;
+    }
+  });
 });
 
