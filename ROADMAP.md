@@ -5,6 +5,17 @@
 
 ---
 
+
+## 🚨 Critical Stabilization Gate (Do before new features)
+
+- [x] Add unified incident bundles (`debug.incident`) that capture savestate refs, log windows, task logs, queue state, and HTM summaries.
+- [x] Add manual debug helpers (`debug.saveIncident`, `inspectIncident`, `listIncidents`, `exportIncident`, `importIncident`) for human-readable troubleshooting.
+- [x] Add retention controls for debug artifacts (`Memory.settings.maxSavestates`, `maxIncidents`, `incidentMaxAge`) with automatic pruning.
+- [x] Add optional auto incident capture (`Memory.settings.enableAutoIncidentCapture`) for HTM execution errors and spawn failures.
+- [ ] Use the new incident pipeline to capture and fix the reservist and scout-task correctness bugs before moving to expansion/combat features.
+
+---
+
 ## 🧱 Core System Foundations
 
 ### ✅ Scheduler (Prio 4)

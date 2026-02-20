@@ -20,6 +20,27 @@ const ensureSavestateContainer = () => {
   if (!Memory.debug.savestates) Memory.debug.savestates = {};
 };
 
+
+const DEFAULT_MAX_SAVESTATES = 25;
+
+const pruneSavestates = () => {
+  ensureSavestateContainer();
+  if (!Memory.settings) Memory.settings = {};
+  if (Memory.settings.maxSavestates === undefined) {
+    Memory.settings.maxSavestates = DEFAULT_MAX_SAVESTATES;
+  }
+  const limit = Math.max(1, Number(Memory.settings.maxSavestates) || DEFAULT_MAX_SAVESTATES);
+  const entries = Object.keys(Memory.debug.savestates).map((id) => ({
+    id,
+    created: (Memory.debug.savestates[id] && Memory.debug.savestates[id].created) || 0,
+  })).sort((a, b) => a.created - b.created);
+
+  while (entries.length > limit) {
+    const oldest = entries.shift();
+    delete Memory.debug.savestates[oldest.id];
+  }
+};
+
 const safeJsonClone = (value) => {
   try {
     return JSON.parse(JSON.stringify(value));
@@ -309,6 +330,7 @@ const saveSavestate = (stateId, note = '') => {
     compressed,
   };
   Memory.debug.savestates[stateId] = entry;
+  pruneSavestates();
   statsConsole.log(`Savestate ${stateId} captured for tick ${entry.tick}`, 2);
   return entry;
 };
@@ -373,6 +395,7 @@ module.exports = {
   restoreSavestate,
   listSavestates,
   inspectSavestate,
+  pruneSavestates,
   _capture: {
     buildSnapshot,
     captureMetadata,

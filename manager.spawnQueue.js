@@ -1,6 +1,7 @@
 ﻿const _ = require('lodash');
 const logger = require("./logger");
 const scheduler = require('./scheduler');
+const incidentDebug = require('./debug.incident');
 
 if (!Memory.spawnQueue) {
   Memory.spawnQueue = [];
@@ -329,6 +330,18 @@ const spawnQueue = {
           require("manager.demand").evaluateRoomNeeds(spawn.room); // Reevaluate room needs after each spawn
         } else {
           logger.log("spawnQueue", `Failed to spawn ${category}: ${result}` , 4);
+          if (result !== ERR_NOT_ENOUGH_ENERGY) {
+            incidentDebug.captureAuto('spawn-failure', {
+              requestId,
+              category,
+              spawn: spawn.name,
+              room: spawn.room && spawn.room.name,
+              code: result,
+            }, {
+              minInterval: 20,
+              windowTicks: Memory.settings && Memory.settings.incidentLogWindow,
+            });
+          }
         }
       }
     }
