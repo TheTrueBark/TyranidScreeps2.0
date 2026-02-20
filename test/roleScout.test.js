@@ -125,6 +125,34 @@ describe('role.scout', function() {
     expect(travelDestinations[0].roomName).to.equal('W1N3');
   });
 
+  it('initializes Memory.rooms when missing before ttl requeue handling', function() {
+    delete Memory.rooms;
+    Memory.htm.colonies['W1N1'].tasks = [];
+    Game.creeps.sc1.ticksToLive = 40;
+    Game.creeps.sc1.memory.targetRoom = 'W1N2';
+
+    expect(() => roleScout.run(Game.creeps.sc1)).to.not.throw();
+    expect(Memory.rooms).to.be.an('object');
+    expect(Memory.rooms['W1N2']).to.be.an('object');
+  });
+
+
+  it('claims the selected scout task id when multiple scout tasks exist', function() {
+    Memory.htm.colonies['W1N1'].tasks = [
+      { name: 'SCOUT_ROOM', id: 'far', data: { roomName: 'W1N2' }, manager: 'hiveGaze', priority: 5, ttl: 500, age: 0, amount: 1, claimedUntil: 0 },
+      { name: 'SCOUT_ROOM', id: 'near', data: { roomName: 'W1N3' }, manager: 'hiveGaze', priority: 5, ttl: 500, age: 0, amount: 1, claimedUntil: 0 },
+    ];
+    Game.map.getRoomLinearDistance = (from, to) => (to === 'W1N3' ? 1 : 10);
+    Game.creeps.sc1.room = Game.rooms['W1N1'];
+
+    roleScout.run(Game.creeps.sc1);
+
+    expect(Game.creeps.sc1.memory.targetRoom).to.equal('W1N3');
+    const remaining = Memory.htm.colonies['W1N1'].tasks;
+    expect(remaining.length).to.equal(1);
+    expect(remaining[0].id).to.equal('far');
+  });
+
   it('logs when debug enabled', function() {
     globals.resetMemory({ stats: { logs: [] }, settings: { debugHiveGaze: true } });
     htm.init();

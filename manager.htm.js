@@ -238,6 +238,8 @@ const htm = {
    * @param {number} cooldown - Base cooldown before HiveMind may requeue.
    * @param {number} expectedTicks - Additional ticks estimated by the manager
    *   before the task can be attempted again (e.g. spawn time).
+   * @param {object} options - Optional claim filters.
+   * @param {string|null} options.taskId - Exact task id to claim.
    */
   claimTask(
     level,
@@ -246,12 +248,14 @@ const htm = {
     manager = null,
     cooldown = DEFAULT_CLAIM_COOLDOWN,
     expectedTicks = 0,
+    options = {},
   ) {
     const container = this._getContainer(level, id);
     if (!container) return;
-    const task = container.tasks.find(
-      (t) => t.name === name && (!manager || t.manager === manager),
-    );
+    const task = container.tasks.find((t) => {
+      if (options.taskId && t.id !== options.taskId) return false;
+      return t.name === name && (!manager || t.manager === manager);
+    });
     if (!task) return;
     task.amount -= 1;
     task.claimedUntil = Game.time + cooldown + expectedTicks;
@@ -356,7 +360,8 @@ const htm = {
       subOrder: options.subOrder !== undefined ? options.subOrder : null,
     };
     const container = this._getContainer(level, id);
-    if (!this.hasTask(level, id, name, manager)) {
+    const duplicateAllowed = Boolean(options && options.allowDuplicate);
+    if (duplicateAllowed || !this.hasTask(level, id, name, manager)) {
       container.tasks.push(task);
       logger.log('HTM', `Added ${level} task ${name} (${id})`, 2);
     }

@@ -23,6 +23,18 @@ organism in the hive:
 
 The system is modular, reactive and geared towards expansion.
 
+### Stabilization status (critical gate)
+
+Recent sweep results before expansion/combat work:
+- Reservist correctness hardening shipped: reservists now fail-safe when `targetRoom` is missing.
+- Scout correctness hardening shipped: scout low-TTL requeue logic now initializes `Memory.rooms` defensively.
+- Regression coverage added for both cases in `test/roleReservist.test.js` and `test/roleScout.test.js`.
+- Reservist templates now correctly use CLAIM/MOVE for reservation missions.
+- Reservists now travel into controller range and keep reserving instead of suiciding after the first successful attempt.
+- Scout planning now fans out per-exit target and task claims are bound to exact task ids to avoid decrementing the wrong task.
+
+The corresponding critical roadmap blocker has been completed and moved out of the active blocker list.
+
 ## Logging system
 
 Logs are handled through `console.console.js` and should be written using the

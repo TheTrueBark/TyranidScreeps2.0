@@ -154,9 +154,17 @@ const hiveGaze = {
           last === 0 ||
           Game.time - last >= SCOUT_REVISIT_TICKS;
         const force = Boolean(Memory.hive.scoutRescanRequested);
+        const colonyTasks = _.get(Memory, ['htm', 'colonies', roomName, 'tasks'], []);
+        const targetAlreadyQueued = colonyTasks.some(
+          (t) =>
+            t.name === 'SCOUT_ROOM' &&
+            t.manager === 'hiveGaze' &&
+            t.data &&
+            t.data.roomName === target,
+        );
         if (
           (stale || force) &&
-          !htm.hasTask(htm.LEVELS.COLONY, roomName, 'SCOUT_ROOM', 'hiveGaze')
+          !targetAlreadyQueued
         ) {
           htm.addColonyTask(
             roomName,
@@ -167,6 +175,7 @@ const hiveGaze = {
             1,
             'hiveGaze',
             { module: 'hiveGaze', createdBy: 'evaluateExpansionVision', tickCreated: Game.time },
+            { allowDuplicate: true },
           );
           tasksQueued = true;
         }
@@ -368,7 +377,7 @@ const hiveGaze = {
     spawnQueue.addToQueue(
       'reservist',
       colony,
-      [MOVE, WORK],
+      [CLAIM, MOVE],
       { role: 'reservist', targetRoom: room, homeRoom: colony },
       spawn.id,
       0,

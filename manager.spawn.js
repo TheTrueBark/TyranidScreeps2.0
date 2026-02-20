@@ -809,6 +809,7 @@ const spawnManager = {
               'spawnManager',
               DEFAULT_CLAIM_COOLDOWN,
               size * CREEP_SPAWN_TIME,
+              { taskId: task.id },
             );
           }
           break;
@@ -829,6 +830,7 @@ const spawnManager = {
               'spawnManager',
               DEFAULT_CLAIM_COOLDOWN,
               haulerSize * CREEP_SPAWN_TIME,
+              { taskId: task.id },
             );
           }
           break;
@@ -842,6 +844,7 @@ const spawnManager = {
               'spawnManager',
               DEFAULT_CLAIM_COOLDOWN,
               dna.getBodyParts('upgrader', room).length * CREEP_SPAWN_TIME,
+              { taskId: task.id },
             );
             break;
           case 'spawnScout': {
@@ -859,6 +862,7 @@ const spawnManager = {
                 'spawnManager',
                 DEFAULT_CLAIM_COOLDOWN,
                 scoutSize * CREEP_SPAWN_TIME,
+                { taskId: task.id },
               );
             }
             break;
@@ -872,6 +876,7 @@ const spawnManager = {
             'spawnManager',
             DEFAULT_CLAIM_COOLDOWN,
             dna.getBodyParts('builder', room).length * CREEP_SPAWN_TIME,
+            { taskId: task.id },
           );
           break;
         case 'spawnBootstrap':
@@ -920,6 +925,7 @@ const spawnManager = {
               'spawnManager',
               DEFAULT_CLAIM_COOLDOWN,
               size * CREEP_SPAWN_TIME,
+              { taskId: task.id },
             );
           }
           break;

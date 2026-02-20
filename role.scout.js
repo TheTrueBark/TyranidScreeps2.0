@@ -218,7 +218,15 @@ const assignTaskTarget = (creep) => {
   creep.memory.targetRoom = task.data.roomName;
   creep.memory.taskId = task.id;
   creep.memory.targetSource = 'task';
-  htm.claimTask(htm.LEVELS.COLONY, creep.memory.homeRoom, 'SCOUT_ROOM', 'hiveGaze');
+  htm.claimTask(
+    htm.LEVELS.COLONY,
+    creep.memory.homeRoom,
+    'SCOUT_ROOM',
+    'hiveGaze',
+    htm.DEFAULT_CLAIM_COOLDOWN,
+    0,
+    { taskId: task.id },
+  );
   if (Memory.settings && Memory.settings.debugHiveGaze) {
     statsConsole.log(`[HiveGaze] Scout ${creep.name} scouting ${task.data.roomName}`, 3);
   }
@@ -293,6 +301,7 @@ const sendScoutIdle = (creep) => {
 const roleScout = {
   run(creep) {
     if (!creep.memory.homeRoom) creep.memory.homeRoom = creep.room.name;
+    if (!Memory.rooms) Memory.rooms = {};
 
     // Clear idle flag when expired
     if (creep.memory.idle && Game.time >= creep.memory.idleUntil) {

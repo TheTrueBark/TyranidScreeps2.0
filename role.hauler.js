@@ -1470,6 +1470,7 @@ module.exports = {
         'hauler',
         htm.DEFAULT_CLAIM_COOLDOWN,
         estimate,
+        { taskId: task.id },
       );
       let capacity = 0;
       if (creep.store) {
