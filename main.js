@@ -26,6 +26,7 @@ const { ONCE } = require("scheduler");
 const logger = require("./logger");
 const introspect = require('./debug.introspection');
 const savestate = require('./debug.savestate');
+const incidentDebug = require('./debug.incident');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const hivemind = require("manager.hivemind");
@@ -71,6 +72,21 @@ if (Memory.settings.pauseBot === undefined) {
 }
 if (Memory.settings.allowSavestateRestore === undefined) {
   Memory.settings.allowSavestateRestore = false;
+}
+if (Memory.settings.maxSavestates === undefined) {
+  Memory.settings.maxSavestates = 25;
+}
+if (Memory.settings.maxIncidents === undefined) {
+  Memory.settings.maxIncidents = 25;
+}
+if (Memory.settings.incidentLogWindow === undefined) {
+  Memory.settings.incidentLogWindow = 150;
+}
+if (Memory.settings.incidentMaxAge === undefined) {
+  Memory.settings.incidentMaxAge = 20000;
+}
+if (Memory.settings.enableAutoIncidentCapture === undefined) {
+  Memory.settings.enableAutoIncidentCapture = false;
 }
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
@@ -166,6 +182,27 @@ global.debug = {
   },
   inspectSavestate(id) {
     return savestate.inspectSavestate(id);
+  },
+  pruneSavestates() {
+    return savestate.pruneSavestates();
+  },
+  saveIncident(id, note = '', options = {}) {
+    return incidentDebug.saveIncident(id, note, options);
+  },
+  inspectIncident(id) {
+    return incidentDebug.inspectIncident(id);
+  },
+  listIncidents() {
+    return incidentDebug.listIncidents();
+  },
+  exportIncident(id) {
+    return incidentDebug.exportIncident(id);
+  },
+  importIncident(payload, idOverride = null) {
+    return incidentDebug.importIncident(payload, idOverride);
+  },
+  pruneIncidents() {
+    return incidentDebug.pruneIncidents();
   },
   setSpawnLimit(room, role, amount = 'auto') {
     if (!Memory.rooms) Memory.rooms = {};

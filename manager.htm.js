@@ -1,4 +1,5 @@
 const logger = require('./logger');
+const incidentDebug = require('./debug.incident');
 
 const DEFAULT_TASK_TTL = 100;
 // Default cooldown ticks after a task is claimed. HiveMind waits this many
@@ -399,6 +400,16 @@ const htm = {
         } catch (err) {
           logger.log('HTM', `Error executing ${task.name}: ${err}`, 4);
           this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'err', err.toString());
+          incidentDebug.captureAuto('htm-task-error', {
+            level,
+            containerId: id,
+            taskName: task.name,
+            manager: task.manager || null,
+            reason: err && err.toString ? err.toString() : String(err),
+          }, {
+            minInterval: 25,
+            windowTicks: Memory.settings && Memory.settings.incidentLogWindow,
+          });
         }
       } else {
         logger.log('HTM', `No handler for ${level} task ${task.name}`, 3);

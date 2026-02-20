@@ -126,6 +126,24 @@ describe('debug.savestate', () => {
     expect(global.__rawSet).to.be.a('string');
   });
 
+
+
+  it('prunes oldest savestates when maxSavestates limit is exceeded', () => {
+    const savestate = loadModule();
+    Memory.settings.maxSavestates = 2;
+
+    Game.time = 1001;
+    savestate.saveSavestate('state-1');
+    Game.time = 1002;
+    savestate.saveSavestate('state-2');
+    Game.time = 1003;
+    savestate.saveSavestate('state-3');
+
+    expect(Memory.debug.savestates['state-1']).to.equal(undefined);
+    expect(Memory.debug.savestates['state-2']).to.exist;
+    expect(Memory.debug.savestates['state-3']).to.exist;
+  });
+
   it('refuses to restore when guard disabled', () => {
     const savestate = loadModule();
     savestate.saveSavestate('unit-test', 'guard');

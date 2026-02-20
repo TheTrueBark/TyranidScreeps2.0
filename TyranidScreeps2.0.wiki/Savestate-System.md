@@ -16,6 +16,11 @@ The resulting string is stored at `Memory.debug.savestates[stateId]`.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `Memory.settings.allowSavestateRestore` | `boolean` | `false` | Must be toggled to `true` before calling `debug.restoreSavestate`. Prevents accidental restores during production ticks. |
+| `Memory.settings.maxSavestates` | `number` | `25` | Maximum manual savestate entries retained under `Memory.debug.savestates`. Oldest entries are pruned automatically. |
+| `Memory.settings.maxIncidents` | `number` | `25` | Maximum debug incident bundles retained under `Memory.debug.incidents`. |
+| `Memory.settings.incidentLogWindow` | `number` | `150` | Tick window used when collecting logs and task logs into incident bundles. |
+| `Memory.settings.incidentMaxAge` | `number` | `20000` | Removes incident bundles older than this amount of ticks during pruning. |
+| `Memory.settings.enableAutoIncidentCapture` | `boolean` | `false` | Enables rate-limited automatic incident capture for critical runtime failures (e.g. HTM exceptions / spawn failures). |
 
 ## Savestate Index (`Memory.debug.savestates`)
 
@@ -138,3 +143,31 @@ Common triggers include:
 
 Snapshots are lightweight (LZString-compressed) and suitable for persisting in
 Memory for manual download or remote inspection.
+
+
+## Incident Bundles (`Memory.debug.incidents`)
+
+Incident bundles combine a savestate reference, recent logs, recent HTM task logs,
+queue snapshots and human-readable summaries in one artifact. This gives a single
+payload for manual review and Codex troubleshooting.
+
+### Console Helpers
+
+- `debug.saveIncident(id, note?, options?)`
+- `debug.inspectIncident(id)`
+- `debug.listIncidents()`
+- `debug.exportIncident(id)`
+- `debug.importIncident(payload, idOverride?)`
+- `debug.pruneIncidents()`
+- `debug.pruneSavestates()`
+
+### Human-readable Summary
+
+Each incident stores a summary with:
+- top log modules in the capture window
+- severity distribution
+- queue size at capture time
+- HTM task counts by level
+
+`debug.inspectIncident(id)` returns the decoded structure for direct console review.
+`debug.exportIncident(id)` returns a compressed base64 string suitable for sharing.
