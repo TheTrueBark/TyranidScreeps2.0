@@ -4,6 +4,14 @@ const _ = require('lodash');
 const roleReservist = {
   run(creep) {
     const roomName = creep.memory.targetRoom;
+    if (!roomName) {
+      if (Memory.settings && Memory.settings.debugHiveGaze) {
+        const statsConsole = require('console.console');
+        statsConsole.log(`[HiveGaze] Reservist ${creep.name} missing targetRoom`, 2);
+      }
+      creep.suicide();
+      return;
+    }
     if (!Memory.stats) Memory.stats = {};
     if (!Memory.stats.remoteRooms) Memory.stats.remoteRooms = {};
     if (!Memory.stats.remoteRooms[roomName]) {
@@ -67,6 +75,10 @@ const roleReservist = {
       return;
     }
     const res = creep.reserveController(controller);
+    if (res === ERR_NOT_IN_RANGE) {
+      creep.travelTo(controller);
+      return;
+    }
     if (res === OK) {
       const quote = getRandomTyranidQuote();
       if (typeof creep.signController === 'function') {
@@ -81,10 +93,14 @@ const roleReservist = {
         }
       }
       _.set(Memory, ['rooms', roomName, 'reserveAttempts'], 0);
-      stats.reservistSuccesses++;
-    } else if (res !== OK) {
-      stats.reservistFails++;
+      if (!creep.memory.countedSuccess) {
+        stats.reservistSuccesses++;
+        creep.memory.countedSuccess = true;
+      }
+      return;
     }
+
+    stats.reservistFails++;
     creep.suicide();
   },
 };

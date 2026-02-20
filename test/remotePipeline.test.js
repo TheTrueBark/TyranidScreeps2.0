@@ -63,6 +63,18 @@ describe('remote pipeline', function() {
     Game.map.getRoomTerrain = oldTerrain;
   });
 
+
+  it('queues reservist with claim body parts', function() {
+    global.CLAIM = global.CLAIM || 'claim';
+    global.MOVE = global.MOVE || 'move';
+
+    hiveGaze.reserveRemoteRoom({ room: 'W1N2' });
+
+    expect(spawnQueue.queue.length).to.equal(1);
+    expect(spawnQueue.queue[0].category).to.equal('reservist');
+    expect(spawnQueue.queue[0].bodyParts).to.deep.equal([CLAIM, MOVE]);
+  });
+
   it('returns a tyranid quote', function() {
     const quote = getRandomTyranidQuote();
     expect(tyranidQuotes).to.include(quote);

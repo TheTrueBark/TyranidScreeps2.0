@@ -12,7 +12,21 @@
 - [x] Add manual debug helpers (`debug.saveIncident`, `inspectIncident`, `listIncidents`, `exportIncident`, `importIncident`) for human-readable troubleshooting.
 - [x] Add retention controls for debug artifacts (`Memory.settings.maxSavestates`, `maxIncidents`, `incidentMaxAge`) with automatic pruning.
 - [x] Add optional auto incident capture (`Memory.settings.enableAutoIncidentCapture`) for HTM execution errors and spawn failures.
-- [ ] Use the new incident pipeline to capture and fix the reservist and scout-task correctness bugs before moving to expansion/combat features.
+- [x] Use the new incident pipeline to capture and fix the reservist and scout-task correctness bugs before moving to expansion/combat features.
+  - [x] Reservist guard: missing `targetRoom` now fails safely and self-terminates for recycle handling (`role.reservist.js`).
+  - [x] Scout guard: initialize `Memory.rooms` before low-TTL requeue/cooldown bookkeeping (`role.scout.js`).
+
+---
+
+## 🔎 Pre-Expansion Stability Scan (2026-02)
+
+- [x] Harden remote role edge cases discovered during stabilization sweep.
+- [x] Add regression tests for scout/reservist crash guards before new remote features.
+- [x] Document resolved critical gate items in README + wiki and keep critical section focused on unresolved blockers.
+- [x] Fix reservist spawn template to include CLAIM parts (`manager.hiveGaze.reserveRemoteRoom`).
+- [x] Fix scout task fan-out so colonies can queue one scout task per stale exit room.
+- [x] Fix task claiming precision by allowing `htm.claimTask` to claim by task id and using it in scout/spawn/hauler flows.
+- [x] Fix reservist runtime loop to move into range and persist reservation work instead of suiciding after first reserve call.
 
 ---
 
@@ -26,7 +40,7 @@
 - [x] Runs logger, stats display, and future HTM triggers
 - [x] Optional debug toggle to list active/queued tasks – *Prio 2*
 
--### ✅ Logging (Prio 5)
+### ✅ Logging (Prio 5)
 - [ ] `logger.log(message, severity, roomName, duration)`
 - [x] Logs aggregated across ticks (e.g. “(12 times since Tick X)”)
 - [ ] Sorted by severity
@@ -107,13 +121,16 @@
 
 ### 🚚 Remote Harvest Pipeline (Prio 4)
 - [ ] Extend `manager.hiveGaze.remoteScoreRoom` to store per-source paths, terrain costs, and claimed-by data for downstream consumers.
+- [ ] Gate expansion promotion until surrounding scout intel is seeded and fresh (`seedReachableRoomMemory` + `lastScouted` age checks).
+- [ ] Add remote profitability model before promotion: `expectedIncome - (creep upkeep + spawn time cost + road/container upkeep + reservation upkeep)` and persist per remote under `Memory.rooms[remote].profit`.
+- [ ] Promote remotes via a bundled HTM package per selected source: `REMOTE_MINER_INIT` + `RESERVE_REMOTE_ROOM` + planned `ISSUE_REMOTE_ROAD_TASKS` (road issuance only for now, construction execution deferred).
 - [ ] Teach `manager.spawn` to size dedicated remote haulers using stored distances (round-trip energy > carry capacity → add CARRY/MOVE pairs).
 - [ ] Update `role.hauler` (or create `role.remoteHauler`) so creeps can accept `remote` pickup tasks, navigate across rooms, and unload to the owning colony’s link/storage.
 - [ ] Ensure remote miners auto-request containers and link them to dropoff points for hauler pathfinding.
-- [ ] Add lifecycle predictors that queue replacement miners/haulers/reservers based on travel time and TTL.
+- [ ] Add lifecycle predictors that queue replacement miners/haulers/reservers based on travel time and TTL so replacements arrive before predecessor expiry.
 - [ ] Cover the full pipeline in `test/remotePipeline.test.js`: remote claim queues miner+hauler, hauler delivers home, reservation upkeep respected.
 
--### 🛰️ Empire Logistics Network (Prio 3)
+### 🛰️ Empire Logistics Network (Prio 3)
 - [ ] Create `manager.logistics` to scan all owned terminals/storage each tick and compute surplus/deficit per resource.
 - [ ] Allow rooms to lodge logistics requests (energy, boosts, power) via memory schema consumed by HTM planners.
 - [ ] Implement terminal balancing: move excess energy > threshold to deficit rooms before market sales.
@@ -154,6 +171,10 @@
 - [ ] Cross-room pathing support
 - [ ] Logging for movement errors and stuck detection
 - [ ] Movement config per role (scout, hauler, combat)
+- [ ] Harden HiveTravel edge handling when route exits are blocked or destination shifts mid-route (`manager.hiveTravel.js` TODOs).
+  - [ ] Add explicit border-repath fallback when a creep remains on exit tiles for N ticks.
+  - [ ] Add destination-change reconciliation so cached paths are invalidated when destination mutates mid-travel.
+  - [ ] Add tests for cross-room handoff on blocked exits and temporary hostile blocking creeps.
 
 ### ✅ Deprecated Pathfinder (Prio 4)
 - [x] Path caching to speed repeated routes

@@ -10,7 +10,7 @@ hive.roles.js dynamically determines workforce needs for each owned room. The mo
 - **Scouts**  Traverse rooms up to two hops from the colony, logging sources, structures, exits and hostile presence into memory while respecting the shared obstacle matrix for spawn aprons and mining tiles.
 - **Base Distributor**  Small courier active once storage is built. Pulls energy only from storage and keeps spawns, extensions and towers supplied.
 - **Remote Miners**  Travel to pre-assigned coordinates in remote rooms and harvest until death. They keep mining positions reserved via memory.
-- **Reservists**  Lightweight creeps that reserve a remote controller and sign it with a Tyranid-themed message before expiring.
+- **Reservists**  Lightweight creeps that reserve a remote controller and sign it with a Tyranid-themed message and continue reserving until natural death unless a terminal failure occurs.
 
 The module updates Memory.roleEval.lastRun so a fallback task can throttle itself when CPU is scarce.
 
@@ -27,4 +27,3 @@ Role evaluation runs whenever:
 - The controller level of a room changes.
 - As a fallback every 50 ticks when the CPU bucket is above 9800.
 - Use the `roleUpdate` event to invoke the evaluator on the appropriate room.
-oleUpdate event to invoke the evaluator on the appropriate room.

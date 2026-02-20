@@ -31,6 +31,20 @@ describe('hiveGaze.evaluateExpansionVision', function() {
     expect(Memory.hive.scoutRescanRequested).to.be.false;
   });
 
+
+  it('queues one scout task per stale exit target', function() {
+    Game.map.describeExits = () => ({ 1: 'W1N2', 3: 'W1N3' });
+    Memory.rooms['W1N2'] = { lastScouted: Game.time - 6000, homeColony: 'W1N1' };
+    Memory.rooms['W1N3'] = { lastScouted: Game.time - 6000, homeColony: 'W1N1' };
+
+    hiveGaze.evaluateExpansionVision();
+
+    const tasks = Memory.htm.colonies['W1N1'].tasks.filter((t) => t.name === 'SCOUT_ROOM');
+    expect(tasks.length).to.equal(2);
+    const targets = tasks.map((t) => t.data.roomName).sort();
+    expect(targets).to.deep.equal(['W1N2', 'W1N3']);
+  });
+
   it('skips rooms on scout cooldown', function() {
     Memory.rooms['W1N2'] = { scoutCooldownUntil: Game.time + 50 };
     hiveGaze.evaluateExpansionVision();
