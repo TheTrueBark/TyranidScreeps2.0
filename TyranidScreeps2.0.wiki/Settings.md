@@ -36,6 +36,10 @@ Memory.settings.renewQueueBusyThreshold = 1;
 Memory.settings.recycleOverheadTicks = 20;
 ```
 
+`main.loop` initialisiert `Memory.settings` und kritische Flags (`pauseBot`, `buildPreviewOnly`,
+`alwaysShowHud`, `enableVisuals`, `showSpawnQueueHud`) zusätzlich defensiv pro Tick.
+Damit bleibt der Bot auch nach einem harten Memory-Reset oder Server-Crash lauffähig.
+
 ## Per-Setting Copy Boxes
 
 ### `enableVisuals` (default `true`)
@@ -110,7 +114,37 @@ Memory.settings.layoutPlanningMode = 'theoretical' // or 'standard'
 
 ### `layoutOverlayView` (default `'plan'`)
 ```javascript
-Memory.settings.layoutOverlayView = 'plan' // plan|wallDistance|controllerDistance|flood|spawnScore
+Memory.settings.layoutOverlayView = 'plan' // plan|wallDistance|controllerDistance|flood|spawnScore|candidates|evaluation
+```
+
+### `layoutCandidateOverlayIndex` (default `-1`)
+```javascript
+Memory.settings.layoutCandidateOverlayIndex = -1 // -1 = selected winner, otherwise candidate index (internal 0-based)
+```
+
+### `layoutPlanningTopCandidates` (default `5`)
+```javascript
+Memory.settings.layoutPlanningTopCandidates = 5
+```
+
+### `layoutPlanningCandidatesPerTick` (default `1`)
+```javascript
+Memory.settings.layoutPlanningCandidatesPerTick = 1
+```
+
+### `layoutPlanningMaxCandidatesPerTick` (default `25`)
+```javascript
+Memory.settings.layoutPlanningMaxCandidatesPerTick = 25
+```
+
+### `layoutPlanningDynamicBatching` (default `true`)
+```javascript
+Memory.settings.layoutPlanningDynamicBatching = true
+```
+
+### `layoutPlanningReplanInterval` (default `1000`)
+```javascript
+Memory.settings.layoutPlanningReplanInterval = 1000
 ```
 
 ### `allowSavestateRestore` (default `false`)
@@ -222,6 +256,13 @@ visual.layoutView('wallDistance')
 visual.layoutView('controllerDistance')
 visual.layoutView('flood')
 visual.layoutView('spawnScore')
+visual.layoutView('candidates')
+visual.layoutView('evaluation')
+visual.layoutCandidate('selected')
+visual.layoutCandidate(2)       // show candidate #2 in evaluation overlay (1-based command input)
+visual.layoutBatching('dynamic', 1, 25) // bucket-aware burst planning
+visual.layoutBatching('static', 2, 2)   // fixed candidate batch size
+visual.recalculateLayout('W1N1', 'theoretical') // scrub + recompute one room
 visual.theoreticalPlanning(1)    // enable suspended theoretical planning mode
 visual.theoreticalPlanning(0)    // return to live mode preset
 visual.runMode('theoretical')    // same as above, explicit run mode
@@ -251,7 +292,8 @@ can rebuild state from scratch.
 
 `startFresh({ theoreticalBuildingMode: true })` wipes runtime memory and enters
 theoretical planning mode (`buildPreviewOnly`, layout overlay, legend, labels,
-theoretical planner mode + default plan view).
+theoretical planner mode + default plan view). It also schedules a full
+layout recalculation for all owned rooms on the next tick.
 
 To keep visual debugging usable after a wipe, these settings are preserved and restored:
 
@@ -264,3 +306,9 @@ To keep visual debugging usable after a wipe, these settings are preserved and r
 - `buildPreviewOnly`
 - `layoutPlanningMode`
 - `layoutOverlayView`
+- `layoutCandidateOverlayIndex`
+- `layoutPlanningTopCandidates`
+- `layoutPlanningCandidatesPerTick`
+- `layoutPlanningMaxCandidatesPerTick`
+- `layoutPlanningDynamicBatching`
+- `layoutPlanningReplanInterval`

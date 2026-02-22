@@ -167,7 +167,7 @@ describe('hudManager spawn queue panel', function () {
     visualizer.circle = origCircle;
   });
 
-  it('suppresses normal HUD layers in theoretical mode', function () {
+  it('shows only planning HUD and suppresses source circles in theoretical mode', function () {
     const hudManager = require('../manager.hud');
     const layoutVisualizer = require('../layoutVisualizer');
     const visualizer = require('../manager.visualizer');
@@ -196,7 +196,7 @@ describe('hudManager spawn queue panel', function () {
     hudManager.createHUD(room);
 
     expect(layoutCalls).to.equal(1);
-    expect(infoCalls).to.equal(0);
+    expect(infoCalls).to.equal(1);
     expect(circleCalls).to.equal(0);
 
     layoutVisualizer.drawLayout = origLayout;

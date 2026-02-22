@@ -59,6 +59,14 @@ describe('startFresh command', function() {
       showLayoutOverlayLabels: true,
       layoutPlanningMode: 'theoretical',
       layoutOverlayView: 'plan',
+      layoutCandidateOverlayIndex: -1,
+      layoutPlanningTopCandidates: 5,
+      layoutPlanningCandidatesPerTick: 1,
+      layoutPlanningMaxCandidatesPerTick: 25,
+      layoutPlanningDynamicBatching: true,
+      layoutPlanningReplanInterval: 1000,
+      layoutRecalculateRequested: 'all',
+      layoutRecalculateMode: 'theoretical',
       pauseBot: false,
     });
   });

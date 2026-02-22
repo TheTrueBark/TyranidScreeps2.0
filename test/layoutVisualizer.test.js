@@ -63,5 +63,56 @@ describe('layoutVisualizer.drawLayout', function() {
     };
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'TH-SP')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Terminal')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Lab')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Rampart')).to.be.true;
+    const legendY = drawn
+      .filter(d => d.type === 'text' && typeof d.args[1] === 'number' && typeof d.args[2] === 'number')
+      .filter(d => String(d.args[0]).startsWith('Planned ') || d.args[0] === 'Layout Legend' || String(d.args[0]).startsWith('View:'))
+      .map(d => d.args[2]);
+    expect(Math.max(...legendY)).to.be.at.most(49);
+  });
+
+  it('renders candidate list and weighted score breakdown views', function() {
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.settings.layoutOverlayView = 'evaluation';
+    Memory.settings.layoutCandidateOverlayIndex = 1;
+    const layout = Memory.rooms.W1N1.layout;
+    layout.mode = 'theoretical';
+    layout.theoretical = {
+      controllerPos: { x: 20, y: 20 },
+      spawnCandidate: { x: 24, y: 24, score: 100 },
+      selectedCandidateIndex: 0,
+      selectedWeightedScore: 0.812,
+      candidates: [
+        {
+          index: 0,
+          anchor: { x: 24, y: 24 },
+          initialScore: 120,
+          weightedScore: 0.812,
+          weightedContributions: {
+            avgExtDist: { normalized: 0.8, weight: 0.2, contribution: 0.16 },
+          },
+          selected: true,
+        },
+        {
+          index: 1,
+          anchor: { x: 27, y: 23 },
+          initialScore: 110,
+          weightedScore: 0.755,
+          weightedContributions: {
+            avgExtDist: { normalized: 0.7, weight: 0.2, contribution: 0.14 },
+          },
+          selected: false,
+        },
+      ],
+      upgraderSlots: [],
+      sourceContainers: [],
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.true;
+    expect(
+      drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('Eval C2 weighted:')),
+    ).to.be.true;
   });
 });

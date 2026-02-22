@@ -71,6 +71,8 @@ taskRegistry.register('upgradeController', {
 | `repairEmergency` | `buildingManager` | 1 | Repair structures close to decay. |
 | `BUILD_LAYOUT_PART` | `buildingManager` | 1 | Construct next piece of the base layout. | @codex-owner buildingManager
 | `BUILD_CLUSTER` | `layoutPlanner` | 4 | Schedule a group of structures to be built as a cluster. Includes `progress` and `complete` fields. | @codex-owner layoutPlanner
+| `PLAN_LAYOUT_CANDIDATES` | `layoutPlanner` | 0 | Parent task for theoretical layout candidate evaluation runs. | @codex-owner layoutPlanner
+| `PLAN_LAYOUT_CANDIDATE` | `layoutPlanner` | 1 | Candidate subtask for one weighted base-plan evaluation. | @codex-owner layoutPlanner
 | `REMOTE_SCORE_ROOM` | `hiveGaze` | 4 | Evaluate remote sources and assign scores. |
 | `REMOTE_MINER_INIT` | `hiveGaze` | 2 | Reserve a remote mining spot and spawn a miner. |
 | `RESERVE_REMOTE_ROOM` | `hiveGaze` | 3 | Spawn a reservist to secure the controller. Tasks may be requeued automatically with origin `autoRetry`. |
@@ -89,6 +91,8 @@ taskRegistry.register('upgradeController', {
 | `acquireMiningData` | event `missingMiningData`                     |
 | `buildSite` | event `newConstruction` |
 | `repairEmergency` | condition `structureDecayCritical` |
+| `PLAN_LAYOUT_CANDIDATES` | condition `theoreticalPlanning` |
+| `PLAN_LAYOUT_CANDIDATE` | condition `theoreticalPlanning` |
 
 Past executions can be inspected under `Memory.stats.taskLogs` when a module chooses to record them.
 
@@ -130,6 +134,15 @@ available for future visualisation and debugging tools.
 `BUILD_CLUSTER` tasks are removed automatically once all of their
 `BUILD_LAYOUT_PART` subtasks are completed. Each cluster task contains a
 `progress` field like `"3/5"` and a boolean `complete` once finished.
+
+The theoretical planner uses the same parent/subtask model:
+
+- `PLAN_LAYOUT_CANDIDATES` is the parent task for one planning run.
+- `PLAN_LAYOUT_CANDIDATE` subtasks are ordered by `subOrder` and can be spread across ticks.
+- Each completed candidate writes weighted score metrics into `Memory.rooms[room].layout.theoretical`.
+- Candidate throughput is bucket-aware when `Memory.settings.layoutPlanningDynamicBatching` is enabled:
+  - high bucket => burst more candidate subtasks per tick (can exceed room CPU limit via bucket spending),
+  - low bucket => conservative processing to let bucket recover.
 
 `BUILD_LAYOUT_PART` tasks are executed by `buildingManager`. The manager checks
 the room's controller level and current structure counts against

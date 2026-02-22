@@ -23,6 +23,12 @@ function startFresh(options = {}) {
     'buildPreviewOnly',
     'layoutPlanningMode',
     'layoutOverlayView',
+    'layoutCandidateOverlayIndex',
+    'layoutPlanningTopCandidates',
+    'layoutPlanningCandidatesPerTick',
+    'layoutPlanningMaxCandidatesPerTick',
+    'layoutPlanningDynamicBatching',
+    'layoutPlanningReplanInterval',
   ];
   for (const key of preserveKeys) {
     if (previousSettings[key] !== undefined) preservedSettings[key] = previousSettings[key];
@@ -62,6 +68,14 @@ function startFresh(options = {}) {
     Memory.settings.buildPreviewOnly = true;
     Memory.settings.layoutPlanningMode = 'theoretical';
     Memory.settings.layoutOverlayView = 'plan';
+    Memory.settings.layoutCandidateOverlayIndex = -1;
+    Memory.settings.layoutPlanningTopCandidates = 5;
+    Memory.settings.layoutPlanningCandidatesPerTick = 1;
+    Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
+    Memory.settings.layoutPlanningDynamicBatching = true;
+    Memory.settings.layoutPlanningReplanInterval = 1000;
+    Memory.settings.layoutRecalculateRequested = 'all';
+    Memory.settings.layoutRecalculateMode = 'theoretical';
     statsConsole.log('Theoretical building mode enabled (planning overlay only).', 2);
   }
 

@@ -506,7 +506,31 @@ Memory.rooms['W1N1'].layout = {
   roadMatrix: {
     26: { 26: { planned: true, rcl: 1, plannedBy: 'layoutPlanner' } }
   },
-  rebuildLayout: false
+  mode: 'theoretical',
+  theoreticalPipeline: {
+    runId: 'W1N1:12345',
+    status: 'running',
+    candidateCount: 5,
+    activeCandidateIndex: 1,
+    bestCandidateIndex: null,
+    candidates: [/* pre-score candidates */],
+    results: {/* weighted score results by index */}
+  },
+  theoreticalCandidatePlans: {
+    0: { anchor: { x: 25, y: 24 }, placements: [/* candidate plan */], weightedScore: 0.81 },
+    1: { anchor: { x: 24, y: 26 }, placements: [/* candidate plan */], weightedScore: 0.79 }
+  },
+  currentDisplayCandidateIndex: 0,
+  theoretical: {
+    selectedCandidateIndex: 2,
+    currentlyViewingCandidate: 0,
+    selectedWeightedScore: 0.847,
+    candidates: [/* full candidate comparison rows for overlays */],
+    checklist: { stages: [/* Candidate Scan -> Persist Overlay */] },
+    selectedContributions: {/* weighted breakdown for active winner */},
+    generatedAt: 12350
+  },
+  rebuildLayout: false,
   status: {
     clusters: {
       extCluster1: { built: 3, total: 5, complete: false }
@@ -523,6 +547,16 @@ Tiles listed under `reserved` are blocked from other planners. Future
 versions may include `blockedUntil` timestamps for temporary holds.
 
 `roadMatrix` mirrors the structure matrix but tracks planned road tiles.
+
+In theoretical mode the planner also stores:
+
+- `theoreticalPipeline` for in-flight HTM candidate tasks (`PLAN_LAYOUT_CANDIDATES` + `PLAN_LAYOUT_CANDIDATE`).
+- `theoreticalPipeline.activeCandidateIndex` marks the candidate currently being processed.
+- `theoreticalCandidatePlans` caches per-candidate placements so overlay view can switch without re-planning.
+- `currentDisplayCandidateIndex` stores which candidate is currently rendered in the building overlay.
+- `theoretical.candidates` with pre-score and weighted end-evaluation values for overlay debugging.
+- `theoretical.checklist` for stage-progress display (`X`, `n/5`, `✔`).
+- `theoretical.selectedContributions` containing per-metric weighted score components.
 
 Set `rebuildLayout` to `true` if you want the planner to wipe and
 recalculate the layout on the next tick. It resets automatically after

@@ -12,6 +12,7 @@ global.FIND_SOURCES = 2;
 const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
+const htm = require('../manager.htm');
 // suppress visuals
 global.RoomVisual = function () { this.structure = () => {}; };
 
@@ -46,7 +47,11 @@ describe('layoutPlanner.plan', function() {
   });
 
   it('builds a theoretical, spawn-independent plan when enabled', function() {
-    Memory.settings = { layoutPlanningMode: 'theoretical' };
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 5,
+    };
     const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
     const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
     Game.rooms['W1N1'].find = type => {
@@ -62,6 +67,71 @@ describe('layoutPlanner.plan', function() {
     expect(layout.theoretical.spawnCandidate).to.include.keys('x', 'y', 'score');
     expect(layout.theoretical.upgraderSlots).to.be.an('array').that.has.lengthOf(8);
     expect(layout.theoretical.sourceContainers).to.be.an('array').that.has.lengthOf(2);
+    expect(layout.theoretical).to.have.property('selectedWeightedScore');
+    expect(layout.theoretical.candidates).to.be.an('array').that.is.not.empty;
     expect(layout.roadMatrix).to.be.an('object');
+  });
+
+  it('splits theoretical candidate planning into HTM subtasks', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 3,
+      layoutPlanningCandidatesPerTick: 1,
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    const firstPipeline = Memory.rooms['W1N1'].layout.theoreticalPipeline;
+    expect(firstPipeline).to.exist;
+    expect(['running', 'completed']).to.include(firstPipeline.status);
+    const firstContainer = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    const candidateTasks = firstContainer && firstContainer.tasks
+      ? firstContainer.tasks.filter((t) => t.name === 'PLAN_LAYOUT_CANDIDATE')
+      : [];
+    if (firstPipeline.status === 'running') {
+      expect(candidateTasks.length).to.be.at.least(1);
+    }
+
+    for (let i = 0; i < 6; i++) {
+      Game.time += 1;
+      layoutPlanner.buildTheoreticalLayout('W1N1');
+    }
+
+    const layout = Memory.rooms['W1N1'].layout;
+    expect(layout.planVersion).to.equal(2);
+    expect(layout.theoretical.selectedWeightedScore).to.be.a('number');
+    expect(layout.theoretical.selectedCandidateIndex).to.be.a('number');
+    expect(layout.theoreticalPipeline.status).to.equal('completed');
+  });
+
+  it('switches displayed building overlay candidate via settings index', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 3,
+      layoutPlanningCandidatesPerTick: 5,
+      layoutCandidateOverlayIndex: -1,
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    const firstDisplay = Memory.rooms['W1N1'].layout.currentDisplayCandidateIndex;
+    expect(firstDisplay).to.be.a('number');
+
+    Memory.settings.layoutCandidateOverlayIndex = 1;
+    Game.time += 1;
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    expect(Memory.rooms['W1N1'].layout.currentDisplayCandidateIndex).to.equal(1);
   });
 });

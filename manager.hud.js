@@ -263,6 +263,56 @@ const drawTaskHud = (room) => {
   );
 };
 
+const buildTheoreticalStatusLines = (room) => {
+  const layout = (Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].layout) || {};
+  const theoretical = layout.theoretical || {};
+  const pipeline = layout.theoreticalPipeline || {};
+  const viewing =
+    typeof layout.currentDisplayCandidateIndex === 'number'
+      ? layout.currentDisplayCandidateIndex
+      : typeof theoretical.currentlyViewingCandidate === 'number'
+      ? theoretical.currentlyViewingCandidate
+      : typeof theoretical.selectedCandidateIndex === 'number'
+      ? theoretical.selectedCandidateIndex
+      : 0;
+  const candidateCount =
+    typeof pipeline.candidateCount === 'number'
+      ? pipeline.candidateCount
+      : Array.isArray(theoretical.candidates)
+      ? theoretical.candidates.length
+      : 0;
+  const completedCount =
+    pipeline && pipeline.results ? Object.keys(pipeline.results).length : candidateCount;
+
+  const lines = [
+    `${room.name} Planning`,
+    '-----------------',
+    `Currently Viewing Candidate: ${viewing + 1}`,
+    `Progress: ${completedCount}/${candidateCount || 0}`,
+  ];
+
+  if (typeof theoretical.selectedCandidateIndex === 'number') {
+    lines.push(`Selected Candidate: ${theoretical.selectedCandidateIndex + 1}`);
+  }
+  if (typeof theoretical.selectedWeightedScore === 'number') {
+    lines.push(`Final Score: ${theoretical.selectedWeightedScore.toFixed(3)}`);
+  }
+  if (pipeline && pipeline.status) {
+    lines.push(`Pipeline: ${String(pipeline.status).toUpperCase()}`);
+  }
+  lines.push("Switch: visual.layoutCandidate('selected'|1..N)");
+  return lines;
+};
+
+const drawTheoreticalStatusHud = (room) => {
+  const lines = buildTheoreticalStatusLines(room);
+  visualizer.showInfo(
+    lines,
+    { room, pos: new RoomPosition(SPAWN_PANEL_POS.x, SPAWN_PANEL_POS.y, room.name) },
+    PANEL_FONT,
+  );
+};
+
 module.exports = {
   createHUD(room) {
     const settings = Memory.settings || {};
@@ -276,8 +326,8 @@ module.exports = {
     }
 
     if (theoreticalMode) {
-      // Theoretical planning view intentionally suppresses normal runtime HUD
-      // panels and source markers to keep the planning overlay readable.
+      // In planning mode we only draw planning HUD to avoid overlap with checklist panels.
+      drawTheoreticalStatusHud(room);
       layoutVisualizer.drawLayout(room.name);
       return;
     }

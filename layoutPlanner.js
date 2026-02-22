@@ -2,6 +2,7 @@ const statsConsole = require('console.console');
 const distanceTransform = require('./algorithm.distanceTransform');
 const htm = require('./manager.htm');
 const constructionBlocker = require('./constructionBlocker');
+const buildCompendium = require('./planner.buildCompendium');
 
 /**
  * Modular layout planner storing structure matrix per room.
@@ -21,6 +22,7 @@ const baseLayout = [
 ];
 
 const ROAD_TYPE = typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
+const RAMPART_TYPE = typeof STRUCTURE_RAMPART !== 'undefined' ? STRUCTURE_RAMPART : 'rampart';
 const SPAWN_TYPE = typeof STRUCTURE_SPAWN !== 'undefined' ? STRUCTURE_SPAWN : 'spawn';
 const EXTENSION_TYPE = typeof STRUCTURE_EXTENSION !== 'undefined' ? STRUCTURE_EXTENSION : 'extension';
 const TOWER_TYPE = typeof STRUCTURE_TOWER !== 'undefined' ? STRUCTURE_TOWER : 'tower';
@@ -29,6 +31,13 @@ const LINK_TYPE = typeof STRUCTURE_LINK !== 'undefined' ? STRUCTURE_LINK : 'link
 const CONTAINER_TYPE = typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container';
 const TERRAIN_WALL_MASK =
   typeof TERRAIN_MASK_WALL !== 'undefined' ? TERRAIN_MASK_WALL : 1;
+const PLAN_LAYOUT_PARENT_TASK = 'PLAN_LAYOUT_CANDIDATES';
+const PLAN_LAYOUT_CANDIDATE_TASK = 'PLAN_LAYOUT_CANDIDATE';
+const DEFAULT_THEORETICAL_TOP_N = 5;
+const DEFAULT_THEORETICAL_CANDIDATES_PER_TICK = 1;
+const DEFAULT_THEORETICAL_REPLAN_INTERVAL = 1000;
+const DEFAULT_THEORETICAL_MAX_CANDIDATES_PER_TICK = 25;
+const DEFAULT_THEORETICAL_DYNAMIC_BATCH = 1;
 
 function isTheoreticalMode() {
   return (
@@ -72,6 +81,36 @@ function toArrayMap(map) {
     }
   }
   return arr;
+}
+
+function readNumberSetting(path, fallback) {
+  const value =
+    Memory &&
+    Memory.settings &&
+    Object.prototype.hasOwnProperty.call(Memory.settings, path)
+      ? Memory.settings[path]
+      : undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return value;
+}
+
+function readBoolSetting(path, fallback = false) {
+  const value =
+    Memory &&
+    Memory.settings &&
+    Object.prototype.hasOwnProperty.call(Memory.settings, path)
+      ? Memory.settings[path]
+      : undefined;
+  if (value === undefined) return fallback;
+  return Boolean(value);
+}
+
+function normalizeTopN(value) {
+  return Math.max(1, Math.min(10, Math.floor(value)));
+}
+
+function normalizeCandidatesPerTick(value) {
+  return Math.max(1, Math.min(5, Math.floor(value)));
 }
 
 function isWalkable(room, x, y) {
@@ -402,11 +441,18 @@ const layoutPlanner = {
     if (!room || !room.controller || !room.controller.my) return;
     if (isTheoreticalMode()) {
       const mem = Memory.rooms[roomName];
+      const pipelineActive =
+        mem &&
+        mem.layout &&
+        mem.layout.theoreticalPipeline &&
+        mem.layout.theoreticalPipeline.status !== 'completed';
       if (
         !mem ||
         !mem.layout ||
         mem.layout.planVersion !== 2 ||
-        mem.layout.mode !== 'theoretical'
+        mem.layout.mode !== 'theoretical' ||
+        pipelineActive ||
+        mem.layout.rebuildLayout
       ) {
         this.buildTheoreticalLayout(roomName);
       }
@@ -456,7 +502,8 @@ const layoutPlanner = {
     function setCell(x, y, type, rcl) {
       if (x < 1 || x > 48 || y < 1 || y > 48) return false;
       if (layoutPlanner.isTileBlocked(roomName, x, y)) return false;
-      if (room.lookForAt(LOOK_STRUCTURES, x, y).length > 0) return false;
+      const lookStructures = typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
+      if (room.lookForAt(lookStructures, x, y).length > 0) return false;
       if (!mem.matrix[x]) mem.matrix[x] = {};
       if (mem.matrix[x][y]) return false;
       mem.matrix[x][y] = {
@@ -506,7 +553,7 @@ const layoutPlanner = {
     if (clusterPos.length > 0 && room.controller.level >= 2) {
       const queuePos = clusterPos.filter((pos) =>
         !room
-          .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
+          .lookForAt(typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure', pos.x, pos.y)
           .some((s) => s.structureType === STRUCTURE_EXTENSION),
       );
       const total = clusterPos.length;
@@ -658,6 +705,657 @@ const layoutPlanner = {
     }
   },
 
+  _clearTheoreticalPlanningTasks(roomName, runId = null) {
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
+    if (!container || !Array.isArray(container.tasks)) return;
+    for (let i = container.tasks.length - 1; i >= 0; i--) {
+      const task = container.tasks[i];
+      if (task.name !== PLAN_LAYOUT_PARENT_TASK && task.name !== PLAN_LAYOUT_CANDIDATE_TASK) {
+        continue;
+      }
+      if (runId && task.data && task.data.runId && task.data.runId !== runId) {
+        continue;
+      }
+      container.tasks.splice(i, 1);
+    }
+  },
+
+  resetRoomPlan(roomName, options = {}) {
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    const mem = Memory.rooms[roomName];
+    htm.init();
+
+    this._clearTheoreticalPlanningTasks(roomName);
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
+    if (container && Array.isArray(container.tasks)) {
+      for (let i = container.tasks.length - 1; i >= 0; i--) {
+        const task = container.tasks[i];
+        if (
+          task.name === 'BUILD_CLUSTER' ||
+          task.name === 'BUILD_LAYOUT_PART' ||
+          task.name === PLAN_LAYOUT_PARENT_TASK ||
+          task.name === PLAN_LAYOUT_CANDIDATE_TASK
+        ) {
+          container.tasks.splice(i, 1);
+        }
+      }
+    }
+
+    delete mem.layout;
+    if (options.scrubDistanceTransform !== false) {
+      delete mem.distanceTransform;
+    }
+  },
+
+  recalculateRoom(roomName, options = {}) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return false;
+    const mode = String(
+      options.mode ||
+        (Memory.settings && Memory.settings.layoutPlanningMode) ||
+        'standard',
+    ).toLowerCase();
+
+    this.resetRoomPlan(roomName, options);
+    if (mode === 'theoretical') {
+      this.buildTheoreticalLayout(roomName);
+    } else {
+      this.plan(roomName);
+    }
+    return true;
+  },
+
+  _applyTheoreticalPlacements(layoutMem, generated, options = {}) {
+    if (!layoutMem || !generated || !Array.isArray(generated.placements)) return;
+    layoutMem.matrix = {};
+    layoutMem.reserved = {};
+    layoutMem.roadMatrix = {};
+    layoutMem.status = layoutMem.status || { clusters: {}, structures: {} };
+    layoutMem.mode = 'theoretical';
+    layoutMem.baseAnchor = { x: generated.anchor.x, y: generated.anchor.y };
+
+    for (const placement of generated.placements) {
+      const { x, y, type, rcl, tag } = placement;
+      if (type === ROAD_TYPE) {
+        if (!layoutMem.roadMatrix[x]) layoutMem.roadMatrix[x] = {};
+        layoutMem.roadMatrix[x][y] = {
+          planned: true,
+          rcl: rcl || 1,
+          plannedBy: 'layoutPlanner',
+          tag: tag || null,
+          candidateIndex:
+            typeof options.candidateIndex === 'number' ? options.candidateIndex : null,
+        };
+      }
+      if (!layoutMem.matrix[x]) layoutMem.matrix[x] = {};
+      if (layoutMem.matrix[x][y] && layoutMem.matrix[x][y].structureType !== ROAD_TYPE) {
+        continue;
+      }
+      layoutMem.matrix[x][y] = {
+        structureType: type,
+        rcl: rcl || 1,
+        planned: true,
+        plannedBy: 'layoutPlanner',
+        blockedUntil: Game.time + 10000,
+        tag: tag || null,
+        candidateIndex:
+          typeof options.candidateIndex === 'number' ? options.candidateIndex : null,
+      };
+      if (!layoutMem.reserved[x]) layoutMem.reserved[x] = {};
+      layoutMem.reserved[x][y] = true;
+    }
+  },
+
+  _resolveDisplayedCandidateIndex(mem) {
+    if (!mem || !mem.layout) return null;
+    const plans = mem.layout.theoreticalCandidatePlans || {};
+    const available = Object.keys(plans)
+      .map((k) => Number(k))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+    if (!available.length) return null;
+
+    const preferred =
+      Memory &&
+      Memory.settings &&
+      typeof Memory.settings.layoutCandidateOverlayIndex === 'number'
+        ? Memory.settings.layoutCandidateOverlayIndex
+        : -1;
+
+    if (preferred >= 0 && available.includes(preferred)) {
+      return preferred;
+    }
+
+    const selected =
+      mem.layout.theoretical &&
+      typeof mem.layout.theoretical.selectedCandidateIndex === 'number'
+        ? mem.layout.theoretical.selectedCandidateIndex
+        : null;
+
+    if (preferred === -1 && selected !== null && available.includes(selected)) {
+      return selected;
+    }
+
+    return available[0];
+  },
+
+  _refreshTheoreticalDisplay(roomName, force = false) {
+    const mem = Memory.rooms && Memory.rooms[roomName];
+    if (!mem || !mem.layout) return;
+    const layout = mem.layout;
+    const candidateIndex = this._resolveDisplayedCandidateIndex(mem);
+    if (candidateIndex === null) return;
+    if (!force && layout.currentDisplayCandidateIndex === candidateIndex) {
+      return;
+    }
+
+    const plan = layout.theoreticalCandidatePlans
+      ? layout.theoreticalCandidatePlans[candidateIndex]
+      : null;
+    if (!plan || !Array.isArray(plan.placements)) return;
+
+    this._applyTheoreticalPlacements(layout, {
+      anchor: plan.anchor || { x: 25, y: 25 },
+      placements: plan.placements,
+    }, { candidateIndex });
+    layout.currentDisplayCandidateIndex = candidateIndex;
+    if (layout.theoretical) {
+      layout.theoretical.currentlyViewingCandidate = candidateIndex;
+    }
+  },
+
+  _buildTheoreticalChecklist(roomName, pipeline, candidateRows, options = {}) {
+    const total = pipeline && typeof pipeline.candidateCount === 'number' ? pipeline.candidateCount : 0;
+    const done = pipeline && pipeline.results ? Object.keys(pipeline.results).length : 0;
+    const hasWinner = pipeline && typeof pipeline.bestCandidateIndex === 'number';
+    const finalized = pipeline && pipeline.status === 'completed';
+    const roomMem = Memory.rooms && Memory.rooms[roomName] ? Memory.rooms[roomName] : {};
+    const dtReady = Array.isArray(roomMem.distanceTransform) && roomMem.distanceTransform.length >= 2500;
+    const scanned =
+      pipeline &&
+      pipeline.candidateSet &&
+      typeof pipeline.candidateSet.totalCandidates === 'number' &&
+      pipeline.candidateSet.totalCandidates > 0;
+    const filtered =
+      pipeline &&
+      pipeline.candidateSet &&
+      typeof pipeline.candidateSet.filteredCandidates === 'number'
+        ? pipeline.candidateSet.filteredCandidates
+        : total;
+    const progress = total > 0 ? `${done}/${total}` : 'X';
+    const persisted = options.persisted === true || finalized;
+    const candidateStates = (candidateRows || []).map((candidate) => {
+      const complete =
+        pipeline &&
+        pipeline.results &&
+        pipeline.results[candidate.index] &&
+        pipeline.results[candidate.index].completedAt;
+      const active = pipeline && pipeline.activeCandidateIndex === candidate.index;
+      return {
+        index: candidate.index,
+        complete: Boolean(complete),
+        active: Boolean(active),
+      };
+    });
+
+    return {
+      stages: [
+        { number: 1, label: 'Distance Transform', status: dtReady ? 'done' : 'pending', progress: dtReady ? '✔' : 'X' },
+        {
+          number: 2,
+          label: 'Candidate Filter',
+          status: scanned ? 'done' : 'pending',
+          progress: scanned ? `✔ ${filtered}` : 'X',
+        },
+        {
+          number: 3,
+          label: 'Candidate Pre-Scoring',
+          status: total > 0 ? 'done' : 'pending',
+          progress: total > 0 ? `✔ ${total}` : 'X',
+        },
+        {
+          number: 4,
+          label: 'Core + Stations',
+          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        },
+        {
+          number: 5,
+          label: 'Flood Fill + Extensions',
+          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        },
+        {
+          number: 6,
+          label: 'Labs + Ramparts + Towers',
+          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        },
+        {
+          number: 7,
+          label: 'Road Networks',
+          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        },
+        {
+          number: 8,
+          label: 'End Evaluation (Weighted)',
+          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        },
+        {
+          number: 9,
+          label: 'Winner Selection',
+          status: hasWinner ? 'done' : done > 0 ? 'in_progress' : 'pending',
+          progress: hasWinner ? '✔' : done > 0 ? `${done}/${Math.max(total, 1)}` : 'X',
+        },
+        {
+          number: 10,
+          label: 'Persist + Overlay',
+          status: persisted ? 'done' : hasWinner ? 'in_progress' : 'pending',
+          progress: persisted ? '✔' : hasWinner ? '9/10' : 'X',
+        },
+      ],
+      candidateStates,
+      summary: { done, total, finalized },
+    };
+  },
+
+  _writeTheoreticalLayoutFromPlan(room, generated, pipeline) {
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[room.name]) Memory.rooms[room.name] = {};
+    const mem = Memory.rooms[room.name];
+    if (!mem.layout) mem.layout = {};
+    mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
+    this._applyTheoreticalPlacements(mem.layout, generated, {
+      candidateIndex: pipeline.bestCandidateIndex,
+    });
+
+    const spawnCandidate = generated.placements.find((p) => p.type === SPAWN_TYPE);
+    const controllerContainer = generated.placements.find((p) => p.tag === 'controller.container');
+    const sourceContainers = generated.placements.filter(
+      (p) => p.tag && p.tag.startsWith('source.container.'),
+    );
+    const roadTiles = generated.placements
+      .filter((p) => p.type === ROAD_TYPE)
+      .map((p) => ({ x: p.x, y: p.y }));
+
+    const candidateRows = (pipeline.candidates || []).map((candidate) => {
+      const result = pipeline.results && pipeline.results[candidate.index];
+      return {
+        index: candidate.index,
+        anchor: candidate.anchor,
+        initialScore: candidate.initialScore,
+        initialMetrics: candidate.initialMetrics,
+        initialContributions: candidate.initialContributions,
+        weightedScore: result ? result.weightedScore : null,
+        weightedMetrics: result ? result.weightedMetrics : null,
+        weightedContributions: result ? result.weightedContributions : null,
+        validation: result ? result.validation : [],
+        defenseScore: result ? result.defenseScore : 0,
+        completedAt: result ? result.completedAt : null,
+        selected: result ? result.index === pipeline.bestCandidateIndex : false,
+      };
+    });
+
+    const selectedCandidate = candidateRows.find((row) => row.selected) || null;
+    const selectedEvaluation = generated.evaluation || {};
+    const checklist = this._buildTheoreticalChecklist(
+      room.name,
+      pipeline,
+      pipeline.candidates || [],
+      { persisted: true },
+    );
+
+    mem.layout.theoreticalCandidatePlans[pipeline.bestCandidateIndex] = {
+      index: pipeline.bestCandidateIndex,
+      anchor: { x: generated.anchor.x, y: generated.anchor.y },
+      placements: generated.placements,
+      weightedScore: selectedEvaluation.weightedScore || 0,
+      weightedMetrics: selectedEvaluation.metrics || {},
+      weightedContributions: selectedEvaluation.contributions || {},
+      validation: generated.meta.validation || [],
+      defenseScore: generated.meta.defenseScore || 0,
+      completedAt: Game.time,
+    };
+
+    mem.layout.theoretical = {
+      controllerPos: { x: room.controller.pos.x, y: room.controller.pos.y },
+      spawnCandidate: spawnCandidate
+        ? {
+            x: spawnCandidate.x,
+            y: spawnCandidate.y,
+            score: generated.anchor.score || 0,
+          }
+        : null,
+      upgraderSlots: generated.meta.upgraderSlots || [],
+      controllerContainer: controllerContainer || null,
+      sourceContainers,
+      wallDistance: generated.analysis.dt || [],
+      controllerDistance: toArrayMap(generated.analysis.controllerDistance || {}),
+      floodScore: Array.isArray(generated.analysis.flood) ? generated.analysis.flood.length : 0,
+      mincutProxy: generated.placements.filter((p) => p.type === RAMPART_TYPE).length,
+      roads: roadTiles,
+      validation: generated.meta.validation || [],
+      selectedCandidateIndex: pipeline.bestCandidateIndex,
+      selectedWeightedScore: selectedEvaluation.weightedScore || 0,
+      selectedMetrics: selectedEvaluation.metrics || {},
+      selectedContributions: selectedEvaluation.contributions || {},
+      evaluationWeights: selectedEvaluation.weights || {},
+      candidates: candidateRows,
+      candidateSet: pipeline.candidateSet || {},
+      checklist,
+      planningRunId: pipeline.runId,
+      planningStatus: 'completed',
+      generatedAt: Game.time,
+    };
+    mem.layout.theoretical.currentlyViewingCandidate =
+      typeof mem.layout.currentDisplayCandidateIndex === 'number'
+        ? mem.layout.currentDisplayCandidateIndex
+        : pipeline.bestCandidateIndex;
+    mem.layout.planVersion = 2;
+    this._refreshTheoreticalDisplay(room.name, true);
+  },
+
+  _initializeTheoreticalPipeline(roomName) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return null;
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    const mem = Memory.rooms[roomName];
+    if (!mem.layout) mem.layout = {};
+
+    const topN = normalizeTopN(
+      readNumberSetting('layoutPlanningTopCandidates', DEFAULT_THEORETICAL_TOP_N),
+    );
+    const candidateSet = buildCompendium.buildCandidateSet(roomName, { topN });
+    if (!candidateSet || !Array.isArray(candidateSet.candidates) || !candidateSet.candidates.length) {
+      return null;
+    }
+
+    const runId = `${roomName}:${Game.time}`;
+    const pipeline = {
+      runId,
+      status: 'running',
+      startedAt: Game.time,
+      updatedAt: Game.time,
+      completedAt: null,
+      bestCandidateIndex: null,
+      activeCandidateIndex: null,
+      candidateCount: candidateSet.candidates.length,
+      candidateSet: {
+        topN,
+        dtThreshold: candidateSet.dtThreshold,
+        totalCandidates: candidateSet.totalCandidates,
+        filteredCandidates: candidateSet.filteredCandidates,
+        swampRatio: candidateSet.swampRatio,
+        fallbackUsed: candidateSet.fallbackUsed,
+      },
+      candidates: candidateSet.candidates.map((candidate) => ({
+        index: candidate.index,
+        anchor: candidate.anchor,
+        initialScore: candidate.initialScore,
+        initialMetrics: candidate.initialMetrics,
+        initialContributions: candidate.initialContributions,
+      })),
+      results: {},
+    };
+
+    mem.layout.theoreticalPipeline = pipeline;
+    mem.layout.theoreticalCandidatePlans = {};
+    mem.layout.theoretical = {
+      controllerPos: { x: room.controller.pos.x, y: room.controller.pos.y },
+      selectedCandidateIndex: null,
+      selectedWeightedScore: 0,
+      selectedMetrics: {},
+      selectedContributions: {},
+      evaluationWeights: {},
+      candidates: pipeline.candidates.map((candidate) => ({
+        index: candidate.index,
+        anchor: candidate.anchor,
+        initialScore: candidate.initialScore,
+        initialMetrics: candidate.initialMetrics,
+        initialContributions: candidate.initialContributions,
+        weightedScore: null,
+        weightedMetrics: null,
+        weightedContributions: null,
+        validation: [],
+        defenseScore: 0,
+        completedAt: null,
+        selected: false,
+      })),
+      candidateSet: pipeline.candidateSet,
+      checklist: this._buildTheoreticalChecklist(roomName, pipeline, pipeline.candidates),
+      generatedAt: Game.time,
+      currentlyViewingCandidate: 0,
+      planningRunId: runId,
+      planningStatus: 'running',
+    };
+    mem.layout.planVersion = 2;
+    this._clearTheoreticalPlanningTasks(roomName);
+
+    htm.addColonyTask(
+      roomName,
+      PLAN_LAYOUT_PARENT_TASK,
+      {
+        roomName,
+        runId,
+        candidateCount: pipeline.candidateCount,
+      },
+      0,
+      2000,
+      1,
+      'layoutPlanner',
+      { module: 'layoutPlanner' },
+      { allowDuplicate: true },
+    );
+
+    for (const candidate of pipeline.candidates) {
+      htm.addColonyTask(
+        roomName,
+        PLAN_LAYOUT_CANDIDATE_TASK,
+        {
+          roomName,
+          runId,
+          candidateIndex: candidate.index,
+          anchor: candidate.anchor,
+        },
+        1,
+        2000,
+        1,
+        'layoutPlanner',
+        { module: 'layoutPlanner' },
+        {
+          parentTaskId: runId,
+          subOrder: candidate.index,
+          allowDuplicate: true,
+        },
+      );
+    }
+
+    return pipeline;
+  },
+
+  _processTheoreticalPipeline(roomName) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return;
+    const mem = Memory.rooms[roomName];
+    if (!mem || !mem.layout || !mem.layout.theoreticalPipeline) return;
+    const pipeline = mem.layout.theoreticalPipeline;
+    if (pipeline.status === 'completed') return;
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
+    if (!container || !Array.isArray(container.tasks)) return;
+    const basePerTick = normalizeCandidatesPerTick(
+      readNumberSetting('layoutPlanningCandidatesPerTick', DEFAULT_THEORETICAL_CANDIDATES_PER_TICK),
+    );
+    const maxPerTick = Math.max(
+      basePerTick,
+      Math.min(
+        DEFAULT_THEORETICAL_MAX_CANDIDATES_PER_TICK,
+        Math.floor(
+          readNumberSetting(
+            'layoutPlanningMaxCandidatesPerTick',
+            DEFAULT_THEORETICAL_MAX_CANDIDATES_PER_TICK,
+          ),
+        ),
+      ),
+    );
+    const dynamicBatching = readBoolSetting(
+      'layoutPlanningDynamicBatching',
+      DEFAULT_THEORETICAL_DYNAMIC_BATCH === 1,
+    );
+    const bucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 0;
+    const cpuLimit = typeof Game.cpu.limit === 'number' ? Game.cpu.limit : 20;
+    let burstMultiplier = 1;
+    if (dynamicBatching) {
+      if (bucket >= 9800) burstMultiplier = 8;
+      else if (bucket >= 9500) burstMultiplier = 6;
+      else if (bucket >= 9000) burstMultiplier = 4;
+      else if (bucket >= 8000) burstMultiplier = 2;
+      else if (bucket <= 2000) burstMultiplier = 1;
+    }
+    const plannedBatchSize = Math.max(1, Math.min(maxPerTick, basePerTick * burstMultiplier));
+    const extraCpuBudget = dynamicBatching
+      ? Math.max(0, Math.floor((bucket - 8500) / 18))
+      : 0;
+    const cpuCeiling = cpuLimit + Math.max(0, Math.min(130, extraCpuBudget));
+
+    let processed = 0;
+    while (processed < plannedBatchSize) {
+      if (typeof Game.cpu.getUsed === 'function' && Game.cpu.getUsed() >= cpuCeiling) break;
+      const nextTask = container.tasks
+        .filter(
+          (task) =>
+            task.name === PLAN_LAYOUT_CANDIDATE_TASK &&
+            task.data &&
+            task.data.runId === pipeline.runId &&
+            (!task.claimedUntil || task.claimedUntil <= Game.time),
+        )
+        .sort((a, b) => {
+          const ao = typeof a.subOrder === 'number' ? a.subOrder : 999;
+          const bo = typeof b.subOrder === 'number' ? b.subOrder : 999;
+          return ao - bo;
+        })[0];
+
+      if (!nextTask) break;
+      const candidateIndex = nextTask.data.candidateIndex;
+      const candidate = pipeline.candidates.find((c) => c.index === candidateIndex);
+      if (!candidate) {
+        container.tasks.splice(container.tasks.indexOf(nextTask), 1);
+        continue;
+      }
+      pipeline.activeCandidateIndex = candidate.index;
+
+      const generated = buildCompendium.generatePlanForAnchor(roomName, candidate.anchor, {
+        candidateMeta: candidate,
+      });
+      if (generated) {
+        mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
+        mem.layout.theoreticalCandidatePlans[candidate.index] = {
+          index: candidate.index,
+          anchor: { x: generated.anchor.x, y: generated.anchor.y },
+          placements: generated.placements,
+          weightedScore:
+            generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
+              ? generated.evaluation.weightedScore
+              : 0,
+          weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
+          weightedContributions:
+            generated.evaluation && generated.evaluation.contributions
+              ? generated.evaluation.contributions
+              : {},
+          validation: generated.meta && generated.meta.validation ? generated.meta.validation : [],
+          defenseScore:
+            generated.meta && typeof generated.meta.defenseScore === 'number'
+              ? generated.meta.defenseScore
+              : 0,
+          completedAt: Game.time,
+        };
+        pipeline.results[candidate.index] = {
+          index: candidate.index,
+          weightedScore:
+            generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
+              ? generated.evaluation.weightedScore
+              : 0,
+          weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
+          weightedContributions: generated.evaluation
+            ? generated.evaluation.contributions || {}
+            : {},
+          validation: generated.meta && generated.meta.validation ? generated.meta.validation : [],
+          defenseScore:
+            generated.meta && typeof generated.meta.defenseScore === 'number'
+              ? generated.meta.defenseScore
+              : 0,
+          completedAt: Game.time,
+        };
+      }
+
+      container.tasks.splice(container.tasks.indexOf(nextTask), 1);
+      processed += 1;
+      pipeline.updatedAt = Game.time;
+      pipeline.activeCandidateIndex = null;
+    }
+
+    const completed = Object.keys(pipeline.results || {}).length;
+    const parentTask = container.tasks.find(
+      (task) =>
+        task.name === PLAN_LAYOUT_PARENT_TASK &&
+        task.data &&
+        task.data.runId === pipeline.runId,
+    );
+    if (parentTask) {
+      parentTask.progress = `${completed}/${pipeline.candidateCount}`;
+    }
+    const candidateRows = (pipeline.candidates || []).map((candidate) => {
+      const result = pipeline.results && pipeline.results[candidate.index];
+      return {
+        index: candidate.index,
+        anchor: candidate.anchor,
+        initialScore: candidate.initialScore,
+        initialMetrics: candidate.initialMetrics,
+        initialContributions: candidate.initialContributions,
+        weightedScore: result ? result.weightedScore : null,
+        weightedMetrics: result ? result.weightedMetrics : null,
+        weightedContributions: result ? result.weightedContributions : null,
+        validation: result ? result.validation : [],
+        defenseScore: result ? result.defenseScore : 0,
+        completedAt: result ? result.completedAt : null,
+        selected: result ? result.index === pipeline.bestCandidateIndex : false,
+      };
+    });
+    mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+      candidates: candidateRows,
+      checklist: this._buildTheoreticalChecklist(roomName, pipeline, pipeline.candidates),
+      candidateSet: pipeline.candidateSet || {},
+      planningRunId: pipeline.runId,
+      planningStatus: pipeline.status,
+      generatedAt: Game.time,
+    });
+    this._refreshTheoreticalDisplay(roomName);
+    if (completed < pipeline.candidateCount) return;
+
+    const ranked = Object.values(pipeline.results).sort(
+      (a, b) => (b.weightedScore || 0) - (a.weightedScore || 0),
+    );
+    const best = ranked[0];
+    if (!best) return;
+    pipeline.bestCandidateIndex = best.index;
+    pipeline.status = 'completed';
+    pipeline.completedAt = Game.time;
+
+    const selectedCandidate = pipeline.candidates.find((c) => c.index === best.index);
+    if (!selectedCandidate) return;
+    const generated = buildCompendium.generatePlanForAnchor(roomName, selectedCandidate.anchor, {
+      candidateMeta: selectedCandidate,
+    });
+    if (!generated) return;
+
+    this._writeTheoreticalLayoutFromPlan(room, generated, pipeline);
+    this._clearTheoreticalPlanningTasks(roomName, pipeline.runId);
+    statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
+  },
+
   /**
    * Build a theoretical, spawn-independent room plan for overlays.
    * This mode avoids construction and is intended for visual evaluation only.
@@ -666,124 +1364,86 @@ const layoutPlanner = {
   buildTheoreticalLayout(roomName) {
     const room = Game.rooms[roomName];
     if (!room || !room.controller || !room.controller.my) return;
+    htm.init();
     if (!Memory.rooms) Memory.rooms = {};
     if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
     const mem = Memory.rooms[roomName];
     if (!mem.layout) mem.layout = {};
-    mem.layout.matrix = {};
-    mem.layout.reserved = {};
-    mem.layout.roadMatrix = {};
-    mem.layout.status = mem.layout.status || { clusters: {}, structures: {} };
     mem.layout.mode = 'theoretical';
 
-    if (!room.memory.distanceTransform) {
-      distanceTransform.distanceTransform(room);
+    if (mem.layout.rebuildLayout) {
+      delete mem.layout.theoreticalPipeline;
+      delete mem.layout.theoreticalCandidatePlans;
+      delete mem.layout.theoretical;
+      delete mem.layout.planVersion;
+      delete mem.layout.currentDisplayCandidateIndex;
+      this._clearTheoreticalPlanningTasks(roomName);
+      delete mem.layout.rebuildLayout;
     }
-    const wallDistance = room.memory.distanceTransform || distanceTransform.distanceTransform(room);
-    const controllerPos = { x: room.controller.pos.x, y: room.controller.pos.y };
-    const controllerDistances = computeControllerDistanceMap(room, controllerPos);
-    const controllerDistanceMap = toArrayMap(controllerDistances);
-    const sources = findRoomSources(room);
 
-    const upgraderSlots = chooseUpgraderBlock(room, controllerPos, wallDistance);
-    const spawnCandidate = chooseTheoreticalSpawn(
-      room,
-      controllerPos,
-      sources,
-      wallDistance,
-      controllerDistances,
-      upgraderSlots,
+    const replanInterval = Math.max(
+      50,
+      readNumberSetting('layoutPlanningReplanInterval', DEFAULT_THEORETICAL_REPLAN_INTERVAL),
     );
-    if (!spawnCandidate) return;
-    const theoreticalSpawn = { x: spawnCandidate.x, y: spawnCandidate.y };
-    const controllerContainer = chooseControllerContainer(
-      room,
-      controllerPos,
-      upgraderSlots,
-      theoreticalSpawn,
-    );
-    const sourceContainers = chooseSourceContainers(room, theoreticalSpawn, sources).slice(0, 2);
+    const theoretical = mem.layout.theoretical || null;
+    const isFreshPlan =
+      theoretical &&
+      mem.layout.planVersion === 2 &&
+      mem.layout.mode === 'theoretical' &&
+      typeof theoretical.generatedAt === 'number' &&
+      Game.time - theoretical.generatedAt < replanInterval;
 
-    const pointsToConnect = [];
-    if (controllerContainer) pointsToConnect.push(controllerContainer);
-    for (const slot of upgraderSlots) pointsToConnect.push(slot);
-    for (const src of sourceContainers) pointsToConnect.push(src);
+    if (
+      mem.layout.theoreticalPipeline &&
+      mem.layout.theoreticalPipeline.status === 'completed'
+    ) {
+      if (isFreshPlan) {
+        this._refreshTheoreticalDisplay(roomName);
+        return;
+      }
+      delete mem.layout.theoreticalPipeline;
+    }
 
-    const roadSet = new Set();
-    for (const target of pointsToConnect) {
-      for (const step of pathRoad(room, theoreticalSpawn, target)) {
-        roadSet.add(key(step.x, step.y));
+    if (!mem.layout.theoreticalPipeline && isFreshPlan) {
+      this._refreshTheoreticalDisplay(roomName);
+      return;
+    }
+    if (!mem.layout.theoreticalPipeline) {
+      const pipeline = this._initializeTheoreticalPipeline(roomName);
+      if (!pipeline) {
+        // Fallback to direct single-run generation if no candidate scan is possible.
+        const generated = buildCompendium.generatePlan(roomName);
+        if (!generated) return;
+        const singlePipeline = {
+          runId: `${roomName}:${Game.time}:fallback`,
+          bestCandidateIndex:
+            generated.selection && typeof generated.selection.selectedCandidateIndex === 'number'
+              ? generated.selection.selectedCandidateIndex
+              : 0,
+          candidateSet: (generated.selection && generated.selection.candidateSet) || {},
+          candidates: (generated.selection && generated.selection.candidates) || [],
+          results: {},
+        };
+        if (Array.isArray(singlePipeline.candidates)) {
+          for (const candidate of singlePipeline.candidates) {
+            singlePipeline.results[candidate.index] = {
+              index: candidate.index,
+              weightedScore: candidate.weightedScore || 0,
+              weightedMetrics: candidate.weightedMetrics || {},
+              weightedContributions: candidate.weightedContributions || {},
+              validation: candidate.validation || [],
+              defenseScore: candidate.defenseScore || 0,
+              completedAt: Game.time,
+            };
+          }
+        }
+        this._writeTheoreticalLayoutFromPlan(room, generated, singlePipeline);
+        statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
+        return;
       }
     }
-    const roadTiles = [...roadSet].map(parseKey);
-    writeRoadMatrix(mem.layout, roadTiles);
 
-    const reserveCell = (x, y, data = {}) => {
-      if (!inBounds(x, y)) return;
-      if (!mem.layout.reserved[x]) mem.layout.reserved[x] = {};
-      mem.layout.reserved[x][y] = true;
-      if (!mem.layout.matrix[x]) mem.layout.matrix[x] = {};
-      mem.layout.matrix[x][y] = Object.assign(
-        {
-          planned: true,
-          plannedBy: 'layoutPlanner',
-          blockedUntil: Game.time + 10000,
-          rcl: 1,
-        },
-        data,
-      );
-    };
-
-    reserveCell(theoreticalSpawn.x, theoreticalSpawn.y, { structureType: SPAWN_TYPE, rcl: 1 });
-    if (controllerContainer) {
-      reserveCell(controllerContainer.x, controllerContainer.y, { structureType: CONTAINER_TYPE, rcl: 1 });
-    }
-    for (const src of sourceContainers) {
-      reserveCell(src.x, src.y, { structureType: CONTAINER_TYPE, rcl: 1, sourceId: src.sourceId });
-    }
-    for (const p of [
-      { dx: 1, dy: 0, type: EXTENSION_TYPE, rcl: 2 },
-      { dx: -1, dy: 0, type: EXTENSION_TYPE, rcl: 2 },
-      { dx: 0, dy: 1, type: EXTENSION_TYPE, rcl: 2 },
-      { dx: 0, dy: -1, type: EXTENSION_TYPE, rcl: 2 },
-      { dx: 1, dy: 1, type: TOWER_TYPE, rcl: 3 },
-      { dx: -1, dy: -1, type: TOWER_TYPE, rcl: 3 },
-      { dx: 1, dy: -1, type: STORAGE_TYPE, rcl: 4 },
-      { dx: -1, dy: 1, type: LINK_TYPE, rcl: 5 },
-    ]) {
-      const x = theoreticalSpawn.x + p.dx;
-      const y = theoreticalSpawn.y + p.dy;
-      if (!inBounds(x, y) || !isWalkable(room, x, y)) continue;
-      reserveCell(x, y, { structureType: p.type, rcl: p.rcl });
-    }
-    for (const rt of roadTiles) {
-      if (!inBounds(rt.x, rt.y)) continue;
-      if (!mem.layout.matrix[rt.x]) mem.layout.matrix[rt.x] = {};
-      if (mem.layout.matrix[rt.x][rt.y]) continue;
-      mem.layout.matrix[rt.x][rt.y] = {
-        structureType: ROAD_TYPE,
-        rcl: 1,
-        planned: true,
-        plannedBy: 'layoutPlanner',
-        blockedUntil: Game.time + 10000,
-      };
-    }
-
-    mem.layout.theoretical = {
-      controllerPos,
-      spawnCandidate,
-      upgraderSlots,
-      controllerContainer,
-      sourceContainers,
-      wallDistance,
-      controllerDistance: controllerDistanceMap,
-      floodScore: floodFillScore(room, theoreticalSpawn, 12),
-      mincutProxy: mincutProxyScore(room, theoreticalSpawn, 8),
-      roads: roadTiles,
-      generatedAt: Game.time,
-    };
-    mem.layout.planVersion = 2;
-    statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
+    this._processTheoreticalPipeline(roomName);
   },
 };
 

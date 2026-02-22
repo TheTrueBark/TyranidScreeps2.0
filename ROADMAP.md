@@ -227,11 +227,11 @@
 - [ ] Templates per role, RCL-dependent
 
 ### 🧱 Auto-Layout System (Prio 3)
-- [ ] Generate multiple base stamp candidates using distance transforms (11×11 bunker, 5×5 hybrid, etc.).
-- [ ] Score anchors by travel distance to controller/sources/minerals and defensive choke options.
+- [x] Generate multiple dynamic layout candidates with distance transform filters and weighted pre-scoring.
+- [x] Score anchors by controller/source/mineral/exit/terrain symmetry inputs and keep top candidates.
 - [ ] Emit lab/extension/tower/road stamps as discrete layers consumable by `manager.building`.
 - [ ] Teach `manager.building.executeLayout` to respect reserved tiles, rampart overlays, and phased RCL unlocks.
-- [ ] Persist selected layout in `room.memory.layout` and add visual debug overlays for verification.
+- [x] Persist selected layout + candidate evaluation data in `room.memory.layout` and expose debug overlays (`candidates`, `evaluation`).
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics

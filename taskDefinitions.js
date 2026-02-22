@@ -57,6 +57,20 @@ taskRegistry.register('BUILD_CLUSTER', {
   trigger: { type: 'condition', conditionFn: 'layoutAvailable' },
 });
 
+taskRegistry.register('PLAN_LAYOUT_CANDIDATES', {
+  owner: 'layoutPlanner',
+  priority: 0,
+  ttl: 2000,
+  trigger: { type: 'condition', conditionFn: 'theoreticalPlanning' },
+});
+
+taskRegistry.register('PLAN_LAYOUT_CANDIDATE', {
+  owner: 'layoutPlanner',
+  priority: 1,
+  ttl: 2000,
+  trigger: { type: 'condition', conditionFn: 'theoreticalPlanning' },
+});
+
 taskRegistry.register('repairEmergency', {
   owner: 'buildingManager',
   priority: 1,

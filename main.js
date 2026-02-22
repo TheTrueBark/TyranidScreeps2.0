@@ -91,6 +91,24 @@ if (Memory.settings.layoutPlanningMode === undefined) {
 if (Memory.settings.layoutOverlayView === undefined) {
   Memory.settings.layoutOverlayView = 'plan';
 }
+if (Memory.settings.layoutCandidateOverlayIndex === undefined) {
+  Memory.settings.layoutCandidateOverlayIndex = -1;
+}
+if (Memory.settings.layoutPlanningTopCandidates === undefined) {
+  Memory.settings.layoutPlanningTopCandidates = 5;
+}
+if (Memory.settings.layoutPlanningCandidatesPerTick === undefined) {
+  Memory.settings.layoutPlanningCandidatesPerTick = 1;
+}
+if (Memory.settings.layoutPlanningMaxCandidatesPerTick === undefined) {
+  Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
+}
+if (Memory.settings.layoutPlanningDynamicBatching === undefined) {
+  Memory.settings.layoutPlanningDynamicBatching = true;
+}
+if (Memory.settings.layoutPlanningReplanInterval === undefined) {
+  Memory.settings.layoutPlanningReplanInterval = 1000;
+}
 if (Memory.settings.allowSavestateRestore === undefined) {
   Memory.settings.allowSavestateRestore = false;
 }
@@ -151,6 +169,9 @@ function applyRuntimeMode(mode, options = {}) {
     if (!Memory.settings.layoutOverlayView) {
       Memory.settings.layoutOverlayView = 'plan';
     }
+    if (Memory.settings.layoutCandidateOverlayIndex === undefined) {
+      Memory.settings.layoutCandidateOverlayIndex = -1;
+    }
     Memory.settings.enableBaseBuilderPlanning = true;
     Memory.settings.showLayoutOverlay = true;
     Memory.settings.showLayoutLegend = true;
@@ -173,6 +194,30 @@ function applyRuntimeMode(mode, options = {}) {
       Memory.settings.enableVisuals = true;
     }
   }
+}
+
+function processPendingLayoutRecalculation() {
+  if (!Memory.settings) return;
+  const pending = Memory.settings.layoutRecalculateRequested;
+  if (!pending) return;
+  const targetMode =
+    Memory.settings.layoutRecalculateMode || Memory.settings.layoutPlanningMode || 'standard';
+  const ownedRooms = Object.values(Game.rooms || {}).filter(
+    (room) => room && room.controller && room.controller.my,
+  );
+
+  if (pending === 'all') {
+    for (const room of ownedRooms) {
+      layoutPlanner.recalculateRoom(room.name, { mode: targetMode, scrubDistanceTransform: true });
+    }
+    statsConsole.log(`Layout recalculation triggered for all owned rooms (${String(targetMode).toUpperCase()})`, 2);
+  } else if (typeof pending === 'string' && Game.rooms[pending]) {
+    layoutPlanner.recalculateRoom(pending, { mode: targetMode, scrubDistanceTransform: true });
+    statsConsole.log(`Layout recalculation triggered for ${pending} (${String(targetMode).toUpperCase()})`, 2);
+  }
+
+  delete Memory.settings.layoutRecalculateRequested;
+  delete Memory.settings.layoutRecalculateMode;
 }
 
 global.visual = {
@@ -307,10 +352,18 @@ global.visual = {
   layoutView: function (view = 'plan') {
     if (!Memory.settings) Memory.settings = {};
     const normalized = String(view || '').toLowerCase();
-    const allowed = ['plan', 'walldistance', 'controllerdistance', 'flood', 'spawnscore'];
+    const allowed = [
+      'plan',
+      'walldistance',
+      'controllerdistance',
+      'flood',
+      'spawnscore',
+      'candidates',
+      'evaluation',
+    ];
     if (!allowed.includes(normalized)) {
       statsConsole.log(
-        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'spawnScore')",
+        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'spawnScore'|'candidates'|'evaluation')",
         3,
       );
       return;
@@ -318,6 +371,83 @@ global.visual = {
     Memory.settings.layoutOverlayView = normalized;
     Memory.settings.showLayoutOverlay = true;
     statsConsole.log(`Layout overlay view: ${normalized}`, 2);
+  },
+  layoutCandidate: function (candidate = 'selected') {
+    if (!Memory.settings) Memory.settings = {};
+    if (candidate === 'selected' || candidate === 'best' || candidate === -1) {
+      Memory.settings.layoutCandidateOverlayIndex = -1;
+      statsConsole.log('Layout candidate overlay: selected winner', 2);
+      return;
+    }
+
+    const parsed = Number(candidate);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      statsConsole.log(
+        "Usage: visual.layoutCandidate('selected') or visual.layoutCandidate(<index>=1..N)",
+        3,
+      );
+      return;
+    }
+
+    const resolvedIndex = Math.floor(parsed) - 1;
+    Memory.settings.layoutCandidateOverlayIndex = resolvedIndex;
+    Memory.settings.showLayoutOverlay = true;
+    statsConsole.log(
+      `Layout candidate overlay index: ${resolvedIndex + 1}`,
+      2,
+    );
+  },
+  layoutBatching: function (mode = 'dynamic', perTick = null, maxPerTick = null) {
+    if (!Memory.settings) Memory.settings = {};
+    const normalized = String(mode || '').toLowerCase();
+    if (!['dynamic', 'static'].includes(normalized)) {
+      statsConsole.log(
+        "Usage: visual.layoutBatching('dynamic'|'static', perTick?, maxPerTick?)",
+        3,
+      );
+      return;
+    }
+    Memory.settings.layoutPlanningDynamicBatching = normalized === 'dynamic';
+    if (perTick !== null && Number.isFinite(Number(perTick))) {
+      Memory.settings.layoutPlanningCandidatesPerTick = Math.max(1, Math.floor(Number(perTick)));
+    }
+    if (maxPerTick !== null && Number.isFinite(Number(maxPerTick))) {
+      Memory.settings.layoutPlanningMaxCandidatesPerTick = Math.max(
+        Memory.settings.layoutPlanningCandidatesPerTick || 1,
+        Math.floor(Number(maxPerTick)),
+      );
+    }
+    statsConsole.log(
+      `Layout batching: ${normalized.toUpperCase()} (base=${Memory.settings.layoutPlanningCandidatesPerTick}, max=${Memory.settings.layoutPlanningMaxCandidatesPerTick})`,
+      2,
+    );
+  },
+  recalculateLayout: function (roomName = null, mode = null) {
+    const ownedRooms = Object.values(Game.rooms || {}).filter(
+      (room) => room && room.controller && room.controller.my,
+    );
+    const targetName =
+      roomName ||
+      (ownedRooms[0] && ownedRooms[0].name) ||
+      null;
+    if (!targetName || !Game.rooms[targetName]) {
+      statsConsole.log(
+        "Usage: visual.recalculateLayout('W1N1', 'theoretical'|'standard')",
+        3,
+      );
+      return false;
+    }
+    const targetMode = mode || (Memory.settings && Memory.settings.layoutPlanningMode) || 'standard';
+    const ok = layoutPlanner.recalculateRoom(targetName, { mode: targetMode, scrubDistanceTransform: true });
+    if (!ok) {
+      statsConsole.log(`Layout recalculation failed for ${targetName}`, 4);
+      return false;
+    }
+    statsConsole.log(
+      `Layout recalculation started for ${targetName} (${String(targetMode).toUpperCase()})`,
+      2,
+    );
+    return true;
   },
   theoreticalPlanning: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
@@ -645,6 +775,18 @@ scheduler.addTask(
 
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();
+  // Defensive runtime init: Memory can be wiped on private server crashes or manual hard resets
+  // without forcing a global reset, so top-level module init may not run again in time.
+  if (!Memory.settings) Memory.settings = {};
+  if (Memory.settings.pauseBot === undefined) Memory.settings.pauseBot = false;
+  if (Memory.settings.buildPreviewOnly === undefined) Memory.settings.buildPreviewOnly = false;
+  if (Memory.settings.alwaysShowHud === undefined) Memory.settings.alwaysShowHud = true;
+  if (Memory.settings.enableVisuals === undefined) Memory.settings.enableVisuals = true;
+  if (Memory.settings.showSpawnQueueHud === undefined) Memory.settings.showSpawnQueueHud = true;
+  if (Memory.settings.layoutPlanningTopCandidates === undefined) Memory.settings.layoutPlanningTopCandidates = 5;
+  if (Memory.settings.layoutPlanningCandidatesPerTick === undefined) Memory.settings.layoutPlanningCandidatesPerTick = 1;
+  if (Memory.settings.layoutPlanningMaxCandidatesPerTick === undefined) Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
+  if (Memory.settings.layoutPlanningDynamicBatching === undefined) Memory.settings.layoutPlanningDynamicBatching = true;
 
   if (Memory.settings && Memory.settings.alwaysShowHud) {
     Memory.settings.enableVisuals = true;
@@ -677,6 +819,8 @@ module.exports.loop = function () {
     const room = Game.rooms[roomName];
     roomManager.scanRoom(room);
   }
+
+  processPendingLayoutRecalculation();
 
   if (Memory.settings && Memory.settings.buildPreviewOnly) {
     for (const roomName in Game.rooms) {
