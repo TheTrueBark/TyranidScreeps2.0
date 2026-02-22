@@ -139,6 +139,18 @@ const calculateEffectiveEnergyCapacity = (room) => {
   return effectiveEnergyCapacity;
 };
 
+function countValidMiningPositions(positions) {
+  if (!positions || typeof positions !== 'object') return 0;
+  let count = 0;
+  for (const key in positions) {
+    const pos = positions[key];
+    if (pos && typeof pos === 'object') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 /**
  * Determine how many miners are required to saturate a source.
  * Mirrors the logic used when actually spawning miners so other
@@ -158,7 +170,7 @@ function calculateRequiredMiners(room, source) {
     Memory.rooms[room.name].miningPositions[source.id];
   if (!sourceMem) return 0;
 
-  const availablePositions = Object.keys(sourceMem.positions || {}).length;
+  const availablePositions = countValidMiningPositions(sourceMem.positions || {});
   const bodyParts = dna.getBodyParts('miner', room);
   const energyPerTick =
     bodyParts.filter((part) => part === WORK).length * HARVEST_POWER;
@@ -188,6 +200,7 @@ const spawnManager = {
     }
 
     const spawns = room.find(FIND_MY_SPAWNS);
+    this.cleanupUrgentRequests(spawns);
     for (const spawn of spawns) {
       this.processSpawnQueue(spawn);
     }
@@ -776,6 +789,29 @@ const spawnManager = {
     return Memory.spawnUrgentRequests[spawnId];
   },
 
+  cleanupUrgentRequests(spawns = []) {
+    if (!Memory.spawnUrgentRequests) return;
+    const now = Game.time;
+    for (const spawn of spawns) {
+      if (!spawn || !spawn.id) continue;
+      const queue = Memory.spawnUrgentRequests[spawn.id];
+      if (!Array.isArray(queue) || queue.length === 0) {
+        delete Memory.spawnUrgentRequests[spawn.id];
+        continue;
+      }
+      const valid = queue.filter((req) => {
+        if (!req || !req.creepName || !req.action) return false;
+        if (typeof req.expiresAt === 'number' && req.expiresAt < now) return false;
+        return Boolean(Game.creeps && Game.creeps[req.creepName]);
+      });
+      if (valid.length > 0) {
+        Memory.spawnUrgentRequests[spawn.id] = valid;
+      } else {
+        delete Memory.spawnUrgentRequests[spawn.id];
+      }
+    }
+  },
+
   processUrgentRequests(spawn) {
     const queue = this.getUrgentRequests(spawn.id);
     if (!queue.length) return false;
@@ -784,6 +820,7 @@ const spawnManager = {
     for (const req of queue) {
       if (!req || !req.creepName || !req.action) continue;
       if (typeof req.expiresAt === 'number' && req.expiresAt < now) continue;
+      if (!Game.creeps || !Game.creeps[req.creepName]) continue;
       valid.push(req);
     }
     Memory.spawnUrgentRequests[spawn.id] = valid;

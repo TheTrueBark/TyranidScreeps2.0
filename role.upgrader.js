@@ -1,16 +1,17 @@
 const workerRole = require('./role.worker');
 
-const roleUpgrader = {
+module.exports = {
   run(creep) {
     if (!creep.memory) creep.memory = {};
-    creep.memory.primaryRole = 'upgrader';
-    creep.memory.secondaryRole = 'builder';
+    if (!creep.memory.role || creep.memory.role === 'worker') {
+      creep.memory.role = 'upgrader';
+    }
+    if (creep.memory.primaryRole === 'upgrader') {
+      delete creep.memory.primaryRole;
+    }
     workerRole.run(creep);
   },
   onDeath(creep) {
     workerRole.onDeath(creep);
   },
 };
-
-module.exports = roleUpgrader;
-

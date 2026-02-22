@@ -6,36 +6,43 @@ const maintenance = require('./manager.maintenance');
 const _ = require('lodash');
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 
-const DEFAULT_BODY_COSTS = {
-  move: 50,
-  work: 100,
-  carry: 50,
-  attack: 80,
-  ranged_attack: 150,
-  tough: 10,
-  heal: 250,
-  claim: 600,
-};
-
 const ENERGY_REGEN = typeof ENERGY_REGEN_TIME !== 'undefined' ? ENERGY_REGEN_TIME : 300;
 const MAX_BUILDERS = 4;
 const BUILDER_DEMAND_HOLD_TICKS = 100;
 
-function partCost(part) {
-  if (typeof BODYPART_COST !== 'undefined' && BODYPART_COST[part] !== undefined) {
-    return BODYPART_COST[part];
-  }
-  const key = typeof part === 'string' ? part.toLowerCase() : part;
-  return DEFAULT_BODY_COSTS[key] || 0;
-}
-
-function calculateBodyCost(parts = []) {
-  return parts.reduce((total, part) => total + partCost(part), 0);
-}
-
 function countWorkParts(parts = []) {
   const workConstant = typeof WORK !== 'undefined' ? WORK : 'work';
   return parts.filter(part => part === workConstant).length;
+}
+
+function countValidMiningPositions(positions) {
+  if (!positions || typeof positions !== 'object') return 0;
+  let count = 0;
+  for (const key in positions) {
+    const pos = positions[key];
+    if (pos && typeof pos === 'object') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function getFeasibleMiningPositionCap(roomName) {
+  const roomMem = Memory.rooms && Memory.rooms[roomName];
+  if (!roomMem) return 0;
+  if (
+    typeof roomMem.feasibleMiningPositions === 'number' &&
+    Number.isFinite(roomMem.feasibleMiningPositions)
+  ) {
+    return Math.max(0, Math.floor(roomMem.feasibleMiningPositions));
+  }
+  const miningPositions = roomMem.miningPositions || {};
+  let total = 0;
+  for (const sourceId in miningPositions) {
+    const sourceMem = miningPositions[sourceId];
+    total += countValidMiningPositions(sourceMem && sourceMem.positions);
+  }
+  return total;
 }
 
 /**
@@ -72,7 +79,7 @@ const roles = {
           : null;
       if (!positions) continue;
       // Limit miners by available positions with a hard cap of five per source
-      const maxMiners = Math.min(Object.keys(positions).length, 5);
+      const maxMiners = Math.min(countValidMiningPositions(positions), 5);
       desiredMiners += maxMiners;
 
       const liveCreeps = _.filter(
@@ -115,6 +122,11 @@ const roles = {
       const target = manualLimits.miners;
       minersNeeded = Math.max(0, target - (liveMinersTotal + queuedMinersTotal));
       desiredMiners = target;
+    } else {
+      const feasibleCap = getFeasibleMiningPositionCap(roomName);
+      if (feasibleCap > 0) {
+        desiredMiners = Math.min(desiredMiners, feasibleCap);
+      }
     }
     const minerTask = tasks.find(t => t.name === 'spawnMiner' && t.manager === 'spawnManager');
     const coupleTask = tasks.find(t => t.name === TASK_STARTER_COUPLE && t.manager === 'spawnManager');
@@ -163,7 +175,6 @@ const roles = {
     // --- Worker (builder/upgrader) calculation ---
     const workerBody = dna.getBodyParts('builder', room);
     const workPartsPerBody = Math.max(1, countWorkParts(workerBody));
-    const workerBodyCost = calculateBodyCost(workerBody);
     const roomSources = room.find(FIND_SOURCES) || [];
     const energyPerTick = roomSources.reduce((total, source) => {
       const capacity =
@@ -181,10 +192,18 @@ const roles = {
 
     const roomMem = Memory.rooms[roomName] || (Memory.rooms[roomName] = {});
     const buildingQueue = (room.memory && room.memory.buildingQueue) || [];
+    const liveConstructionSites = room.find(FIND_CONSTRUCTION_SITES) || [];
     const constructionSites =
       buildingQueue.length > 0
         ? buildingQueue.length
-        : room.find(FIND_CONSTRUCTION_SITES).length;
+        : liveConstructionSites.length;
+    const roadType = typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
+    const nonRoadConstructionSites =
+      liveConstructionSites.length > 0
+        ? liveConstructionSites.filter(site => site && site.structureType !== roadType).length
+        : constructionSites;
+    const onlyRoadConstruction =
+      constructionSites > 0 && nonRoadConstructionSites === 0;
     const repairDemand = maintenance.getActiveRepairDemand(roomName);
     if (constructionSites > 0 || repairDemand > 0) {
       roomMem.builderDemandUntil = Game.time + BUILDER_DEMAND_HOLD_TICKS;
@@ -196,7 +215,12 @@ const roles = {
       constructionSites > 0
         ? Math.min(dynamicCap, Math.min(6, constructionSites * 2))
         : 1;
+    if (onlyRoadConstruction) baselineWorkers = 1;
     if (repairDemand > 0) baselineWorkers = Math.max(baselineWorkers, 1);
+    const hasOwnedStructures =
+      typeof FIND_MY_STRUCTURES !== 'undefined'
+        ? (room.find(FIND_MY_STRUCTURES) || []).length > 0
+        : false;
 
     const liveBuilders = _.filter(
       Game.creeps,
@@ -206,76 +230,40 @@ const roles = {
       Game.creeps,
       c => c.memory.role === 'upgrader' && c.room.name === roomName,
     ).length;
-    const liveWorkers = liveBuilders + liveUpgraders;
-
-    const queuedWorkers = spawnQueue.queue.filter(
-      q =>
-        q.room === roomName &&
-        q.memory &&
-        (q.memory.role === 'builder' || q.memory.role === 'upgrader'),
-    ).length;
-
-    let manualWorkerLimit =
-      manualLimits.workers !== undefined && manualLimits.workers !== 'auto'
-        ? manualLimits.workers
+    const manualBuilderLimit =
+      manualLimits.builders !== undefined && manualLimits.builders !== 'auto'
+        ? Math.max(0, manualLimits.builders)
         : null;
-    if (manualWorkerLimit === null) {
-      const manualBuilderLimit =
-        manualLimits.builders !== undefined && manualLimits.builders !== 'auto'
-          ? manualLimits.builders
-          : null;
-      const manualUpgraderLimit =
-        manualLimits.upgraders !== undefined && manualLimits.upgraders !== 'auto'
-          ? manualLimits.upgraders
-          : null;
-      if (manualBuilderLimit !== null && manualUpgraderLimit !== null) {
-        manualWorkerLimit = Math.max(manualBuilderLimit, manualUpgraderLimit);
-      } else if (manualBuilderLimit !== null) {
-        manualWorkerLimit = manualBuilderLimit;
-      } else if (manualUpgraderLimit !== null) {
-        manualWorkerLimit = manualUpgraderLimit;
-      }
-    }
+    const manualUpgraderLimit =
+      manualLimits.upgraders !== undefined && manualLimits.upgraders !== 'auto'
+        ? Math.max(0, manualLimits.upgraders)
+        : null;
 
-    let targetWorkers = Math.min(dynamicCap, Math.max(1, baselineWorkers));
-    if (manualWorkerLimit !== null) {
-      targetWorkers = manualWorkerLimit;
-      dynamicCap = Math.max(0, manualWorkerLimit);
-    } else {
-      const roomQueue = spawnQueue.queue.filter(req => req.room === roomName);
-      const queueEmpty = roomQueue.length === 0;
-      const canSpawnWorker = room.energyAvailable >= workerBodyCost;
-      if (
-        queueEmpty &&
-        canSpawnWorker &&
-        targetWorkers < dynamicCap &&
-        liveWorkers + queuedWorkers < dynamicCap
-      ) {
-        targetWorkers = Math.min(
-          dynamicCap,
-          Math.max(targetWorkers, liveWorkers + queuedWorkers + 1),
-        );
-      }
-    }
-    if (manualWorkerLimit !== null) {
-      targetWorkers = Math.max(0, Math.min(dynamicCap, targetWorkers));
-    } else {
-      targetWorkers = Math.max(1, Math.min(dynamicCap, targetWorkers));
-    }
-
-    let desiredUpgraders = Math.min(targetWorkers, 1);
-    if (constructionSites === 0 && targetWorkers > 1) {
-      desiredUpgraders = Math.min(
-        targetWorkers,
-        Math.min(hardCap, Math.max(1, Math.ceil(targetWorkers / 2))),
-      );
-    }
+    // Evaluate builder and upgrader caps independently by role label.
+    let desiredUpgraders =
+      manualUpgraderLimit !== null ? manualUpgraderLimit : 1;
+    desiredUpgraders = Math.max(0, desiredUpgraders);
     const previousBuilderLimit =
       roomMem && roomMem.spawnLimits && typeof roomMem.spawnLimits.builders === 'number'
         ? roomMem.spawnLimits.builders
         : 0;
-    let desiredBuilders = Math.max(0, targetWorkers - desiredUpgraders);
+    let desiredBuilders;
+    if (manualBuilderLimit !== null) {
+      desiredBuilders = manualBuilderLimit;
+    } else if (constructionSites > 0) {
+      if (onlyRoadConstruction) {
+        desiredBuilders = 1;
+      } else {
+        desiredBuilders = Math.max(1, baselineWorkers - desiredUpgraders);
+      }
+    } else {
+      desiredBuilders = 0;
+      if (repairDemand > 0 || hasOwnedStructures) {
+        desiredBuilders = 1;
+      }
+    }
     desiredBuilders = Math.min(MAX_BUILDERS, desiredBuilders);
+    if (hasOwnedStructures) desiredBuilders = Math.max(1, desiredBuilders);
 
     const queuedBuilders = spawnQueue.queue.filter(
       q => q.room === roomName && q.memory && q.memory.role === 'builder',
@@ -285,6 +273,16 @@ const roles = {
     ).length;
 
     const upgraderTask = tasks.find(t => t.name === 'spawnUpgrader' && t.manager === 'spawnManager');
+    if (upgraderTask) {
+      const capped = Math.max(0, desiredUpgraders - (liveUpgraders + queuedUpgraders));
+      if ((upgraderTask.amount || 0) > capped) {
+        upgraderTask.amount = capped;
+      }
+      if ((upgraderTask.amount || 0) <= 0) {
+        const idx = container.tasks.indexOf(upgraderTask);
+        if (idx !== -1) container.tasks.splice(idx, 1);
+      }
+    }
     const upgraderTaskAmount = upgraderTask ? upgraderTask.amount || 0 : 0;
     const totalPlannedUpgraders = liveUpgraders + queuedUpgraders + upgraderTaskAmount;
     const upgradersNeeded = Math.max(0, desiredUpgraders - totalPlannedUpgraders);
@@ -304,6 +302,16 @@ const roles = {
     }
 
     const builderTask = tasks.find(t => t.name === 'spawnBuilder' && t.manager === 'spawnManager');
+    if (builderTask) {
+      const capped = Math.max(0, desiredBuilders - (liveBuilders + queuedBuilders));
+      if ((builderTask.amount || 0) > capped) {
+        builderTask.amount = capped;
+      }
+      if ((builderTask.amount || 0) <= 0 && desiredBuilders <= liveBuilders + queuedBuilders) {
+        const idx = container.tasks.indexOf(builderTask);
+        if (idx !== -1) container.tasks.splice(idx, 1);
+      }
+    }
     const builderTaskAmount = builderTask ? builderTask.amount || 0 : 0;
     if (
       constructionSites === 0 &&
@@ -349,12 +357,16 @@ const roles = {
 
     if (!roomMem.spawnLimits) roomMem.spawnLimits = {};
     roomMem.spawnLimits.miners = desiredMiners;
-    roomMem.spawnLimits.workers = targetWorkers;
+    roomMem.spawnLimits.maxMiners = desiredMiners;
+    roomMem.spawnLimits.workers = desiredBuilders + desiredUpgraders;
     roomMem.spawnLimits.upgraders = desiredUpgraders;
     roomMem.spawnLimits.builders = desiredBuilders;
     const existingHaulerCap = roomMem.spawnLimits.maxHaulers;
     const existingHaulerTarget = roomMem.spawnLimits.haulers;
-    const fallbackHaulerTarget = Math.max(1, desiredMiners || 1);
+    const fallbackHaulerTarget = Math.max(
+      1,
+      Math.min(desiredMiners || 1, getFeasibleMiningPositionCap(roomName) || desiredMiners || 1),
+    );
     if (
       typeof existingHaulerTarget !== 'number' ||
       !Number.isFinite(existingHaulerTarget)
@@ -372,13 +384,8 @@ const roles = {
     if (manualLimits.miners !== undefined) {
       roomMem.manualSpawnLimits.miners = manualLimits.miners;
     }
-    if (manualLimits.workers !== undefined) {
-      roomMem.manualSpawnLimits.workers = manualLimits.workers;
-    } else if (manualWorkerLimit !== null) {
-      roomMem.manualSpawnLimits.workers = manualWorkerLimit;
-    } else {
-      roomMem.manualSpawnLimits.workers = 'auto';
-    }
+    roomMem.manualSpawnLimits.workers =
+      manualLimits.workers !== undefined ? manualLimits.workers : 'auto';
     if (manualLimits.builders !== undefined) {
       roomMem.manualSpawnLimits.builders = manualLimits.builders;
     }

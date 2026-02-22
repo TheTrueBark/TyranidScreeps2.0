@@ -132,4 +132,27 @@ describe('demand spawn scaling', function () {
     // cap=2 (miners), one live hauler, no generic headroom => max task amount is 1
     expect(haulTask.amount).to.be.at.most(1);
   });
+
+  it('uses feasible mining position cap for hauler max when available', function () {
+    Game.time = 300;
+    Game.creeps = {
+      h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' }, store: {} },
+      m1: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+      m2: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+      m3: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+      m4: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+    };
+    if (!Memory.rooms) Memory.rooms = {};
+    Memory.rooms.W1N1 = {
+      feasibleMiningPositions: 2,
+      miningPositions: {
+        s1: { positions: { a: {}, b: null } },
+      },
+    };
+    Memory.demand.rooms.W1N1.runNextTick = true;
+
+    demand.run();
+
+    expect(Memory.rooms['W1N1'].spawnLimits.maxHaulers).to.equal(2);
+  });
 });

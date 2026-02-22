@@ -7,6 +7,9 @@ describe('hudManager spawn queue panel', function () {
   beforeEach(function () {
     globals.resetGame();
     globals.resetMemory();
+    Memory.settings = {};
+    delete require.cache[require.resolve('../layoutVisualizer')];
+    delete require.cache[require.resolve('../manager.visualizer')];
     delete require.cache[require.resolve('../manager.hud')];
   });
 
@@ -109,5 +112,95 @@ describe('hudManager spawn queue panel', function () {
     expect(lines).to.include('  Haulers 1/5 (m)');
     expect(lines).to.include('  Upgraders 1/4 (a)');
     expect(lines.some((line) => line.includes('Workers'))).to.equal(false);
+  });
+
+  it('counts effective role via primaryRole/home when memory.role differs', function () {
+    const hudManager = require('../manager.hud');
+    Game.creeps = {
+      w1: {
+        memory: { role: 'worker', primaryRole: 'builder', home: 'W1N1' },
+        room: { name: 'W2N2' },
+      },
+      w2: {
+        memory: { role: 'worker', primaryRole: 'upgrader', colony: 'W1N1' },
+        room: { name: 'W3N3' },
+      },
+      h1: { memory: { role: 'hauler', originRoom: 'W1N1' }, room: { name: 'W4N4' } },
+    };
+    Memory.rooms = {
+      W1N1: {
+        spawnLimits: { builders: 4, upgraders: 3, haulers: 2 },
+      },
+    };
+
+    const lines = hudManager._buildSpawnLimitLines({ name: 'W1N1' });
+    expect(lines).to.include('  Builders 1/4 (a)');
+    expect(lines).to.include('  Upgraders 1/3 (a)');
+    expect(lines).to.include('  Haulers 1/2 (a)');
+  });
+
+  it('still draws layout overlay when regular visuals are disabled', function () {
+    const hudManager = require('../manager.hud');
+    const layoutVisualizer = require('../layoutVisualizer');
+    const visualizer = require('../manager.visualizer');
+
+    let layoutCalls = 0;
+    const origLayout = layoutVisualizer.drawLayout;
+    const origShowInfo = visualizer.showInfo;
+    const origCircle = visualizer.circle;
+    layoutVisualizer.drawLayout = () => { layoutCalls += 1; };
+    visualizer.showInfo = () => {};
+    visualizer.circle = () => {};
+
+    Memory.settings = {
+      enableVisuals: false,
+      showLayoutOverlay: true,
+      layoutPlanningMode: 'standard',
+    };
+    const room = { name: 'W1N1', find: () => [], controller: null };
+    hudManager.createHUD(room);
+
+    expect(layoutCalls).to.equal(1);
+
+    layoutVisualizer.drawLayout = origLayout;
+    visualizer.showInfo = origShowInfo;
+    visualizer.circle = origCircle;
+  });
+
+  it('suppresses normal HUD layers in theoretical mode', function () {
+    const hudManager = require('../manager.hud');
+    const layoutVisualizer = require('../layoutVisualizer');
+    const visualizer = require('../manager.visualizer');
+
+    let layoutCalls = 0;
+    let infoCalls = 0;
+    let circleCalls = 0;
+    const origLayout = layoutVisualizer.drawLayout;
+    const origShowInfo = visualizer.showInfo;
+    const origCircle = visualizer.circle;
+    layoutVisualizer.drawLayout = () => { layoutCalls += 1; };
+    visualizer.showInfo = () => { infoCalls += 1; };
+    visualizer.circle = () => { circleCalls += 1; };
+
+    Memory.settings = {
+      enableVisuals: true,
+      showLayoutOverlay: true,
+      layoutPlanningMode: 'theoretical',
+    };
+    global.FIND_SOURCES = 99;
+    const room = {
+      name: 'W1N1',
+      find: (type) => (type === FIND_SOURCES ? [{ pos: { x: 10, y: 10, roomName: 'W1N1' } }] : []),
+      controller: { level: 3, pos: { x: 20, y: 20, roomName: 'W1N1' } },
+    };
+    hudManager.createHUD(room);
+
+    expect(layoutCalls).to.equal(1);
+    expect(infoCalls).to.equal(0);
+    expect(circleCalls).to.equal(0);
+
+    layoutVisualizer.drawLayout = origLayout;
+    visualizer.showInfo = origShowInfo;
+    visualizer.circle = origCircle;
   });
 });

@@ -44,4 +44,15 @@ describe('spawnManager.calculateRequiredMiners', function () {
     // requirement becomes 1 miner given two available positions
     expect(count).to.equal(1);
   });
+
+  it('ignores null mining slots when counting available positions', function () {
+    Memory.rooms = {
+      W1N1: {
+        miningPositions: { s1: { positions: { a: {}, b: null, c: {} } } },
+      },
+    };
+    const source = { id: 's1' };
+    const count = spawnManager.calculateRequiredMiners(Game.rooms['W1N1'], source);
+    expect(count).to.equal(1);
+  });
 });

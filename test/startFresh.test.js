@@ -26,13 +26,16 @@ describe('startFresh command', function() {
       'rooms','hive','htm','demand','spawnQueue','creeps','stats','spawns','roleEval','nextSpawnId','settings'
     ];
     for (const k of keys) {
+      if (k === 'settings') continue;
       expect(Memory).to.not.have.property(k);
     }
+    expect(Memory.settings).to.deep.equal({ enableVisuals: false });
   });
 
   it('pauses bot when requested', function() {
     startFresh(true);
     expect(Memory.settings).to.have.property('pauseBot', true);
+    expect(Memory.settings).to.have.property('enableVisuals', false);
   });
 
   it('rebuilds hive memory after fresh start', function() {
@@ -43,5 +46,20 @@ describe('startFresh command', function() {
     expect(() => memoryManager.initializeRoomMemory(room)).to.not.throw();
     expect(Memory.hive).to.have.property('clusters');
     expect(Memory.hive.clusters).to.have.property('W8N3');
+  });
+
+  it('enables theoretical building preview mode when requested', function() {
+    startFresh({ theoreticalBuildingMode: true });
+    expect(Memory.settings).to.include({
+      enableVisuals: true,
+      buildPreviewOnly: true,
+      enableBaseBuilderPlanning: true,
+      showLayoutOverlay: true,
+      showLayoutLegend: true,
+      showLayoutOverlayLabels: true,
+      layoutPlanningMode: 'theoretical',
+      layoutOverlayView: 'plan',
+      pauseBot: false,
+    });
   });
 });

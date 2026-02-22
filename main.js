@@ -76,6 +76,21 @@ if (Memory.settings.enableTowerRepairs === undefined) {
 if (Memory.settings.pauseBot === undefined) {
   Memory.settings.pauseBot = false;
 }
+if (Memory.settings.buildPreviewOnly === undefined) {
+  Memory.settings.buildPreviewOnly = false;
+}
+if (Memory.settings.showLayoutLegend === undefined) {
+  Memory.settings.showLayoutLegend = true;
+}
+if (Memory.settings.showLayoutOverlayLabels === undefined) {
+  Memory.settings.showLayoutOverlayLabels = false;
+}
+if (Memory.settings.layoutPlanningMode === undefined) {
+  Memory.settings.layoutPlanningMode = 'standard';
+}
+if (Memory.settings.layoutOverlayView === undefined) {
+  Memory.settings.layoutOverlayView = 'plan';
+}
 if (Memory.settings.allowSavestateRestore === undefined) {
   Memory.settings.allowSavestateRestore = false;
 }
@@ -125,6 +140,39 @@ if (Memory.settings.energyLogs) {
 } else {
   logger.toggle('energyRequests', false);
   logger.toggle('demandManager', false);
+}
+
+function applyRuntimeMode(mode, options = {}) {
+  if (!Memory.settings) Memory.settings = {};
+  const normalized = String(mode || '').toLowerCase();
+  if (normalized === 'theoretical') {
+    const suspend = options.suspend !== false;
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    if (!Memory.settings.layoutOverlayView) {
+      Memory.settings.layoutOverlayView = 'plan';
+    }
+    Memory.settings.enableBaseBuilderPlanning = true;
+    Memory.settings.showLayoutOverlay = true;
+    Memory.settings.showLayoutLegend = true;
+    Memory.settings.enableVisuals = true;
+    Memory.settings.alwaysShowHud = true;
+    Memory.settings.buildPreviewOnly = true;
+    Memory.settings.pauseBot = suspend;
+    visualizeDT = false;
+    return;
+  }
+
+  if (normalized === 'live') {
+    Memory.settings.layoutPlanningMode = 'standard';
+    Memory.settings.buildPreviewOnly = false;
+    Memory.settings.pauseBot = false;
+    if (options.keepLayoutOverlay !== true) {
+      Memory.settings.showLayoutOverlay = false;
+    }
+    if (Memory.settings.alwaysShowHud) {
+      Memory.settings.enableVisuals = true;
+    }
+  }
 }
 
 global.visual = {
@@ -203,6 +251,110 @@ global.visual = {
         : 'Scout rescan flag cleared.',
       2,
     );
+  },
+  buildPreview: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.buildPreviewOnly = true;
+      Memory.settings.pauseBot = false;
+      Memory.settings.enableVisuals = true;
+      Memory.settings.alwaysShowHud = true;
+      Memory.settings.showLayoutOverlay = true;
+      statsConsole.log("Build preview mode: ON", 2);
+    } else if (toggle === 0) {
+      Memory.settings.buildPreviewOnly = false;
+      statsConsole.log("Build preview mode: OFF", 2);
+    } else {
+      statsConsole.log(
+        "Usage: visual.buildPreview(1) to enable, visual.buildPreview(0) to disable",
+        3,
+      );
+    }
+  },
+  layoutLegend: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.showLayoutLegend = true;
+      statsConsole.log("Layout legend: ON", 2);
+    } else if (toggle === 0) {
+      Memory.settings.showLayoutLegend = false;
+      statsConsole.log("Layout legend: OFF", 2);
+    } else {
+      statsConsole.log(
+        "Usage: visual.layoutLegend(1) to show, visual.layoutLegend(0) to hide",
+        3,
+      );
+    }
+  },
+  layoutMode: function (mode = 'standard') {
+    if (!Memory.settings) Memory.settings = {};
+    const normalized = String(mode || '').toLowerCase();
+    const allowed = ['standard', 'theoretical'];
+    if (!allowed.includes(normalized)) {
+      statsConsole.log(
+        "Usage: visual.layoutMode('standard'|'theoretical')",
+        3,
+      );
+      return;
+    }
+    Memory.settings.layoutPlanningMode = normalized;
+    if (normalized === 'theoretical') {
+      Memory.settings.showLayoutOverlay = true;
+      Memory.settings.enableBaseBuilderPlanning = true;
+    }
+    statsConsole.log(`Layout planning mode: ${normalized.toUpperCase()}`, 2);
+  },
+  layoutView: function (view = 'plan') {
+    if (!Memory.settings) Memory.settings = {};
+    const normalized = String(view || '').toLowerCase();
+    const allowed = ['plan', 'walldistance', 'controllerdistance', 'flood', 'spawnscore'];
+    if (!allowed.includes(normalized)) {
+      statsConsole.log(
+        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'spawnScore')",
+        3,
+      );
+      return;
+    }
+    Memory.settings.layoutOverlayView = normalized;
+    Memory.settings.showLayoutOverlay = true;
+    statsConsole.log(`Layout overlay view: ${normalized}`, 2);
+  },
+  theoreticalPlanning: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      applyRuntimeMode('theoretical', { suspend: true });
+      statsConsole.log('Theoretical planning mode: ON (bot suspended, layout-only)', 2);
+    } else if (toggle === 0) {
+      applyRuntimeMode('live');
+      statsConsole.log('Theoretical planning mode: OFF', 2);
+    } else {
+      statsConsole.log(
+        "Usage: visual.theoreticalPlanning(1) to enable, visual.theoreticalPlanning(0) to disable",
+        3,
+      );
+    }
+  },
+  runMode: function (mode = 'live') {
+    const normalized = String(mode || '').toLowerCase();
+    if (normalized === 'theoretical') {
+      applyRuntimeMode('theoretical', { suspend: true });
+      statsConsole.log('Run mode set to THEORETICAL (suspended + planning overlays).', 2);
+      return;
+    }
+    if (normalized === 'live') {
+      applyRuntimeMode('live');
+      statsConsole.log('Run mode set to LIVE.', 2);
+      return;
+    }
+    statsConsole.log("Usage: visual.runMode('theoretical'|'live')", 3);
+  },
+  enterTheoretical: function () {
+    applyRuntimeMode('theoretical', { suspend: true });
+    statsConsole.log('Run mode set to THEORETICAL (suspended + planning overlays).', 2);
+  },
+  enterLive: function () {
+    applyRuntimeMode('live');
+    statsConsole.log('Run mode set to LIVE.', 2);
   },
 };
 
@@ -501,7 +653,7 @@ module.exports.loop = function () {
 
   memoryManager.observeEnergyReserveEvents();
 
-  if (Memory.settings.pauseBot) {
+  if (Memory.settings.pauseBot && !(Memory.settings && Memory.settings.buildPreviewOnly)) {
     if (!Memory.stats) Memory.stats = {};
     if (
       Memory.settings.pauseNotice === undefined ||
@@ -524,6 +676,24 @@ module.exports.loop = function () {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
     roomManager.scanRoom(room);
+  }
+
+  if (Memory.settings && Memory.settings.buildPreviewOnly) {
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (!room || !room.controller || !room.controller.my) continue;
+      layoutPlanner.ensurePlan(roomName);
+      layoutPlanner.populateDynamicLayout(roomName);
+      buildingManager.manageBuildingQueue(room);
+      hudManager.createHUD(room);
+    }
+    const totalCPUUsage = Game.cpu.getUsed() - startCPU;
+    myStats = [
+      ["Preview Mode", totalCPUUsage],
+      ["Total", totalCPUUsage],
+    ];
+    statsConsole.run(myStats);
+    return;
   }
 
   for (const roomName in Game.rooms) {

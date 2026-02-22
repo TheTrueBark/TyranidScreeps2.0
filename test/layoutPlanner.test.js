@@ -6,6 +6,9 @@ global.STRUCTURE_SPAWN = 'spawn';
 global.STRUCTURE_TOWER = 'tower';
 global.STRUCTURE_STORAGE = 'storage';
 global.STRUCTURE_LINK = 'link';
+global.STRUCTURE_CONTAINER = 'container';
+global.STRUCTURE_ROAD = 'road';
+global.FIND_SOURCES = 2;
 const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
@@ -40,5 +43,25 @@ describe('layoutPlanner.plan', function() {
     expect(cell.plannedBy).to.equal('layoutPlanner');
     expect(cell.blockedUntil).to.equal(Game.time + 1500);
     expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(1);
+  });
+
+  it('builds a theoretical, spawn-independent plan when enabled', function() {
+    Memory.settings = { layoutPlanningMode: 'theoretical' };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+    layoutPlanner.plan('W1N1');
+    const layout = Memory.rooms['W1N1'].layout;
+    expect(layout.mode).to.equal('theoretical');
+    expect(layout.planVersion).to.equal(2);
+    expect(layout.theoretical).to.exist;
+    expect(layout.theoretical.spawnCandidate).to.include.keys('x', 'y', 'score');
+    expect(layout.theoretical.upgraderSlots).to.be.an('array').that.has.lengthOf(8);
+    expect(layout.theoretical.sourceContainers).to.be.an('array').that.has.lengthOf(2);
+    expect(layout.roadMatrix).to.be.an('object');
   });
 });

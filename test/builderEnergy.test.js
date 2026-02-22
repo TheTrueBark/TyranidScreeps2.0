@@ -41,6 +41,7 @@ describe('builder energy evaluation', function () {
     global.FIND_CONSTRUCTION_SITES = 4;
     global.FIND_TOMBSTONES = 5;
     global.FIND_RUINS = 6;
+    global.FIND_SOURCES = 7;
     global.LOOK_STRUCTURES = 'structure';
     global.STRUCTURE_CONTAINER = 'container';
     global.STRUCTURE_STORAGE = 'storage';
@@ -143,7 +144,11 @@ describe('builder energy evaluation', function () {
 
   it('only cluster leader requests hauled energy for the full builder cluster', function () {
     Game.time = 10;
-    const site = { id: 'site1', pos: { x: 15, y: 15, roomName: 'W1N1' } };
+    const site = {
+      id: 'site1',
+      structureType: STRUCTURE_CONTAINER,
+      pos: { x: 15, y: 15, roomName: 'W1N1' },
+    };
     const room = {
       name: 'W1N1',
       controller: {},
@@ -194,7 +199,11 @@ describe('builder energy evaluation', function () {
 
   it('prefers spawn-side 2x2 cluster slots and keeps leader in requester role', function () {
     Game.time = 20;
-    const site = { id: 'site2', pos: { x: 23, y: 37, roomName: 'W1N1' } };
+    const site = {
+      id: 'site2',
+      structureType: STRUCTURE_EXTENSION,
+      pos: { x: 23, y: 37, roomName: 'W1N1' },
+    };
     const spawn = {
       id: 'spawn1',
       pos: {
@@ -278,5 +287,299 @@ describe('builder energy evaluation', function () {
     const requestTask = (requesterTasks[requesterName].tasks || []).find(t => t.name === 'deliverEnergy');
     expect(requestTask.data.amount).to.be.at.least(150);
     expect(requestTask.data.amount % 50).to.equal(0);
+  });
+
+  it('uses one-tile-closer cluster range for source-adjacent container sites', function () {
+    Game.time = 30;
+    const source = { id: 'src1', pos: { x: 10, y: 10, roomName: 'W1N1' } };
+    const site = {
+      id: 'site3',
+      structureType: STRUCTURE_CONTAINER,
+      pos: {
+        x: 11,
+        y: 10,
+        roomName: 'W1N1',
+        findInRange: (type, range) =>
+          type === FIND_SOURCES && range === 1 ? [source] : [],
+      },
+    };
+    const spawn = {
+      id: 'spawn1',
+      pos: {
+        x: 18,
+        y: 10,
+        roomName: 'W1N1',
+        getRangeTo: target => Math.max(Math.abs(18 - target.x), Math.abs(10 - target.y)),
+      },
+    };
+    const room = {
+      name: 'W1N1',
+      controller: {},
+      find: type => {
+        if (type === FIND_MY_SPAWNS) return [spawn];
+        if (type === FIND_CONSTRUCTION_SITES) return [site];
+        if (type === FIND_SOURCES) return [source];
+        return [];
+      },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+    };
+    Game.rooms['W1N1'] = room;
+    Game.getObjectById = id => (id === site.id ? site : null);
+
+    const mkPos = (x, y) => ({
+      x, y, roomName: 'W1N1',
+      getRangeTo: target => Math.max(Math.abs(x - target.x), Math.abs(y - target.y)),
+      isEqualTo: target => x === target.x && y === target.y,
+      findInRange: () => [],
+      findClosestByRange: () => null,
+    });
+
+    const b1 = createCreep('bc1');
+    b1.room = room;
+    b1.pos = mkPos(12, 10);
+    b1.memory.constructionTask = { id: site.id, priority: 1 };
+    b1.memory.mainTask = { type: 'build', id: site.id };
+
+    const b2 = createCreep('bc2');
+    b2.room = room;
+    b2.pos = mkPos(12, 11);
+    b2.memory.constructionTask = { id: site.id, priority: 1 };
+    b2.memory.mainTask = { type: 'build', id: site.id };
+
+    Game.creeps = { bc1: b1, bc2: b2 };
+
+    roleBuilder.run(b1);
+    roleBuilder.run(b2);
+
+    for (const creep of [b1, b2]) {
+      const slot = creep.memory.builderClusterSlot;
+      expect(slot).to.exist;
+      const range = Math.max(Math.abs(slot.x - site.pos.x), Math.abs(slot.y - site.pos.y));
+      expect(range).to.be.at.most(2);
+    }
+  });
+
+  it('reserves builder cluster slots and clears reservation on death', function () {
+    Game.time = 40;
+    const site = {
+      id: 'site4',
+      structureType: STRUCTURE_EXTENSION,
+      pos: { x: 20, y: 20, roomName: 'W1N1' },
+    };
+    const spawn = {
+      id: 'spawn1',
+      pos: {
+        x: 28, y: 20, roomName: 'W1N1',
+        getRangeTo: target => Math.max(Math.abs(28 - target.x), Math.abs(20 - target.y)),
+      },
+    };
+    const room = {
+      name: 'W1N1',
+      controller: {},
+      find: type => {
+        if (type === FIND_MY_SPAWNS) return [spawn];
+        if (type === FIND_CONSTRUCTION_SITES) return [site];
+        if (type === FIND_SOURCES) return [];
+        return [];
+      },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+    };
+    Game.rooms['W1N1'] = room;
+    Game.getObjectById = id => (id === site.id ? site : null);
+
+    const mkPos = (x, y) => ({
+      x, y, roomName: 'W1N1',
+      getRangeTo: target => Math.max(Math.abs(x - target.x), Math.abs(y - target.y)),
+      isEqualTo: target => x === target.x && y === target.y,
+      findInRange: () => [],
+      findClosestByRange: () => null,
+    });
+
+    const b1 = createCreep('br1');
+    b1.room = room;
+    b1.pos = mkPos(21, 20);
+    b1.memory.constructionTask = { id: site.id, priority: 1 };
+    b1.memory.mainTask = { type: 'build', id: site.id };
+
+    const b2 = createCreep('br2');
+    b2.room = room;
+    b2.pos = mkPos(21, 21);
+    b2.memory.constructionTask = { id: site.id, priority: 1 };
+    b2.memory.mainTask = { type: 'build', id: site.id };
+
+    Game.creeps = { br1: b1, br2: b2 };
+
+    roleBuilder.run(b1);
+    roleBuilder.run(b2);
+
+    const reservations = Memory.rooms.W1N1.builderClusterReservations || {};
+    expect(Object.keys(reservations).length).to.equal(2);
+
+    roleBuilder.onDeath(b1);
+    const after = Memory.rooms.W1N1.builderClusterReservations || {};
+    expect(Object.keys(after).length).to.equal(1);
+  });
+
+  it('aggregates demand across active builder clusters', function () {
+    Game.time = 50;
+    const siteA = {
+      id: 'siteA',
+      structureType: STRUCTURE_EXTENSION,
+      pos: { x: 15, y: 15, roomName: 'W1N1' },
+    };
+    const siteB = {
+      id: 'siteB',
+      structureType: STRUCTURE_EXTENSION,
+      pos: { x: 25, y: 25, roomName: 'W1N1' },
+    };
+    const spawn = {
+      id: 'spawn1',
+      pos: {
+        x: 30, y: 20, roomName: 'W1N1',
+        getRangeTo: target => Math.max(Math.abs(30 - target.x), Math.abs(20 - target.y)),
+      },
+    };
+    const room = {
+      name: 'W1N1',
+      controller: {},
+      find: type => {
+        if (type === FIND_MY_SPAWNS) return [spawn];
+        if (type === FIND_CONSTRUCTION_SITES) return [siteA, siteB];
+        if (type === FIND_SOURCES) return [];
+        return [];
+      },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+    };
+    Game.rooms['W1N1'] = room;
+    Game.getObjectById = id => {
+      if (id === siteA.id) return siteA;
+      if (id === siteB.id) return siteB;
+      return null;
+    };
+
+    const mkPos = (x, y) => ({
+      x, y, roomName: 'W1N1',
+      getRangeTo: target => Math.max(Math.abs(x - target.x), Math.abs(y - target.y)),
+      isEqualTo: target => x === target.x && y === target.y,
+      findInRange: () => [],
+      findClosestByRange: () => null,
+    });
+
+    const mkBuilder = (name, site, x, y) => {
+      const creep = createCreep(name);
+      creep.room = room;
+      creep.pos = mkPos(x, y);
+      creep.memory.constructionTask = { id: site.id, priority: 1 };
+      creep.memory.mainTask = { type: 'build', id: site.id };
+      return creep;
+    };
+
+    const a1 = mkBuilder('a1', siteA, 16, 15);
+    const a2 = mkBuilder('a2', siteA, 16, 16);
+    const b1 = mkBuilder('b1', siteB, 26, 25);
+    const b2 = mkBuilder('b2', siteB, 26, 26);
+    Game.creeps = { a1, a2, b1, b2 };
+
+    roleBuilder.run(a1);
+    roleBuilder.run(a2);
+    roleBuilder.run(b1);
+    roleBuilder.run(b2);
+
+    const requesterTasks = Memory.htm.creeps || {};
+    const requesters = Object.entries(requesterTasks)
+      .filter(([, c]) => (c.tasks || []).some(t => t.name === 'deliverEnergy'))
+      .map(([name]) => name);
+    expect(requesters.length).to.equal(1);
+    const reqName = requesters[0];
+    const reqTask = (requesterTasks[reqName].tasks || []).find(t => t.name === 'deliverEnergy');
+    expect(reqTask.data.amount).to.equal(200);
+  });
+
+  it('reassigns remaining builders to compact slots when one quad member is gone', function () {
+    Game.time = 60;
+    const site = {
+      id: 'site5',
+      structureType: STRUCTURE_EXTENSION,
+      pos: { x: 23, y: 37, roomName: 'W1N1' },
+    };
+    const spawn = {
+      id: 'spawn1',
+      pos: {
+        x: 28, y: 37, roomName: 'W1N1',
+        getRangeTo: target => Math.max(Math.abs(28 - target.x), Math.abs(37 - target.y)),
+      },
+    };
+    const room = {
+      name: 'W1N1',
+      controller: {},
+      find: type => {
+        if (type === FIND_MY_SPAWNS) return [spawn];
+        if (type === FIND_CONSTRUCTION_SITES) return [site];
+        if (type === FIND_SOURCES) return [];
+        return [];
+      },
+      getTerrain: () => ({ get: () => 0 }),
+      lookForAt: () => [],
+    };
+    Game.rooms.W1N1 = room;
+    Game.getObjectById = id => (id === site.id ? site : null);
+
+    const mkPos = (x, y) => ({
+      x, y, roomName: 'W1N1',
+      getRangeTo: target => Math.max(Math.abs(x - target.x), Math.abs(y - target.y)),
+      isEqualTo: target => x === target.x && y === target.y,
+      findInRange: () => [],
+      findClosestByRange: () => null,
+    });
+
+    const mkBuilder = (name, x, y) => {
+      const c = createCreep(name);
+      c.room = room;
+      c.pos = mkPos(x, y);
+      c.memory.constructionTask = { id: site.id, priority: 1 };
+      c.memory.mainTask = { type: 'build', id: site.id };
+      c.memory.role = 'builder';
+      return c;
+    };
+
+    const b1 = mkBuilder('b1', 25, 37);
+    const b2 = mkBuilder('b2', 25, 38);
+    const b3 = mkBuilder('b3', 24, 37);
+    const b4 = mkBuilder('b4', 24, 38);
+    Game.creeps = { b1, b2, b3, b4 };
+
+    // First pass establishes initial 4-slot cluster memory.
+    roleBuilder.run(b1);
+    roleBuilder.run(b2);
+    roleBuilder.run(b3);
+    roleBuilder.run(b4);
+    const byName = { b1, b2, b3, b4 };
+    const distances = Object.entries(byName).map(([name, creep]) => {
+      const slot = creep.memory.builderClusterSlot;
+      return {
+        name,
+        slotKey: `${slot.x},${slot.y}`,
+        distance: Math.max(Math.abs(slot.x - spawn.pos.x), Math.abs(slot.y - spawn.pos.y)),
+      };
+    });
+    distances.sort((a, b) => b.distance - a.distance || a.name.localeCompare(b.name));
+    const moverName = distances[0].name;
+    const victimName = distances[1].name;
+    const beforeMoverSlot = distances[0].slotKey;
+
+    // Simulate one quad member gone; remaining builders should compact inward.
+    delete Game.creeps[victimName];
+    for (const [name, creep] of Object.entries(byName)) {
+      if (name === victimName) continue;
+      roleBuilder.run(creep);
+    }
+
+    const mover = byName[moverName];
+    expect(mover.memory.builderClusterSlot).to.exist;
+    const afterMoverSlot = `${mover.memory.builderClusterSlot.x},${mover.memory.builderClusterSlot.y}`;
+    expect(afterMoverSlot).to.not.equal(beforeMoverSlot);
   });
 });

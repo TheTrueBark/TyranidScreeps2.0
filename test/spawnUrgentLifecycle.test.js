@@ -208,4 +208,38 @@ describe('spawn urgent lifecycle service', function () {
     expect(spawnQueue.queue.length).to.equal(0);
     expect(Memory.spawnUrgentRequests.s1.length).to.equal(0);
   });
+
+  it('garbage-collects urgent requests for dead creeps', function () {
+    const spawn = {
+      id: 's1',
+      name: 'Spawn1',
+      room: {
+        name: 'W1N1',
+        energyAvailable: 300,
+        getTerrain: () => ({ get: () => 0 }),
+        lookForAt: () => [],
+      },
+      pos: pos(10, 10),
+      spawning: null,
+      memory: {},
+      renewCreep: () => OK,
+      spawnCreep: () => OK,
+    };
+
+    Game.creeps = {};
+    Memory.spawnUrgentRequests.s1 = [
+      {
+        id: 'renew:ghost:1',
+        action: 'renew',
+        role: 'hauler',
+        creepName: 'ghost',
+        priority: -20,
+        createdAt: Game.time,
+        expiresAt: Game.time + 20,
+      },
+    ];
+
+    spawnManager.cleanupUrgentRequests([spawn]);
+    expect(Memory.spawnUrgentRequests.s1).to.be.undefined;
+  });
 });

@@ -331,7 +331,18 @@ const buildingManager = {
   calculatePriority: function (site) {
     let weight =
       constructionWeights[site.structureType] || constructionWeights.default;
-    // Additional logic to adjust weight based on distance or other factors can be added here
+    if (
+      site &&
+      site.structureType === STRUCTURE_CONTAINER &&
+      site.room &&
+      typeof site.pos.findInRange === 'function'
+    ) {
+      const nearSources = site.pos.findInRange(FIND_SOURCES, 1);
+      if (Array.isArray(nearSources) && nearSources.length > 0) {
+        // Source-adjacent containers are miner-critical and should be built first.
+        weight += 100;
+      }
+    }
     return weight;
   },
 

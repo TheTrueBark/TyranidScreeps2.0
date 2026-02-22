@@ -22,7 +22,88 @@ const ERR_NOT_ENOUGH_ENERGY_CODE =
 const ERR_INVALID_TARGET_CODE =
   typeof ERR_INVALID_TARGET !== 'undefined' ? ERR_INVALID_TARGET : -7;
 const OK_CODE = typeof OK !== 'undefined' ? OK : 0;
-const CLUSTER_BUILD_RANGE = 3;
+const DEFAULT_CLUSTER_BUILD_RANGE = 3;
+const SOURCE_CONTAINER_CLUSTER_BUILD_RANGE = 2;
+const QUAD_CLUSTER_SIZE = 4;
+
+function isBuilderRoleMemory(memory) {
+  if (!memory) return false;
+  if (memory.role === 'builder' || memory.primaryRole === 'builder') return true;
+  // Migration/test-safe fallback: if role is unset but the creep is actively
+  // assigned to a build task, treat it as builder-capable for cluster logic.
+  if (!memory.role && memory.constructionTask && memory.constructionTask.id) {
+    return true;
+  }
+  return false;
+}
+
+function ensureBuilderClusterReservationMap(roomName) {
+  if (!Memory.rooms) Memory.rooms = {};
+  if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+  const roomMem = Memory.rooms[roomName];
+  if (!roomMem.builderClusterReservations || typeof roomMem.builderClusterReservations !== 'object') {
+    roomMem.builderClusterReservations = {};
+  }
+  return roomMem.builderClusterReservations;
+}
+
+function reservationKey(taskId, x, y) {
+  return `${taskId}:${x}:${y}`;
+}
+
+function reserveBuilderClusterSlot(creep, taskId, slot) {
+  if (!creep || !creep.room || !slot) return;
+  const reservations = ensureBuilderClusterReservationMap(creep.room.name);
+  const key = reservationKey(taskId, slot.x, slot.y);
+  reservations[key] = {
+    taskId,
+    x: slot.x,
+    y: slot.y,
+    roomName: slot.roomName || creep.room.name,
+    occupant: creep.name,
+    reservedAt: Game.time,
+  };
+}
+
+function releaseBuilderClusterReservationBySlot(roomName, taskId, slot) {
+  if (!roomName || !slot || !taskId) return;
+  const reservations = ensureBuilderClusterReservationMap(roomName);
+  const key = reservationKey(taskId, slot.x, slot.y);
+  delete reservations[key];
+}
+
+function cleanupBuilderClusterReservations(roomName) {
+  if (!Memory.rooms || !Memory.rooms[roomName]) return;
+  const reservations = ensureBuilderClusterReservationMap(roomName);
+  for (const key in reservations) {
+    const entry = reservations[key];
+    if (!entry || !entry.occupant || !entry.taskId) {
+      delete reservations[key];
+      continue;
+    }
+    const creep = Game.creeps && Game.creeps[entry.occupant];
+    if (!creep || !creep.memory || !creep.room || creep.room.name !== roomName) {
+      delete reservations[key];
+      continue;
+    }
+    const slot = creep.memory.builderClusterSlot;
+    if (
+      !slot ||
+      slot.taskId !== entry.taskId ||
+      slot.x !== entry.x ||
+      slot.y !== entry.y ||
+      (slot.roomName || roomName) !== (entry.roomName || roomName)
+    ) {
+      delete reservations[key];
+      continue;
+    }
+    const site = typeof Game.getObjectById === 'function' ? Game.getObjectById(entry.taskId) : null;
+    if (!site) {
+      delete reservations[key];
+      continue;
+    }
+  }
+}
 function getGlobalConstant(name, fallback) {
   if (typeof global !== 'undefined' && Object.prototype.hasOwnProperty.call(global, name)) {
     return global[name];
@@ -199,16 +280,52 @@ function resolveBuilderAnchor(room, site) {
   return site.pos;
 }
 
+function isSourceAdjacentContainerSite(site, room) {
+  if (!site || !site.pos) return false;
+  if (site.structureType !== STRUCTURE_TYPES.CONTAINER) return false;
+  if (typeof site.pos.findInRange === 'function') {
+    const nearby = site.pos.findInRange(FINDERS.SOURCES(), 1) || [];
+    if (nearby.length > 0) return true;
+  }
+  if (!room || typeof room.find !== 'function') return false;
+  const sources = room.find(FINDERS.SOURCES()) || [];
+  return sources.some((source) => {
+    if (!source || !source.pos) return false;
+    const dx = Math.abs(source.pos.x - site.pos.x);
+    const dy = Math.abs(source.pos.y - site.pos.y);
+    return Math.max(dx, dy) <= 1;
+  });
+}
+
+function getClusterBuildRange(site, room) {
+  if (isSourceAdjacentContainerSite(site, room)) {
+    // Keep builder quads one tile closer for source-container projects so
+    // local miner drops/withdrawals stay reachable.
+    return SOURCE_CONTAINER_CLUSTER_BUILD_RANGE;
+  }
+  return DEFAULT_CLUSTER_BUILD_RANGE;
+}
+
 function computeBuilderClusterSlots(site, room) {
   if (!site || !site.pos || !room) return [];
+  const buildRange = getClusterBuildRange(site, room);
   const spawnPos = resolveBuilderAnchor(room, site);
   let best = null;
   let bestScore = Infinity;
+  const reachableToSite = (slot) => {
+    if (typeof PathFinder === 'undefined' || typeof PathFinder.search !== 'function') return true;
+    const search = PathFinder.search(
+      new RoomPosition(slot.x, slot.y, room.name),
+      { pos: site.pos, range: buildRange },
+      { swampCost: 2, plainCost: 2, maxOps: 2000 },
+    );
+    return !!search && !search.incomplete;
+  };
 
-  const minX = Math.max(0, site.pos.x - CLUSTER_BUILD_RANGE);
-  const maxX = Math.min(48, site.pos.x + CLUSTER_BUILD_RANGE);
-  const minY = Math.max(0, site.pos.y - CLUSTER_BUILD_RANGE);
-  const maxY = Math.min(48, site.pos.y + CLUSTER_BUILD_RANGE);
+  const minX = Math.max(0, site.pos.x - buildRange);
+  const maxX = Math.min(48, site.pos.x + buildRange);
+  const minY = Math.max(0, site.pos.y - buildRange);
+  const maxY = Math.min(48, site.pos.y + buildRange);
 
   for (let x = minX; x <= maxX; x++) {
     for (let y = minY; y <= maxY; y++) {
@@ -224,7 +341,11 @@ function computeBuilderClusterSlots(site, room) {
           Math.abs(slot.x - site.pos.x),
           Math.abs(slot.y - site.pos.y),
         );
-        if (range > CLUSTER_BUILD_RANGE || !isWalkableTile(room, slot.x, slot.y)) {
+        if (range > buildRange || !isWalkableTile(room, slot.x, slot.y)) {
+          valid = false;
+          break;
+        }
+        if (!reachableToSite(slot)) {
           valid = false;
           break;
         }
@@ -698,7 +819,7 @@ function getClusterTask(creep) {
   if (
     !creep ||
     !creep.memory ||
-    creep.memory.primaryRole !== 'builder' ||
+    !isBuilderRoleMemory(creep.memory) ||
     !creep.memory.constructionTask ||
     !creep.memory.constructionTask.id
   ) {
@@ -738,37 +859,253 @@ function clearDeliveryRequestTask(creepName) {
   }
 }
 
+function clearBuilderClusterSlot(creep, taskId = null) {
+  if (!creep || !creep.memory || !creep.memory.builderClusterSlot) return;
+  if (taskId && creep.memory.builderClusterSlot.taskId !== taskId) return;
+  releaseBuilderClusterReservationBySlot(
+    creep.room && creep.room.name,
+    creep.memory.builderClusterSlot.taskId,
+    creep.memory.builderClusterSlot,
+  );
+  delete creep.memory.builderClusterSlot;
+}
+
+function shouldUseBuilderCluster(site, roomName, taskId) {
+  if (!site || !site.structureType || !roomName || !taskId) return false;
+  const roadType = typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
+  if (site.structureType === roadType) return false;
+  const members = getBuildersForTask(roomName, taskId);
+  if (members.length < 2) return false;
+  const room = Game.rooms && Game.rooms[roomName];
+  if (!room) return false;
+  const slots = computeBuilderClusterSlots(site, room);
+  const requiredSlots = members.length >= QUAD_CLUSTER_SIZE ? QUAD_CLUSTER_SIZE : 2;
+  return slots.length >= requiredSlots;
+}
+
+function isClusterCandidateStructure(site) {
+  if (!site || !site.structureType) return false;
+  const roadType = typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
+  return site.structureType !== roadType;
+}
+
+function getPreferredClusterSite(creep, queue) {
+  if (!creep || !creep.room || !Array.isArray(queue) || queue.length === 0) return null;
+  const candidates = [];
+  for (const entry of queue) {
+    if (!entry || !entry.id) continue;
+    const site = Game.getObjectById(entry.id);
+    if (!site || !isClusterCandidateStructure(site)) continue;
+    const slots = computeBuilderClusterSlots(site, creep.room);
+    if (slots.length < 2) continue;
+    const memberCount = getBuildersForTask(creep.room.name, entry.id).length;
+    const assignmentCount = constructionAssignmentsCount(entry.id);
+    const clusterCapacity = Math.min(MAX_BUILDERS_PER_SITE, QUAD_CLUSTER_SIZE, slots.length);
+    const missingMembers = Math.max(0, clusterCapacity - memberCount);
+    const freeAssignments = Math.max(0, MAX_BUILDERS_PER_SITE - assignmentCount);
+    const distance =
+      creep.pos && typeof creep.pos.getRangeTo === 'function'
+        ? creep.pos.getRangeTo(site.pos)
+        : Infinity;
+    candidates.push({
+      site,
+      priority: entry.priority || 0,
+      memberCount,
+      missingMembers,
+      freeAssignments,
+      distance,
+    });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    const aCanRefill = a.memberCount > 0 && a.missingMembers > 0 && a.freeAssignments > 0 ? 1 : 0;
+    const bCanRefill = b.memberCount > 0 && b.missingMembers > 0 && b.freeAssignments > 0 ? 1 : 0;
+    if (aCanRefill !== bCanRefill) return bCanRefill - aCanRefill;
+    const aCanAssign = a.freeAssignments > 0 ? 1 : 0;
+    const bCanAssign = b.freeAssignments > 0 ? 1 : 0;
+    if (aCanAssign !== bCanAssign) return bCanAssign - aCanAssign;
+    if (a.memberCount !== b.memberCount) return b.memberCount - a.memberCount;
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    if (a.distance !== b.distance) return a.distance - b.distance;
+    return String(a.site.id).localeCompare(String(b.site.id));
+  });
+  const best = candidates[0];
+  if (!best || !best.site) return null;
+  return { site: best.site, priority: best.priority };
+}
+
+function slotKey(slot) {
+  if (!slot) return null;
+  return `${slot.x}:${slot.y}:${slot.roomName || ''}`;
+}
+
+function chebyshevDistance(a, b) {
+  if (!a || !b) return Infinity;
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+function selectCompactClusterSlots(slots, desiredCount) {
+  if (!Array.isArray(slots) || desiredCount <= 0) return [];
+  return slots.slice(0, desiredCount);
+}
+
+function assignCreepsToSlots(builders, selectedSlots) {
+  if (!builders.length || !selectedSlots.length) return new Map();
+  const assignments = new Map();
+  const available = selectedSlots.map((slot) => Object.assign({}, slot));
+  const occupiedKeys = new Set();
+
+  // Preserve already-valid occupancy first to avoid unnecessary movement.
+  for (const builder of builders) {
+    const current = builder.memory && builder.memory.builderClusterSlot;
+    if (!current) continue;
+    const key = slotKey(current);
+    const idx = available.findIndex((slot) => slotKey(slot) === key);
+    if (idx === -1 || occupiedKeys.has(key)) continue;
+    assignments.set(builder.name, available[idx]);
+    occupiedKeys.add(key);
+    available.splice(idx, 1);
+  }
+
+  const unassignedBuilders = builders.filter((builder) => !assignments.has(builder.name));
+  while (unassignedBuilders.length && available.length) {
+    let bestBuilderIdx = -1;
+    let bestSlotIdx = -1;
+    let bestDistance = Infinity;
+    for (let i = 0; i < unassignedBuilders.length; i++) {
+      const builder = unassignedBuilders[i];
+      const pos = builder && builder.pos ? builder.pos : null;
+      for (let j = 0; j < available.length; j++) {
+        const slot = available[j];
+        const distance = chebyshevDistance(pos, slot);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestBuilderIdx = i;
+          bestSlotIdx = j;
+          continue;
+        }
+        if (distance !== bestDistance) continue;
+        const a = unassignedBuilders[bestBuilderIdx];
+        const b = builder;
+        const aName = a ? String(a.name) : '';
+        const bName = b ? String(b.name) : '';
+        if (bName < aName) {
+          bestBuilderIdx = i;
+          bestSlotIdx = j;
+          continue;
+        }
+        if (bName === aName) {
+          const chosen = available[bestSlotIdx];
+          const chosenKey = slotKey(chosen);
+          const candKey = slotKey(slot);
+          if (candKey < chosenKey) {
+            bestBuilderIdx = i;
+            bestSlotIdx = j;
+          }
+        }
+      }
+    }
+    if (bestBuilderIdx === -1 || bestSlotIdx === -1) break;
+    const builder = unassignedBuilders.splice(bestBuilderIdx, 1)[0];
+    const slot = available.splice(bestSlotIdx, 1)[0];
+    assignments.set(builder.name, slot);
+  }
+  return assignments;
+}
+
+function collectLocalClusterEnergy(creep) {
+  if (!creep || !creep.room || !creep.store) return false;
+  const free = typeof creep.store.getFreeCapacity === 'function'
+    ? creep.store.getFreeCapacity(ENERGY)
+    : 0;
+  if (free <= 0) return false;
+  if (typeof creep.pos.findInRange !== 'function') return false;
+
+  const drops = creep.pos.findInRange(FINDERS.DROPPED(), 1, {
+    filter: res => res && res.resourceType === ENERGY && res.amount > 0,
+  }) || [];
+  if (drops.length) {
+    drops.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+    const result = creep.pickup(drops[0]);
+    if (result === ERR_NOT_IN_RANGE_CODE) {
+      creep.travelTo(drops[0], { range: 1, visualizePathStyle: { stroke: '#ffaa00' } });
+      return true;
+    }
+    if (result === OK_CODE) return true;
+  }
+
+  const structures = creep.pos.findInRange(FINDERS.STRUCTURES(), 1, {
+    filter: structure =>
+      structure &&
+      (structure.structureType === STRUCTURE_TYPES.CONTAINER ||
+        structure.structureType === STRUCTURE_TYPES.STORAGE ||
+        structure.structureType === STRUCTURE_TYPES.LINK) &&
+      getStructureEnergy(structure) > 0,
+  }) || [];
+  if (structures.length) {
+    structures.sort((a, b) => (getStructureEnergy(b) - getStructureEnergy(a)));
+    const result = creep.withdraw(structures[0], ENERGY);
+    if (result === ERR_NOT_IN_RANGE_CODE) {
+      creep.travelTo(structures[0], { range: 1, visualizePathStyle: { stroke: '#ffaa00' } });
+      return true;
+    }
+    if (result === OK_CODE) return true;
+  }
+  return false;
+}
+
 function gatherEnergy(creep) {
   const taskId = getClusterTask(creep);
   if (taskId) {
     const site = typeof Game.getObjectById === 'function' ? Game.getObjectById(taskId) : null;
-    if (site) assignBuilderClusterSlots(creep.room.name, taskId, site, creep.room);
-    const leader = getBuilderClusterLeader(creep.room.name, taskId);
-    if (leader && leader.name !== creep.name) {
-      clearDeliveryRequestTask(creep.name);
+    const clusterActive = shouldUseBuilderCluster(site, creep.room.name, taskId);
+    if (clusterActive) {
+      assignBuilderClusterSlots(creep.room.name, taskId, site, creep.room);
+      const leader = getBuilderClusterLeader(creep.room.name, taskId);
+      if (leader && leader.name !== creep.name) {
+        collectLocalClusterEnergy(creep);
+        clearDeliveryRequestTask(creep.name);
+        maintainBuilderClusterPosition(creep);
+        shareBuilderEnergy(creep, site);
+        // Non-leader builders wait for local handoff to keep a tight build cluster.
+        return false;
+      }
+      const members = getBuildersForTask(creep.room.name, taskId);
+      for (const member of members) {
+        if (!member || member.name === creep.name) continue;
+        clearDeliveryRequestTask(member.name);
+      }
+      const roomClusterDemand = getRoomBuilderClusterDemand(creep.room.name);
+      const isDemandCoordinator =
+        roomClusterDemand.coordinator !== null &&
+        roomClusterDemand.coordinator === creep.name;
+      // Leader should request hauled energy for the whole cluster instead of self-pickup.
+      if (creep.memory.energyTask) {
+        const task = creep.memory.energyTask;
+        if (task.type !== 'harvest') {
+          releaseEnergy(task.id, task.reserved || 0);
+        }
+        delete creep.memory.energyTask;
+      }
+      if (isDemandCoordinator) {
+        const aggregateDemand = Math.max(
+          getClusterDemandAmount(creep, taskId),
+          roomClusterDemand.totalDemand,
+        );
+        requestEnergy(creep, {
+          amount: aggregateDemand,
+          forceImmediate: true,
+        });
+      } else {
+        clearDeliveryRequestTask(creep.name);
+      }
+      collectLocalClusterEnergy(creep);
+      shareBuilderEnergy(creep, site);
       maintainBuilderClusterPosition(creep);
-      // Non-leader builders wait for local handoff to keep a tight build cluster.
       return false;
     }
-    const members = getBuildersForTask(creep.room.name, taskId);
-    for (const member of members) {
-      if (!member || member.name === creep.name) continue;
-      clearDeliveryRequestTask(member.name);
-    }
-    // Leader should request hauled energy for the whole cluster instead of self-pickup.
-    if (creep.memory.energyTask) {
-      const task = creep.memory.energyTask;
-      if (task.type !== 'harvest') {
-        releaseEnergy(task.id, task.reserved || 0);
-      }
-      delete creep.memory.energyTask;
-    }
-    requestEnergy(creep, {
-      amount: getClusterDemandAmount(creep, taskId),
-      forceImmediate: true,
-    });
-    maintainBuilderClusterPosition(creep);
-    return false;
+    clearBuilderClusterSlot(creep, taskId);
+    clearDeliveryRequestTask(creep.name);
   }
 
   if (executeEnergyTask(creep)) return true;
@@ -824,6 +1161,10 @@ function fetchRepairTarget(creep) {
 
 function maintainConstructionTask(creep) {
   cleanupConstructionReservations(creep.room);
+  cleanupBuilderClusterReservations(creep.room.name);
+  const queue =
+    (creep.room.memory && creep.room.memory.buildingQueue) || [];
+  const preferredCluster = getPreferredClusterSite(creep, queue);
   const taskMem = creep.memory.constructionTask;
   if (taskMem && taskMem.id) {
     const site = Game.getObjectById(taskMem.id);
@@ -836,15 +1177,30 @@ function maintainConstructionTask(creep) {
       return site;
     }
     releaseConstruction(taskMem.id, creep.name);
+    clearBuilderClusterSlot(creep, taskMem.id);
     delete creep.memory.constructionTask;
     delete creep.memory.mainTask;
   }
 
-  const queue =
-    (creep.room.memory && creep.room.memory.buildingQueue) || [];
+  if (preferredCluster && preferredCluster.site) {
+    const site = preferredCluster.site;
+    if (assignConstruction(site.id, creep.name, {
+      priority: preferredCluster.priority,
+      roomName: creep.room.name,
+    })) {
+      creep.memory.constructionTask = { id: site.id, priority: preferredCluster.priority };
+      creep.memory.mainTask = { type: 'build', id: site.id };
+      return site;
+    }
+  }
 
   for (const entry of queue) {
     if (!entry || !entry.id) continue;
+    if (preferredCluster && preferredCluster.site && entry.id !== preferredCluster.site.id) {
+      // Keep focus on a single cluster-capable build target first.
+      const queuedSite = Game.getObjectById(entry.id);
+      if (queuedSite && isClusterCandidateStructure(queuedSite)) continue;
+    }
     const site = Game.getObjectById(entry.id);
     if (!site) continue;
     if (assignConstruction(entry.id, creep.name, {
@@ -879,6 +1235,7 @@ function buildStructure(creep) {
   if (result === OK) {
     if (target.progress >= target.progressTotal) {
       releaseConstruction(target.id, creep.name);
+      clearBuilderClusterSlot(creep, target.id);
       delete creep.memory.constructionTask;
       delete creep.memory.mainTask;
     }
@@ -888,6 +1245,7 @@ function buildStructure(creep) {
     return true;
   }
   releaseConstruction(target.id, creep.name);
+  clearBuilderClusterSlot(creep, target.id);
   delete creep.memory.constructionTask;
   delete creep.memory.mainTask;
   return false;
@@ -900,10 +1258,57 @@ function getBuildersForTask(roomName, taskId) {
       creep.memory &&
       creep.room &&
       creep.room.name === roomName &&
-      creep.memory.primaryRole === 'builder' &&
+      isBuilderRoleMemory(creep.memory) &&
       creep.memory.constructionTask &&
       creep.memory.constructionTask.id === taskId,
   );
+}
+
+function getRoomBuilderClusterDemand(roomName) {
+  const room = Game.rooms && Game.rooms[roomName];
+  if (!room) return { totalDemand: 0, coordinator: null };
+  const builders = Object.values(Game.creeps || {}).filter(
+    (creep) =>
+      creep &&
+      creep.room &&
+      creep.room.name === roomName &&
+      creep.memory &&
+      isBuilderRoleMemory(creep.memory) &&
+      creep.memory.constructionTask &&
+      creep.memory.constructionTask.id,
+  );
+  if (!builders.length) return { totalDemand: 0, coordinator: null };
+
+  const taskIds = [...new Set(builders.map((creep) => creep.memory.constructionTask.id))];
+  let totalDemand = 0;
+  const leaders = [];
+  for (const taskId of taskIds) {
+    const site = typeof Game.getObjectById === 'function' ? Game.getObjectById(taskId) : null;
+    if (!site) continue;
+    if (!shouldUseBuilderCluster(site, roomName, taskId)) continue;
+    const members = getBuildersForTask(roomName, taskId);
+    if (!members.length) continue;
+    for (const member of members) {
+      if (!member || !member.store) continue;
+      if (typeof member.store.getFreeCapacity === 'function') {
+        totalDemand += Math.max(0, member.store.getFreeCapacity(ENERGY) || 0);
+      } else {
+        const cap =
+          typeof member.storeCapacity === 'number'
+            ? member.storeCapacity
+            : member.carryCapacity || 0;
+        totalDemand += Math.max(0, cap - (member.store[ENERGY] || 0));
+      }
+    }
+    const leader = getBuilderClusterLeader(roomName, taskId);
+    if (leader) leaders.push(leader.name);
+  }
+
+  leaders.sort((a, b) => String(a).localeCompare(String(b)));
+  return {
+    totalDemand,
+    coordinator: leaders.length ? leaders[0] : null,
+  };
 }
 
 function getBuilderClusterLeader(roomName, taskId) {
@@ -946,16 +1351,38 @@ function assignBuilderClusterSlots(roomName, taskId, site, room) {
   });
   if (!builders.length) return [];
   const slots = computeBuilderClusterSlots(site, room);
-  if (!slots.length) return [];
-  for (let i = 0; i < builders.length; i++) {
-    const slot = slots[i % slots.length];
-    builders[i].memory.builderClusterSlot = {
+  const requiredSlots = builders.length >= QUAD_CLUSTER_SIZE ? QUAD_CLUSTER_SIZE : 2;
+  if (slots.length < requiredSlots) return [];
+  const desiredCount = Math.min(builders.length, QUAD_CLUSTER_SIZE, slots.length);
+  const selectedSlots = selectCompactClusterSlots(slots, desiredCount);
+  const assignments = assignCreepsToSlots(builders, selectedSlots);
+
+  for (const builder of builders) {
+    const slot = assignments.get(builder.name);
+    if (!slot) {
+      clearBuilderClusterSlot(builder, taskId);
+      continue;
+    }
+    const current = builder.memory && builder.memory.builderClusterSlot;
+    const unchanged =
+      current &&
+      current.taskId === taskId &&
+      current.x === slot.x &&
+      current.y === slot.y &&
+      (current.roomName || roomName) === (slot.roomName || roomName);
+    if (unchanged) {
+      reserveBuilderClusterSlot(builder, taskId, current);
+      continue;
+    }
+    clearBuilderClusterSlot(builder, taskId);
+    builder.memory.builderClusterSlot = {
       x: slot.x,
       y: slot.y,
       roomName: slot.roomName,
       taskId,
-      rank: i % slots.length,
+      rank: 0,
     };
+    reserveBuilderClusterSlot(builder, taskId, builder.memory.builderClusterSlot);
   }
   return builders;
 }
@@ -990,7 +1417,7 @@ function shareBuilderEnergy(creep, buildTarget) {
       worker.pos &&
       worker.store &&
       typeof buildTarget.pos.getRangeTo === 'function' &&
-      buildTarget.pos.getRangeTo(worker) <= CLUSTER_BUILD_RANGE,
+      buildTarget.pos.getRangeTo(worker) <= getClusterBuildRange(buildTarget, creep.room),
   );
   if (builders.length < 2) return false;
 
@@ -1042,12 +1469,11 @@ function moveToIdle(creep) {
 
 function run(creep) {
   const start = Game.cpu.getUsed();
-  if (!creep.memory.primaryRole) {
-    creep.memory.primaryRole = creep.memory.role === 'upgrader' ? 'upgrader' : 'builder';
-  }
-  const primary = creep.memory.primaryRole || 'builder';
+  const role = creep && creep.memory ? creep.memory.role : null;
+  const primary = role === 'upgrader' ? 'upgrader' : 'builder';
   if (lifecycleControl.handle(creep, primary)) return;
   movementUtils.avoidSpawnArea(creep);
+  cleanupBuilderClusterReservations(creep.room.name);
 
   if (creep.store[ENERGY] === 0) creep.memory.working = false;
   if (creep.store.getFreeCapacity && typeof creep.store.getFreeCapacity === 'function') {
@@ -1069,23 +1495,27 @@ function run(creep) {
   if (!creep.memory.working) {
     if (primary === 'builder') {
       maintainConstructionTask(creep);
-      let clusterLeader = null;
       const taskId = getClusterTask(creep);
       if (taskId) {
         const site = typeof Game.getObjectById === 'function' ? Game.getObjectById(taskId) : null;
-        if (site) assignBuilderClusterSlots(creep.room.name, taskId, site, creep.room);
-        clusterLeader = getBuilderClusterLeader(creep.room.name, taskId);
-      }
-      const movedToCluster = maintainBuilderClusterPosition(creep);
-      if (movedToCluster && (!clusterLeader || clusterLeader.name !== creep.name)) {
-        statsConsole.run([[`role.worker.${creep.memory.primaryRole}`, Game.cpu.getUsed() - start]]);
-        return;
+        const clusterActive = shouldUseBuilderCluster(site, creep.room.name, taskId);
+        if (clusterActive) {
+          assignBuilderClusterSlots(creep.room.name, taskId, site, creep.room);
+          const clusterLeader = getBuilderClusterLeader(creep.room.name, taskId);
+          const movedToCluster = maintainBuilderClusterPosition(creep);
+          if (movedToCluster && (!clusterLeader || clusterLeader.name !== creep.name)) {
+            statsConsole.run([[`role.worker.${primary}`, Game.cpu.getUsed() - start]]);
+            return;
+          }
+        } else {
+          clearBuilderClusterSlot(creep, taskId);
+        }
       }
     } else if (creep.memory.constructionTask) {
       maintainConstructionTask(creep);
     }
     gatherEnergy(creep);
-    statsConsole.run([[`role.worker.${creep.memory.primaryRole}`, Game.cpu.getUsed() - start]]);
+    statsConsole.run([[`role.worker.${primary}`, Game.cpu.getUsed() - start]]);
     return;
   }
 
@@ -1105,18 +1535,22 @@ function run(creep) {
     } else if (repairResult === ERR_NOT_ENOUGH_ENERGY_CODE) {
       creep.memory.working = false;
     }
-    statsConsole.run([[`role.worker.${creep.memory.primaryRole}`, Game.cpu.getUsed() - start]]);
+    statsConsole.run([[`role.worker.${primary}`, Game.cpu.getUsed() - start]]);
     return;
   }
 
   let worked = false;
   if (primary === 'builder') {
-    if (maintainBuilderClusterPosition(creep)) {
-      worked = true;
-    }
     const target = maintainConstructionTask(creep);
+    const taskId = getClusterTask(creep);
+    const clusterActive = shouldUseBuilderCluster(target, creep.room.name, taskId);
+    if (clusterActive && maintainBuilderClusterPosition(creep)) {
+      worked = true;
+    } else if (!clusterActive) {
+      clearBuilderClusterSlot(creep, taskId);
+    }
     if (target) {
-      shareBuilderEnergy(creep, target);
+      if (clusterActive) shareBuilderEnergy(creep, target);
       if (!worked) {
         worked = buildStructure(creep);
       }
@@ -1142,6 +1576,7 @@ function run(creep) {
 
 function onDeath(creep) {
   if (!creep || !creep.memory) return;
+  clearBuilderClusterSlot(creep);
   if (creep.memory.constructionTask && creep.memory.constructionTask.id) {
     releaseConstruction(creep.memory.constructionTask.id, creep.name);
   }

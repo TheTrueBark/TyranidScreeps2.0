@@ -67,4 +67,47 @@ describe('movement restricted transit rules', function() {
     movementUtils.avoidSpawnArea(creep);
     expect(moved).to.equal(false);
   });
+
+  it('uses creep-aware routing for haulers near spawn apron', function() {
+    const spawn = { pos: { x: 10, y: 10 } };
+    Game.rooms.W1N1 = {
+      name: 'W1N1',
+      find(type) {
+        if (type === FIND_MY_SPAWNS) return [spawn];
+        return [];
+      },
+    };
+    const creep = {
+      memory: { role: 'hauler' },
+      room: Game.rooms.W1N1,
+      pos: {
+        x: 12,
+        y: 10,
+        roomName: 'W1N1',
+        getRangeTo(target) {
+          return Math.max(Math.abs(this.x - target.x), Math.abs(this.y - target.y));
+        },
+      },
+    };
+    const destination = new RoomPosition(20, 20, 'W1N1');
+    const options = movementUtils.applyTravelDefaults(creep, destination, {});
+    expect(options.ignoreCreeps).to.equal(false);
+  });
+
+  it('blocks builder-cluster reserved tiles for non-owner creeps', function() {
+    Memory.rooms.W1N1.builderClusterReservations = {
+      'task1:12:12': {
+        taskId: 'task1',
+        x: 12,
+        y: 12,
+        roomName: 'W1N1',
+        occupant: 'builder1',
+      },
+    };
+    const creep = { memory: { role: 'hauler' } };
+    const destination = new RoomPosition(20, 20, 'W1N1');
+    const options = movementUtils.applyTravelDefaults(creep, destination, {});
+    const matrix = options.roomCallback('W1N1');
+    expect(matrix.get(12, 12)).to.equal(0xff);
+  });
 });

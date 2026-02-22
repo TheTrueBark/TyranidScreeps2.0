@@ -16,6 +16,11 @@ Memory.settings.enableBaseBuilderPlanning = true;
 Memory.settings.showSpawnQueueHud = true;
 Memory.settings.enableTowerRepairs = true;
 Memory.settings.pauseBot = false;
+Memory.settings.buildPreviewOnly = false;
+Memory.settings.showLayoutLegend = true;
+Memory.settings.showLayoutOverlayLabels = false;
+Memory.settings.layoutPlanningMode = 'standard';
+Memory.settings.layoutOverlayView = 'plan';
 Memory.settings.allowSavestateRestore = false;
 Memory.settings.maxSavestates = 25;
 Memory.settings.maxIncidents = 25;
@@ -81,6 +86,31 @@ Memory.settings.enableTowerRepairs = true
 ### `pauseBot` (default `false`)
 ```javascript
 Memory.settings.pauseBot = true
+```
+
+### `buildPreviewOnly` (default `false`)
+```javascript
+Memory.settings.buildPreviewOnly = true
+```
+
+### `showLayoutLegend` (default `true`)
+```javascript
+Memory.settings.showLayoutLegend = true
+```
+
+### `showLayoutOverlayLabels` (default `false`)
+```javascript
+Memory.settings.showLayoutOverlayLabels = true
+```
+
+### `layoutPlanningMode` (default `'standard'`)
+```javascript
+Memory.settings.layoutPlanningMode = 'theoretical' // or 'standard'
+```
+
+### `layoutOverlayView` (default `'plan'`)
+```javascript
+Memory.settings.layoutOverlayView = 'plan' // plan|wallDistance|controllerDistance|flood|spawnScore
 ```
 
 ### `allowSavestateRestore` (default `false`)
@@ -181,6 +211,23 @@ visual.spawnQueue(1)   // spawn queue HUD on
 visual.spawnQueue(0)   // spawn queue HUD off
 visual.baseBuilder(1)  // layout/base planning + overlay on
 visual.baseBuilder(0)  // layout/base planning + overlay off
+visual.buildPreview(1) // planner/overlay-only mode on
+visual.buildPreview(0) // planner/overlay-only mode off
+visual.layoutLegend(1) // planner legend on
+visual.layoutLegend(0) // planner legend off
+visual.layoutMode('theoretical') // switch planner to theoretical mode
+visual.layoutMode('standard')    // switch planner to standard mode
+visual.layoutView('plan')        // plan view
+visual.layoutView('wallDistance')
+visual.layoutView('controllerDistance')
+visual.layoutView('flood')
+visual.layoutView('spawnScore')
+visual.theoreticalPlanning(1)    // enable suspended theoretical planning mode
+visual.theoreticalPlanning(0)    // return to live mode preset
+visual.runMode('theoretical')    // same as above, explicit run mode
+visual.runMode('live')
+visual.enterTheoretical()        // shortcut
+visual.enterLive()               // shortcut
 visual.DT(1)           // distance transform overlay on
 visual.DT(0)           // distance transform overlay off
 visual.rescanRooms()   // force scout rescan
@@ -191,4 +238,29 @@ debug.setSpawnLimit('W1N1', 'hauler', 3)
 debug.setSpawnLimit('W1N1', 'hauler', 'auto')
 startFresh()
 startFresh(true)
+startFresh({ theoreticalBuildingMode: true })
 ```
+
+## `startFresh` Detailed Behavior
+
+`startFresh()` clears major runtime memory branches (`rooms`, `hive`, `htm`, `demand`,
+`spawnQueue`, `creeps`, `stats`, `spawns`, `roleEval`, `nextSpawnId`, `settings`) so the bot
+can rebuild state from scratch.
+
+`startFresh(true)` does the same wipe and then sets `Memory.settings.pauseBot = true`.
+
+`startFresh({ theoreticalBuildingMode: true })` wipes runtime memory and enters
+theoretical planning mode (`buildPreviewOnly`, layout overlay, legend, labels,
+theoretical planner mode + default plan view).
+
+To keep visual debugging usable after a wipe, these settings are preserved and restored:
+
+- `enableVisuals`
+- `alwaysShowHud`
+- `showSpawnQueueHud`
+- `showLayoutOverlay`
+- `showLayoutLegend`
+- `showLayoutOverlayLabels`
+- `buildPreviewOnly`
+- `layoutPlanningMode`
+- `layoutOverlayView`

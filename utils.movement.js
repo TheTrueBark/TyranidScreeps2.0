@@ -108,6 +108,33 @@ const createAvoidanceCallback = (creep, destination, flags = {}) => {
       }
     }
 
+    // Reserve builder cluster slots for their assigned builders so traffic
+    // does not displace quad formations.
+    if (roomMemory.builderClusterReservations) {
+      const ownSlot =
+        creep &&
+        creep.memory &&
+        creep.memory.builderClusterSlot &&
+        (creep.memory.builderClusterSlot.roomName || roomName) === roomName
+          ? creep.memory.builderClusterSlot
+          : null;
+      for (const key in roomMemory.builderClusterReservations) {
+        const slot = roomMemory.builderClusterReservations[key];
+        if (!slot) continue;
+        const slotRoom = slot.roomName || roomName;
+        if (slotRoom !== roomName) continue;
+        if (
+          ownSlot &&
+          ownSlot.x === slot.x &&
+          ownSlot.y === slot.y &&
+          ownSlot.taskId === slot.taskId
+        ) {
+          continue;
+        }
+        result.set(slot.x, slot.y, OBSTACLE_COST);
+      }
+    }
+
     return result;
   };
 };
@@ -139,6 +166,14 @@ const shouldAllowRestricted = (creep, destination, explicit) => {
 const shouldAllowMiningTiles = (creep, explicit) => {
   if (explicit !== undefined) return explicit;
   return creep.memory && creep.memory.role === 'miner';
+};
+
+const shouldUseLocalCreepAwarePathing = (creep) => {
+  if (!creep || !creep.memory || creep.memory.role !== 'hauler') return false;
+  if (!creep.room || typeof creep.room.find !== 'function') return false;
+  const spawns = creep.room.find(FIND_MY_SPAWNS) || [];
+  if (!spawns.length || !creep.pos || typeof creep.pos.getRangeTo !== 'function') return false;
+  return spawns.some((spawn) => spawn && spawn.pos && creep.pos.getRangeTo(spawn.pos) <= 4);
 };
 
 const buildIdleSlots = (room) => {
@@ -391,8 +426,10 @@ const movementUtils = {
       cloned.allowMining,
     );
 
-    if (!cloned.ignoreCreeps && cloned.ignoreCreeps === undefined) {
-      cloned.ignoreCreeps = true;
+    if (cloned.ignoreCreeps === undefined) {
+      // Haulers in the spawn apron should consider creep collisions to reduce
+      // local gridlock; elsewhere keep cheaper long-range routing defaults.
+      cloned.ignoreCreeps = shouldUseLocalCreepAwarePathing(creep) ? false : true;
     }
 
     if (!cloned.bypassAvoidance) {

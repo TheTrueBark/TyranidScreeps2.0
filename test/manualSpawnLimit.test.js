@@ -41,8 +41,9 @@ describe('manual spawn limits', function() {
   it('respects manual builder limit', function() {
     roles.evaluateRoom(Game.rooms['W1N1']);
     const limits = Memory.rooms['W1N1'].spawnLimits;
-    expect(limits.workers).to.equal(0);
+    expect(limits.workers).to.equal(1);
     expect(limits.builders).to.equal(0);
+    expect(limits.upgraders).to.equal(1);
   });
 
   it('uses dynamic limit when set to auto', function() {

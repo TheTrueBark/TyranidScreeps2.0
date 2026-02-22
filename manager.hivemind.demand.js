@@ -25,7 +25,42 @@ function countRoomCreeps(roomName) {
   return { miners, haulers, others };
 }
 
+function countValidMiningPositions(positions) {
+  if (!positions || typeof positions !== 'object') return 0;
+  let count = 0;
+  for (const key in positions) {
+    const pos = positions[key];
+    if (pos && typeof pos === 'object') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function getFeasibleMiningPositionCap(roomName) {
+  const roomMem = Memory.rooms && Memory.rooms[roomName];
+  if (!roomMem) return null;
+  if (
+    typeof roomMem.feasibleMiningPositions === 'number' &&
+    Number.isFinite(roomMem.feasibleMiningPositions)
+  ) {
+    return Math.max(0, Math.floor(roomMem.feasibleMiningPositions));
+  }
+  const miningPositions = roomMem.miningPositions || {};
+  if (!roomMem.miningPositions || typeof roomMem.miningPositions !== 'object') {
+    return null;
+  }
+  let total = 0;
+  for (const sourceId in miningPositions) {
+    const sourceMem = miningPositions[sourceId];
+    total += countValidMiningPositions(sourceMem && sourceMem.positions);
+  }
+  return total;
+}
+
 function computeHaulerCap(roomName) {
+  const feasibleCap = getFeasibleMiningPositionCap(roomName);
+  if (feasibleCap !== null && feasibleCap > 0) return feasibleCap;
   const { miners } = countRoomCreeps(roomName);
   return Math.max(miners, 0);
 }
@@ -431,6 +466,7 @@ const demandModule = {
       const demandBasedTarget = Math.ceil(
         demandRate / Math.max(perHauler, ENERGY_PER_TICK_THRESHOLD),
       );
+      const feasibleCap = getFeasibleMiningPositionCap(roomName);
       const dynamicCap = computeHaulerCap(roomName);
 
       let target = dynamicCap;
@@ -451,12 +487,19 @@ const demandModule = {
         roomsNeedingHaulers.has(roomName) ? 1 : 0,
       );
       const isAuto = manual === undefined || manual === 'auto';
+      const strictAutoCap =
+        isAuto && typeof feasibleCap === 'number' && Number.isFinite(feasibleCap)
+          ? Math.max(0, Math.floor(feasibleCap))
+          : null;
       let desiredTotal = target;
       if (isAuto) {
         desiredTotal = Math.max(
           target,
           Math.min(demandTarget, target + 1),
         );
+        if (strictAutoCap !== null) {
+          desiredTotal = Math.min(desiredTotal, strictAutoCap);
+        }
       }
 
       let toQueue = 0;
@@ -467,6 +510,9 @@ const demandModule = {
       if (isAuto && toQueue > 0) {
         target = desiredTotal;
         cap = Math.max(cap, Math.max(desiredTotal, currentAmount + toQueue));
+        if (strictAutoCap !== null) {
+          cap = Math.min(cap, strictAutoCap);
+        }
       } else {
         target = Math.max(target, desiredTotal);
       }

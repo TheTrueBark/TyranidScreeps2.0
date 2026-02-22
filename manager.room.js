@@ -1,4 +1,20 @@
 const roomManager = {
+  countValidMiningPositions(positions) {
+    if (!positions || typeof positions !== 'object') return 0;
+    let count = 0;
+    for (const key in positions) {
+      const pos = positions[key];
+      if (
+        pos &&
+        typeof pos.x === 'number' &&
+        typeof pos.y === 'number'
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  },
+
   /**
    * Scans the room to gather information about sources and other room-specific data.
    * @param {Room} room - The room object to scan.
@@ -15,8 +31,15 @@ const roomManager = {
     if (!Memory.rooms[room.name].miningPositions) {
       Memory.rooms[room.name].miningPositions = {};
     }
+    let roomFeasibleMiningPositions = 0;
 
     sources.forEach((source) => {
+      const lookStructures =
+        typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
+      const structureContainer =
+        typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container';
+      const structureRoad =
+        typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
       const spawn = room.find(FIND_MY_SPAWNS)[0];
       const sourcePos = source.pos;
       const potential = [
@@ -28,10 +51,24 @@ const roomManager = {
         { x: sourcePos.x + 1, y: sourcePos.y - 1 },
         { x: sourcePos.x - 1, y: sourcePos.y + 1 },
         { x: sourcePos.x - 1, y: sourcePos.y - 1 },
-      ].filter(p => room.getTerrain().get(p.x, p.y) !== TERRAIN_MASK_WALL);
+      ].filter((p) => {
+        if (p.x < 0 || p.x > 49 || p.y < 0 || p.y > 49) return false;
+        if (room.getTerrain().get(p.x, p.y) === TERRAIN_MASK_WALL) return false;
+        const structures = room.lookForAt(lookStructures, p.x, p.y);
+        if (
+          structures.some((s) => {
+            if (!s || !s.structureType) return false;
+            if (s.structureType === structureContainer) return false;
+            if (s.structureType === structureRoad) return false;
+            return OBSTACLE_OBJECT_TYPES.includes(s.structureType);
+          })
+        ) {
+          return false;
+        }
+        return true;
+      });
 
-      // Determine container spot along the path to the spawn
-      let pathPosition = null;
+      // Determine container spot near source; prefer spawn-closest valid tile.
       let distanceFromSpawn = 0;
       if (spawn) {
         const result = PathFinder.search(
@@ -39,56 +76,58 @@ const roomManager = {
           { pos: sourcePos, range: 1 },
           { swampCost: 2, plainCost: 2, ignoreCreeps: true },
         );
-        if (result.path && result.path.length > 0) {
-          const step = result.path[result.path.length - 1];
-          pathPosition = { x: step.x, y: step.y };
-        }
         distanceFromSpawn = result.path ? result.path.length : 0;
       }
 
-      // Sort potential positions by proximity to spawn when available
+      // Sort potential positions by proximity to spawn when available.
+      // Tie-break with deterministic XY ordering to avoid diagonal ambiguity.
       if (spawn) {
-        potential.sort(
-          (a, b) => spawn.pos.getRangeTo(a.x, a.y) - spawn.pos.getRangeTo(b.x, b.y),
-        );
+        potential.sort((a, b) => {
+          const da = spawn.pos.getRangeTo(a.x, a.y);
+          const db = spawn.pos.getRangeTo(b.x, b.y);
+          if (da !== db) return da - db;
+          if (a.x !== b.x) return a.x - b.x;
+          return a.y - b.y;
+        });
       }
 
       const containers = room.find(FIND_STRUCTURES, {
-        filter: s => s.structureType === STRUCTURE_CONTAINER && s.pos.inRangeTo(source, 1),
+        filter: s => s.structureType === structureContainer && s.pos.inRangeTo(source, 1),
       });
 
-      let bestPositions = potential.slice(0, 3);
+      let bestPositions = potential.slice();
       if (containers.length > 0) {
         const cPos = containers[0].pos;
-        bestPositions = [{ x: cPos.x, y: cPos.y }, ...potential.filter(p => p.x !== cPos.x || p.y !== cPos.y).slice(0, 2)];
-      } else if (pathPosition) {
-        bestPositions = [pathPosition, ...potential.filter(p => p.x !== pathPosition.x || p.y !== pathPosition.y).slice(0, 2)];
+        bestPositions = [
+          { x: cPos.x, y: cPos.y },
+          ...potential.filter(p => p.x !== cPos.x || p.y !== cPos.y),
+        ];
       }
 
       const mem = Memory.rooms[room.name].miningPositions[source.id] || { positions: {} };
       const old = mem.positions || {};
       const positions = {};
-      ['best1', 'best2', 'best3'].forEach((key, i) => {
-        const p = bestPositions[i];
-        if (p) {
-          const existing = Object.values(old).find(o => o && o.x === p.x && o.y === p.y);
-          positions[key] = {
-            x: p.x,
-            y: p.y,
-            roomName: room.name,
-            reserved: existing ? existing.reserved : false,
-          };
-        } else {
-          positions[key] = null;
-        }
+      bestPositions.forEach((p, i) => {
+        const key = `best${i + 1}`;
+        const existing = Object.values(old).find(o => o && o.x === p.x && o.y === p.y);
+        positions[key] = {
+          x: p.x,
+          y: p.y,
+          roomName: room.name,
+          reserved: existing ? existing.reserved : false,
+        };
       });
+      const feasiblePositionCount = this.countValidMiningPositions(positions);
+      roomFeasibleMiningPositions += feasiblePositionCount;
       Memory.rooms[room.name].miningPositions[source.id] = {
         x: sourcePos.x,
         y: sourcePos.y,
         distanceFromSpawn,
+        feasiblePositionCount,
         positions,
       };
     });
+    Memory.rooms[room.name].feasibleMiningPositions = roomFeasibleMiningPositions;
 
     // Additional room-specific data can be gathered here
     const structures = room.find(FIND_STRUCTURES);

@@ -106,6 +106,7 @@
 - [x] Evaluates spawn demand per role
 - [x] Reserves mining positions for miners
 - [x] Recalculate mining spots and prefer container positions
+- [x] Persist feasible mining slot caps and use valid slot counts (ignore null placeholders) for miner/hauler limits
 - [x] Replacement miners requested before predecessors expire
 - [x] Reserved positions cleared on miner death
 - [x] Miners with 5 WORK parts reposition onto containers
@@ -159,6 +160,7 @@
 - [x] Distance transform for terrain analysis
 - [x] HUD displays analysis status
 - [x] Stores structures and construction sites per room
+- [x] Add theoretical, spawn-independent planning overlay mode with controller-centric upgrader lane, evaluated spawn candidate, source containers, and logistics road draft views.
 
 ---
 

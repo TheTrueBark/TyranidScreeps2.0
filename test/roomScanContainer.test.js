@@ -55,10 +55,10 @@ describe('roomManager.scanRoom container placement', function() {
     };
   });
 
-  it('stores path-based container position as best1', function() {
+  it('stores spawn-closest container position as best1', function() {
     roomManager.scanRoom(Game.rooms['W1N1']);
     const pos = Memory.rooms.W1N1.miningPositions.s1.positions.best1;
-    expect(pos).to.deep.equal({ x: 11, y: 10, roomName: 'W1N1', reserved: false });
+    expect(pos).to.deep.equal({ x: 11, y: 11, roomName: 'W1N1', reserved: false });
   });
 
   it('handles rooms without spawns gracefully', function() {

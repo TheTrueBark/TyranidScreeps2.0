@@ -198,10 +198,29 @@ const buildSpawnLimitLines = (room) => {
     upgraders: ['upgrader'],
   };
   const liveCounts = { miner: 0, hauler: 0, builder: 0, upgrader: 0 };
+
+  const belongsToRoom = (creep) => {
+    if (!creep || !creep.memory) return false;
+    if (creep.room && creep.room.name === room.name) return true;
+    if (creep.memory.home === room.name) return true;
+    if (creep.memory.colony === room.name) return true;
+    if (creep.memory.originRoom === room.name) return true;
+    return false;
+  };
+
+  const resolveEffectiveRole = (creep) => {
+    if (!creep || !creep.memory) return null;
+    const memRole = creep.memory.role;
+    if (liveCounts[memRole] !== undefined) return memRole;
+    const primary = creep.memory.primaryRole;
+    if (liveCounts[primary] !== undefined) return primary;
+    return null;
+  };
+
   const creeps = Object.values((typeof Game !== 'undefined' && Game.creeps) || {});
   for (const creep of creeps) {
-    if (!creep || !creep.memory || !creep.room || creep.room.name !== room.name) continue;
-    const role = creep.memory.role;
+    if (!belongsToRoom(creep)) continue;
+    const role = resolveEffectiveRole(creep);
     if (liveCounts[role] !== undefined) liveCounts[role] += 1;
   }
   const lines = ['Spawn Limits', '-----------------'];
@@ -246,7 +265,22 @@ const drawTaskHud = (room) => {
 
 module.exports = {
   createHUD(room) {
-    if (!visualizer.enabled) return;
+    const settings = Memory.settings || {};
+    const theoreticalMode =
+      String(settings.layoutPlanningMode || 'standard').toLowerCase() === 'theoretical';
+
+    // Allow layout overlay rendering even when regular HUD visuals are disabled.
+    if (!visualizer.enabled) {
+      layoutVisualizer.drawLayout(room.name);
+      return;
+    }
+
+    if (theoreticalMode) {
+      // Theoretical planning view intentionally suppresses normal runtime HUD
+      // panels and source markers to keep the planning overlay readable.
+      layoutVisualizer.drawLayout(room.name);
+      return;
+    }
 
     drawSpawnQueueHud(room);
     drawTaskHud(room);
