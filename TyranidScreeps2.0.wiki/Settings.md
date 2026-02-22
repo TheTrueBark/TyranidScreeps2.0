@@ -1,43 +1,144 @@
 # Settings
 
-This page lists runtime toggles stored under Memory.settings and related console commands. These options let you adjust visual overlays and logging from the game console.
+This page lists the runtime settings used by the current codebase.
 
-## Memory.settings
+## Full Defaults
 
 ```javascript
-Memory.settings = {
-  enableVisuals: true,      // HUD and layout overlays
-  showTaskList: false,      // print scheduled tasks periodically
-  energyLogs: false,        // enable energy request & demand logging
-  showLayoutOverlay: false, // draw planned structures
-  showSpawnQueueHud: true,  // display left-side spawn queue panel
-  debugHiveGaze: false,     // verbose scout & hiveGaze logging
-  pauseBot: false,          // stop main loop when true
-};
+if (!Memory.settings) Memory.settings = {};
+Memory.settings.enableVisuals = true;
+Memory.settings.alwaysShowHud = true;
+Memory.settings.showTaskList = false;
+Memory.settings.energyLogs = false;
+Memory.settings.debugHiveGaze = false;
+Memory.settings.debugVisuals = false;
+Memory.settings.showSpawnQueueHud = true;
+Memory.settings.enableTowerRepairs = true;
+Memory.settings.pauseBot = false;
+Memory.settings.allowSavestateRestore = false;
+Memory.settings.maxSavestates = 25;
+Memory.settings.maxIncidents = 25;
+Memory.settings.incidentLogWindow = 150;
+Memory.settings.incidentMaxAge = 20000;
+Memory.settings.enableAutoIncidentCapture = false;
 ```
 
-enableVisuals toggles the heads-up display drawn by hudManager. Set showTaskList to true to print scheduled jobs every 50 ticks. showSpawnQueueHud is enabled by default so that the spawn queue and task boards are always visible. energyLogs controls debug output from manager.energyRequests and manager.hivemind.demand. Flip pauseBot to true when you need the main loop to stay idle while you run manual tests; set it back to false to resume automation.
-* visual.overlay(1) / (0) - toggle HUD visuals
-* visual.DT(1) / (0) - distance transform overlay
-* visual.spawnQueue(1) / (0) - show the spawn queue HUD panel
-* debug.setSpawnLimit(room, role, amount) - override or reset creep limits for miner, hauler, worker, builder and upgrader roles
+## Per-Setting Copy Boxes
+
+### `enableVisuals` (default `true`)
 ```javascript
+Memory.settings.enableVisuals = true
 ```
-* isual.DT(1) / (0) - distance transform overlay
-* isual.spawnQueue(1) / (0) - show the spawn queue HUD panel
-* debug.toggle('module', true) - enable logging for a module
-* debug.showSchedule() - show the current scheduler queue once
-* debug.showHTM() - list active HTM tasks
-* debug.memoryStatus() - display memory schema versions
-* debug.setSpawnLimit(room, role, amount) - override or reset creep limits for miner, hauler, worker, uilder and upgrader roles
-* startFresh() - wipe all persistent memory and logs
-* startFresh(true) - wipe memory and pause the bot until you set Memory.settings.pauseBot = false
 
-Energy request and demand logs are disabled by default. Enable them via:
+### `alwaysShowHud` (default `true`)
+```javascript
+Memory.settings.alwaysShowHud = true
+```
 
-`javascript
-debug.toggle('energyRequests', true);
-debug.toggle('demandManager', true);
-`
+### `showTaskList` (default `false`)
+```javascript
+Memory.settings.showTaskList = false
+```
 
-Alternatively set Memory.settings.energyLogs = true to persist the setting.
+### `energyLogs` (default `false`)
+```javascript
+Memory.settings.energyLogs = true
+```
+
+### `debugHiveGaze` (default `false`)
+```javascript
+Memory.settings.debugHiveGaze = true
+```
+
+### `debugVisuals` (default `false`)
+```javascript
+Memory.settings.debugVisuals = true
+```
+
+### `showSpawnQueueHud` (default `true`)
+```javascript
+Memory.settings.showSpawnQueueHud = true
+```
+
+### `enableTowerRepairs` (default `true`)
+```javascript
+Memory.settings.enableTowerRepairs = true
+```
+
+### `pauseBot` (default `false`)
+```javascript
+Memory.settings.pauseBot = true
+```
+
+### `allowSavestateRestore` (default `false`)
+```javascript
+Memory.settings.allowSavestateRestore = true
+```
+
+### `maxSavestates` (default `25`)
+```javascript
+Memory.settings.maxSavestates = 25
+```
+
+### `maxIncidents` (default `25`)
+```javascript
+Memory.settings.maxIncidents = 25
+```
+
+### `incidentLogWindow` (default `150`)
+```javascript
+Memory.settings.incidentLogWindow = 150
+```
+
+### `incidentMaxAge` (default `20000`)
+```javascript
+Memory.settings.incidentMaxAge = 20000
+```
+
+### `enableAutoIncidentCapture` (default `false`)
+```javascript
+Memory.settings.enableAutoIncidentCapture = true
+```
+
+## Optional Feature Flags (Read By Modules)
+
+These are consumed by modules but do not currently get explicit defaults in `main.js`.
+
+### `showLayoutOverlay`
+```javascript
+Memory.settings.showLayoutOverlay = true
+```
+
+### `debugBuilding`
+```javascript
+Memory.settings.debugBuilding = true
+```
+
+### `debugLayoutProgress`
+```javascript
+Memory.settings.debugLayoutProgress = true
+```
+
+### `enableAutoScout`
+```javascript
+Memory.settings.enableAutoScout = true
+```
+
+## Console Helpers
+
+```javascript
+visual.overlay(1)      // HUD visuals on
+visual.overlay(0)      // HUD visuals off
+visual.spawnQueue(1)   // spawn queue HUD on
+visual.spawnQueue(0)   // spawn queue HUD off
+visual.DT(1)           // distance transform overlay on
+visual.DT(0)           // distance transform overlay off
+visual.rescanRooms()   // force scout rescan
+debug.showHTM()        // print active HTM tasks
+debug.showSchedule()   // print scheduler jobs
+debug.memoryStatus()   // print memory schema info
+debug.setSpawnLimit('W1N1', 'hauler', 3)
+debug.setSpawnLimit('W1N1', 'hauler', 'auto')
+startFresh()
+startFresh(true)
+```

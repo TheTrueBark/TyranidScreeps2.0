@@ -1603,7 +1603,9 @@ module.exports = {
         }
       }
     } else if (spawn) {
-      creep.travelTo(spawn, { range: 2, allowRestricted: true });
+      // When no delivery target is available, idle away from the spawn
+      // instead of orbiting it and fighting avoidSpawnArea.
+      moveToIdle(creep);
       return;
     }
   },

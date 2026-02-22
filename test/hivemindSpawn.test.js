@@ -149,6 +149,24 @@ describe('hivemind spawn module', function () {
     expect(scoutTask.priority).to.equal(4);
   });
 
+  it('does not queue a scout before both starter roles are alive', function () {
+    Game.creeps = {
+      m1: { my: true, memory: { role: 'miner' }, room: { name: 'W1N1' } },
+    };
+    if (!Memory.htm.colonies['W1N1']) {
+      Memory.htm.colonies['W1N1'] = { tasks: [] };
+    } else {
+      Memory.htm.colonies['W1N1'].tasks = [];
+    }
+    spawnQueue.queue = [];
+
+    spawnModule.run(Game.rooms['W1N1']);
+
+    const tasks = Memory.htm.colonies['W1N1'].tasks;
+    const scoutTask = tasks.find(t => t.name === 'spawnScout');
+    expect(scoutTask).to.not.exist;
+  });
+
   it('caps builders to four per site with overall max', function () {
     Game.rooms['W1N1'].controller.level = 2;
     Game.rooms['W1N1'].memory.buildingQueue = [

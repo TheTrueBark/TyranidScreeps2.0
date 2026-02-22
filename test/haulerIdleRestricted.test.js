@@ -59,4 +59,31 @@ describe('hauler avoids idling in restricted area', function() {
     roleHauler.run(creep);
     expect(moved).to.be.true;
   });
+
+  it('idles instead of re-targeting spawn when carrying with no delivery target', function() {
+    let targetUsed = null;
+    const creep = {
+      name: 'h2',
+      room: Game.rooms['W1N1'],
+      store: { [RESOURCE_ENERGY]: 50, getFreeCapacity: () => 0 },
+      pos: {
+        x: 7,
+        y: 7,
+        roomName: 'W1N1',
+        findClosestByPath: () => null,
+        findClosestByRange: () => null,
+        getRangeTo: () => 3,
+        isEqualTo(pos) { return this.x === pos.x && this.y === pos.y; },
+        isNearTo: () => false,
+      },
+      travelTo(target) { targetUsed = target; },
+      transfer() { return ERR_NOT_IN_RANGE; },
+      pickup: () => ERR_NOT_IN_RANGE,
+      memory: {},
+    };
+
+    roleHauler.run(creep);
+    expect(targetUsed).to.exist;
+    expect(targetUsed).to.not.equal(spawn);
+  });
 });

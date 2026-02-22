@@ -26,6 +26,7 @@ const ROLE_PRIORITY = {
 const STARTER_PRIORITY = {
   miner: 5,
   hauler: 12,
+  scout: 25,
 };
 const EMERGENCY_PRIORITY = 3;
 
@@ -372,17 +373,14 @@ const spawnManager = {
       spawn.id,
       0,
       priority,
-      undefined,
-      {
-        ...(starter ? { ignoreRestriction: true } : {}),
-      },
       task
         ? {
+            ...(starter ? { ignoreRestriction: true } : {}),
             parentTaskId: task.parentTaskId,
             subOrder: task.subOrder,
             parentTick: task.origin && task.origin.tickCreated,
           }
-        : {}
+        : (starter ? { ignoreRestriction: true } : {})
     );
     logger.log(
       "spawnManager",

@@ -103,11 +103,13 @@ function ensureBootstrapPriorities(room, container) {
   const scoutTask = container.tasks.find(
     (t) => t.name === 'spawnScout' && t.manager === 'spawnManager',
   );
+  const bootstrapPairReady =
+    countAliveCreeps(roomName, 'miner') > 0 && countAliveCreeps(roomName, 'hauler') > 0;
   const scoutAlive = countAliveCreeps(roomName, 'scout');
   const scoutQueued = countQueuedRequests(roomName, 'scout');
   const scoutPending =
     scoutAlive + scoutQueued + (scoutTask ? scoutTask.amount || 0 : 0);
-  if (scoutPending === 0) {
+  if (bootstrapPairReady && scoutPending === 0) {
     htm.addColonyTask(
       roomName,
       'spawnScout',
@@ -117,7 +119,7 @@ function ensureBootstrapPriorities(room, container) {
       1,
       'spawnManager',
     );
-  } else if (scoutTask && (scoutTask.priority || 0) > 4) {
+  } else if (bootstrapPairReady && scoutTask && (scoutTask.priority || 0) > 4) {
     scoutTask.priority = 4;
   }
 }

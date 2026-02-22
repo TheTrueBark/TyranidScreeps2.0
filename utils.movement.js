@@ -3,6 +3,42 @@ const Traveler = require('./manager.hiveTravel');
 const MAX_IDLE_SLOTS = 8;
 const MIN_IDLE_RANGE = 3;
 const OBSTACLE_COST = 0xff;
+const SOFT_RESTRICTED_COST = 25;
+
+const isHardRestrictedTile = (pos) =>
+  Boolean(pos && (pos.hard === true || pos.mode === 'blocked'));
+
+const createCostMatrix = () => {
+  const CostMatrix = global.PathFinder && global.PathFinder.CostMatrix;
+  if (typeof CostMatrix === 'function') {
+    try {
+      return new CostMatrix();
+    } catch (err) {
+      try {
+        return CostMatrix();
+      } catch (innerErr) {
+        // Fall through to shim below.
+      }
+    }
+  }
+  const data = {};
+  return {
+    get(x, y) {
+      return data[`${x}:${y}`] || 0;
+    },
+    set(x, y, value) {
+      data[`${x}:${y}`] = value;
+    },
+    clone() {
+      const cloned = createCostMatrix();
+      for (const key in data) {
+        const [sx, sy] = key.split(':');
+        cloned.set(Number(sx), Number(sy), data[key]);
+      }
+      return cloned;
+    },
+  };
+};
 
 const createRoomPosition = (x, y, roomName) => {
   if (typeof RoomPosition === 'function') {
@@ -30,20 +66,32 @@ const getPos = (target) => {
   return null;
 };
 
+const positionsEqual = (a, b) => {
+  if (!a || !b) return false;
+  if (typeof a.isEqualTo === 'function') return a.isEqualTo(b);
+  return a.x === b.x && a.y === b.y && (a.roomName || null) === (b.roomName || null);
+};
+
 const createAvoidanceCallback = (creep, destination, flags = {}) => {
   const allowRestricted = Boolean(flags.allowRestricted);
   const allowMining = Boolean(flags.allowMining);
 
   return (roomName, matrix) => {
-    const result = matrix ? matrix.clone() : new PathFinder.CostMatrix();
+    const result = matrix ? matrix.clone() : createCostMatrix();
     const roomMemory = Memory.rooms && Memory.rooms[roomName];
     if (!roomMemory) return result;
 
-    if (!allowRestricted && Array.isArray(roomMemory.restrictedArea)) {
+    if (Array.isArray(roomMemory.restrictedArea)) {
       for (const pos of roomMemory.restrictedArea) {
         if (!pos) continue;
         if (pos.roomName && pos.roomName !== roomName) continue;
-        result.set(pos.x, pos.y, OBSTACLE_COST);
+        // Soft restricted tiles ("noIdle") are high-cost for transit when
+        // allowRestricted is true. Hard restricted tiles remain blocked.
+        if (!allowRestricted || isHardRestrictedTile(pos)) {
+          result.set(pos.x, pos.y, OBSTACLE_COST);
+        } else {
+          result.set(pos.x, pos.y, Math.max(result.get(pos.x, pos.y), SOFT_RESTRICTED_COST));
+        }
       }
     }
 
@@ -66,6 +114,11 @@ const createAvoidanceCallback = (creep, destination, flags = {}) => {
 
 const shouldAllowRestricted = (creep, destination, explicit) => {
   if (explicit !== undefined) return explicit;
+  if (creep && creep.memory && creep.memory.role === 'hauler') {
+    // Haulers are allowed to pass through soft restricted tiles. Idling is
+    // still prevented by avoidSpawnArea and idle-slot selection.
+    return true;
+  }
   if (!destination) return false;
   if (
     typeof STRUCTURE_SPAWN !== 'undefined' &&
@@ -183,6 +236,7 @@ const movementUtils = {
     if (!creep.pos || !creep.pos.findClosestByRange) return;
     const spawn = creep.pos.findClosestByRange(FIND_MY_SPAWNS);
     if (!spawn) return;
+    if (!creep.memory) creep.memory = {};
 
     // Miners must remain on their reserved positions even if they are within
     // the restricted area around the spawn. Skip the restricted tile check for
@@ -217,35 +271,54 @@ const movementUtils = {
       roomMemory.restrictedArea &&
       !(isMiner && (matchesMiningTile || targetInsideRestricted))
     ) {
-      for (const p of roomMemory.restrictedArea) {
-        if (creep.pos.x === p.x && creep.pos.y === p.y) {
-          if (
-            isMiner &&
-            targetPos &&
-            (targetPos.roomName || creep.room.name) === creep.room.name &&
-            targetPos.x === p.x &&
-            targetPos.y === p.y
-          ) {
-            return;
-          }
-          creep.travelTo(spawn, { range: 2, allowRestricted: true });
+      const restrictedTile = roomMemory.restrictedArea.find(
+        (p) => p && creep.pos.x === p.x && creep.pos.y === p.y,
+      );
+      if (restrictedTile) {
+        if (
+          isMiner &&
+          targetPos &&
+          (targetPos.roomName || creep.room.name) === creep.room.name &&
+          targetPos.x === restrictedTile.x &&
+          targetPos.y === restrictedTile.y
+        ) {
           return;
         }
+
+        const hardRestricted = isHardRestrictedTile(restrictedTile);
+        if (!hardRestricted && creep.memory.role === 'hauler') {
+          const state = creep.memory._restrictedTransitState || {};
+          const sameTile =
+            state.x === creep.pos.x &&
+            state.y === creep.pos.y &&
+            state.roomName === creep.room.name;
+          const lingerTicks = sameTile ? (state.ticks || 0) + 1 : 1;
+          creep.memory._restrictedTransitState = {
+            x: creep.pos.x,
+            y: creep.pos.y,
+            roomName: creep.room.name,
+            ticks: lingerTicks,
+            tick: Game.time,
+          };
+          // Let haulers pass through soft restricted tiles; only kick them
+          // once they linger and behave as if idling on those tiles.
+          if (lingerTicks < 3) return;
+        }
+
+        const idle = this.findIdlePosition(
+          creep.room,
+          creep.memory && creep.memory.role,
+          creep.name,
+        );
+        if (idle && !positionsEqual(creep.pos, idle)) {
+          creep.travelTo(idle, { range: 0 });
+          return;
+        }
+        creep.travelTo(spawn, { range: 3 });
+        return;
       }
     }
-    if (creep.pos.isNearTo(spawn)) {
-      const demandNearby = spawn.pos
-        .findInRange(FIND_STRUCTURES, 1, {
-          filter: s =>
-            (s.structureType === STRUCTURE_EXTENSION ||
-              s.structureType === STRUCTURE_SPAWN) &&
-            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
-        })
-        .length;
-      if (demandNearby === 0) {
-        creep.travelTo(spawn, { range: 2, allowRestricted: true });
-      }
-    }
+    delete creep.memory._restrictedTransitState;
   },
 
   /**

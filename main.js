@@ -49,6 +49,9 @@ if (!Memory.settings) Memory.settings = {};
 if (Memory.settings.enableVisuals === undefined) {
   Memory.settings.enableVisuals = true;
 }
+if (Memory.settings.alwaysShowHud === undefined) {
+  Memory.settings.alwaysShowHud = true;
+}
 if (Memory.settings.showTaskList === undefined) {
   Memory.settings.showTaskList = false;
 }
@@ -88,6 +91,10 @@ if (Memory.settings.incidentMaxAge === undefined) {
 if (Memory.settings.enableAutoIncidentCapture === undefined) {
   Memory.settings.enableAutoIncidentCapture = false;
 }
+if (Memory.settings.alwaysShowHud) {
+  Memory.settings.enableVisuals = true;
+  Memory.settings.showSpawnQueueHud = true;
+}
 if (Memory.settings.energyLogs) {
   logger.toggle('energyRequests', true);
   logger.toggle('demandManager', true);
@@ -111,9 +118,13 @@ global.visual = {
   overlay: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
+      Memory.settings.alwaysShowHud = true;
       Memory.settings.enableVisuals = true;
       statsConsole.log("HUD visuals: ON", 2);
     } else if (toggle === 0) {
+      if (Memory.settings.alwaysShowHud) {
+        Memory.settings.alwaysShowHud = false;
+      }
       Memory.settings.enableVisuals = false;
       statsConsole.log("HUD visuals: OFF", 2);
     } else {
@@ -126,9 +137,13 @@ global.visual = {
   spawnQueue: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
+      Memory.settings.alwaysShowHud = true;
       Memory.settings.showSpawnQueueHud = true;
       statsConsole.log("Spawn queue HUD: ON", 2);
     } else if (toggle === 0) {
+      if (Memory.settings.alwaysShowHud) {
+        Memory.settings.alwaysShowHud = false;
+      }
       Memory.settings.showSpawnQueueHud = false;
       statsConsole.log("Spawn queue HUD: OFF", 2);
     } else {
@@ -432,6 +447,11 @@ scheduler.addTask(
 
 module.exports.loop = function () {
   const startCPU = Game.cpu.getUsed();
+
+  if (Memory.settings && Memory.settings.alwaysShowHud) {
+    Memory.settings.enableVisuals = true;
+    Memory.settings.showSpawnQueueHud = true;
+  }
 
   memoryManager.observeEnergyReserveEvents();
 

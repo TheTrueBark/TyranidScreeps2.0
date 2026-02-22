@@ -82,4 +82,26 @@ describe('spawnManager fallback bodies', function () {
     expect(spawnQueue.queue.length).to.equal(1);
     expect(spawnQueue.queue[0].bodyParts).to.deep.equal([CARRY, MOVE]);
   });
+
+  it('preserves parent metadata for hauler subtasks', function () {
+    const task = {
+      parentTaskId: 'starter-1',
+      subOrder: 1,
+      origin: { tickCreated: 809 },
+      data: { starter: true },
+    };
+    const size = spawnManager.spawnHauler(
+      spawn,
+      room,
+      room.energyCapacityAvailable,
+      task,
+      true,
+    );
+    expect(size).to.equal(2);
+    expect(spawnQueue.queue.length).to.equal(1);
+    expect(spawnQueue.queue[0].parentTaskId).to.equal('starter-1');
+    expect(spawnQueue.queue[0].subOrder).to.equal(1);
+    expect(spawnQueue.queue[0].parentTick).to.equal(809);
+    expect(spawnQueue.queue[0].ignoreRestriction).to.equal(true);
+  });
 });

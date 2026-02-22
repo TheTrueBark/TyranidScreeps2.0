@@ -65,4 +65,26 @@ describe('hudManager spawn queue panel', function () {
     expect(lines[5]).to.equal('  Hauler - 450');
     expect(lines[6]).to.equal('  Remote Miner - 850');
   });
+
+  it('splits colony tasks into planned and in-progress sections', function () {
+    const hudManager = require('../manager.hud');
+    Game.time = 100;
+    Memory.htm = {
+      colonies: {
+        W1N1: {
+          tasks: [
+            { name: 'spawnMiner', amount: 1, priority: 1, manager: 'spawnManager', claimedUntil: 0 },
+            { name: 'spawnHauler', amount: 1, priority: 2, manager: 'spawnManager', claimedUntil: 120 },
+          ],
+        },
+      },
+    };
+
+    const lines = hudManager._buildColonyTaskLines({ name: 'W1N1' });
+
+    expect(lines).to.include('Tasks Planned');
+    expect(lines).to.include('Tasks In Progress');
+    expect(lines).to.include('  1. Spawn Miner [p1] • Spawn Manager');
+    expect(lines).to.include('  1. Spawn Hauler [p2] • Spawn Manager');
+  });
 });

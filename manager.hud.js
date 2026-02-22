@@ -113,18 +113,31 @@ const buildColonyTaskLines = (room) => {
   const sorted = colony
     .slice()
     .sort((a, b) => (a.priority || 99) - (b.priority || 99));
-  const limited = sorted.slice(0, MAX_TASK_LINES);
+  const now = typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0;
+  const planned = sorted.filter((task) => !task.claimedUntil || task.claimedUntil <= now);
+  const inProgress = sorted.filter((task) => task.claimedUntil && task.claimedUntil > now);
+  const limitedPlanned = planned.slice(0, MAX_TASK_LINES);
+  const limitedInProgress = inProgress.slice(0, MAX_TASK_LINES);
 
   const lines = [`${room.name} Tasks`, `Active: ${colony.length}`, '-----------------'];
-
-  if (!limited.length) {
-    lines.push('  (no pending tasks)');
-    return lines;
+  lines.push('Tasks Planned');
+  if (!limitedPlanned.length) {
+    lines.push('  (none)');
+  } else {
+    limitedPlanned.forEach((task, idx) => lines.push(formatTaskLabel(task, idx)));
+    if (planned.length > MAX_TASK_LINES) {
+      lines.push(`  +${planned.length - MAX_TASK_LINES} more…`);
+    }
   }
-
-  limited.forEach((task, idx) => lines.push(formatTaskLabel(task, idx)));
-  if (colony.length > MAX_TASK_LINES) {
-    lines.push(`  +${colony.length - MAX_TASK_LINES} more…`);
+  lines.push('');
+  lines.push('Tasks In Progress');
+  if (!limitedInProgress.length) {
+    lines.push('  (none)');
+  } else {
+    limitedInProgress.forEach((task, idx) => lines.push(formatTaskLabel(task, idx)));
+    if (inProgress.length > MAX_TASK_LINES) {
+      lines.push(`  +${inProgress.length - MAX_TASK_LINES} more…`);
+    }
   }
   return lines;
 };
@@ -211,4 +224,5 @@ module.exports = {
     layoutVisualizer.drawLayout(room.name);
   },
   _buildSpawnQueueLines: buildSpawnQueueLines,
+  _buildColonyTaskLines: buildColonyTaskLines,
 };

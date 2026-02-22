@@ -189,6 +189,7 @@ const spawnQueue = {
       parentTick:
         options.parentTick !== undefined ? options.parentTick : Number.POSITIVE_INFINITY,
       groupPriorityHint: priority,
+      ignoreRestriction: Boolean(options.ignoreRestriction),
     };
     this.queue.push(entry);
 
@@ -470,4 +471,3 @@ const spawnQueue = {
 };
 
 module.exports = spawnQueue;
-
