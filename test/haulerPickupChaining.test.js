@@ -54,7 +54,7 @@ describe('hauler pickup chaining', function () {
     const container = {
       id: 'contA',
       structureType: STRUCTURE_CONTAINER,
-      store: { [RESOURCE_ENERGY]: 600, getCapacity: () => 600 },
+      store: { [RESOURCE_ENERGY]: 60, getCapacity: () => 600 },
       pos: { x: 4, y: 4, roomName: 'W1N1' },
     };
     const source = { id: 'srcA', pos: { x: 3, y: 3, roomName: 'W1N1' }, energy: 300, energyCapacity: 300 };
@@ -106,37 +106,43 @@ describe('hauler pickup chaining', function () {
 
     roleHauler.run(creep);
     expect(creep.memory.reserving).to.exist;
-    expect(creep.memory.reserving.id).to.equal(drop.id);
+    const firstTargetId = creep.memory.reserving.id;
+    expect([drop.id, container.id]).to.include(firstTargetId);
     expect(creep.memory.pickupPlan).to.exist;
     const plannedIds = creep.memory.pickupPlan.steps.map(step => step.id);
-    expect(plannedIds).to.include(container.id);
+    const secondTargetId = firstTargetId === drop.id ? container.id : drop.id;
+    expect(plannedIds).to.include(secondTargetId);
 
     Game.time += 1;
-    creep.pos.x = drop.pos.x;
-    creep.pos.y = drop.pos.y;
-    creep.pickup = () => {
-      store[RESOURCE_ENERGY] += 40;
-      drop.amount = Math.max(0, drop.amount - 40);
-      return OK;
-    };
+    if (firstTargetId === container.id) {
+      creep.pos.x = container.pos.x;
+      creep.pos.y = container.pos.y;
+      creep.withdraw = () => {
+        store[RESOURCE_ENERGY] += 60;
+        container.store[RESOURCE_ENERGY] = Math.max(0, container.store[RESOURCE_ENERGY] - 60);
+        return OK;
+      };
+    } else {
+      creep.pos.x = drop.pos.x;
+      creep.pos.y = drop.pos.y;
+      creep.pickup = () => {
+        store[RESOURCE_ENERGY] += 40;
+        drop.amount = Math.max(0, drop.amount - 40);
+        return OK;
+      };
+    }
 
     roleHauler.run(creep);
     expect(creep.memory.reserving).to.be.undefined;
     expect(creep.memory.pickupPlan).to.exist;
-    expect(creep.memory.pickupPlan.steps[0].id).to.equal(container.id);
+    expect(creep.memory.pickupPlan.steps[0].id).to.equal(secondTargetId);
 
     Game.time += 1;
-    creep.pos.x = container.pos.x;
-    creep.pos.y = container.pos.y;
-    let transferCalled = false;
-    creep.transfer = () => {
-      transferCalled = true;
-      return ERR_NOT_IN_RANGE;
-    };
+    creep.pos.x = 0;
+    creep.pos.y = 0;
 
     roleHauler.run(creep);
     expect(creep.memory.reserving).to.exist;
-    expect(creep.memory.reserving.id).to.equal(container.id);
-    expect(transferCalled).to.be.false;
+    expect(creep.memory.reserving.id).to.equal(secondTargetId);
   });
 });

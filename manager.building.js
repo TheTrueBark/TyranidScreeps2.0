@@ -105,8 +105,13 @@ const buildingManager = {
    * @param {Room} room Room being processed.
    */
   buildInfrastructure: function (room) {
-    this.processHTMTasks(room);
-    this.monitorClusterTasks(room);
+    const planningEnabled = !(
+      Memory.settings && Memory.settings.enableBaseBuilderPlanning === false
+    );
+    if (planningEnabled) {
+      this.processHTMTasks(room);
+      this.monitorClusterTasks(room);
+    }
     this.processRebuildQueue(room);
     if (this.shouldUpdateCache(room)) {
       this.cacheBuildableAreas(room);
@@ -116,16 +121,20 @@ const buildingManager = {
     this.manageBuildingQueue(room);
 
     if (room.controller.level >= 1) {
-      this.buildSourceContainers(room);
+      // Prioritize controller container first so upgrader logistics come
+      // online as soon as possible.
+      this.buildControllerContainers(room);
     }
 
     if (room.controller.level >= 1) {
-      this.buildControllerContainers(room);
+      this.buildSourceContainers(room);
       // Buffer container near the spawn is no longer required
       // this.buildBufferContainer(room);
     }
 
-    this.executeLayout(room);
+    if (planningEnabled) {
+      this.executeLayout(room);
+    }
   },
 
   processRebuildQueue: function (room) {

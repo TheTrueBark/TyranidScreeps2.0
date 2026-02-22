@@ -12,6 +12,7 @@ Memory.settings.showTaskList = false;
 Memory.settings.energyLogs = false;
 Memory.settings.debugHiveGaze = false;
 Memory.settings.debugVisuals = false;
+Memory.settings.enableBaseBuilderPlanning = true;
 Memory.settings.showSpawnQueueHud = true;
 Memory.settings.enableTowerRepairs = true;
 Memory.settings.pauseBot = false;
@@ -21,6 +22,13 @@ Memory.settings.maxIncidents = 25;
 Memory.settings.incidentLogWindow = 150;
 Memory.settings.incidentMaxAge = 20000;
 Memory.settings.enableAutoIncidentCapture = false;
+Memory.settings.enableAssimilation = true;
+Memory.settings.enableRebirth = true;
+Memory.settings.rebirthMaxTtl = 180;
+Memory.settings.enableRecycling = true;
+Memory.settings.renewOverheadTicks = 10;
+Memory.settings.renewQueueBusyThreshold = 1;
+Memory.settings.recycleOverheadTicks = 20;
 ```
 
 ## Per-Setting Copy Boxes
@@ -53,6 +61,11 @@ Memory.settings.debugHiveGaze = true
 ### `debugVisuals` (default `false`)
 ```javascript
 Memory.settings.debugVisuals = true
+```
+
+### `enableBaseBuilderPlanning` (default `true`)
+```javascript
+Memory.settings.enableBaseBuilderPlanning = true
 ```
 
 ### `showSpawnQueueHud` (default `true`)
@@ -100,6 +113,41 @@ Memory.settings.incidentMaxAge = 20000
 Memory.settings.enableAutoIncidentCapture = true
 ```
 
+### `enableAssimilation` (default `true`)
+```javascript
+Memory.settings.enableAssimilation = true
+```
+
+### `enableRebirth` (default `true`)
+```javascript
+Memory.settings.enableRebirth = true
+```
+
+### `rebirthMaxTtl` (default `180`)
+```javascript
+Memory.settings.rebirthMaxTtl = 180
+```
+
+### `enableRecycling` (default `true`)
+```javascript
+Memory.settings.enableRecycling = true
+```
+
+### `renewOverheadTicks` (default `10`)
+```javascript
+Memory.settings.renewOverheadTicks = 10
+```
+
+### `renewQueueBusyThreshold` (default `1`)
+```javascript
+Memory.settings.renewQueueBusyThreshold = 1
+```
+
+### `recycleOverheadTicks` (default `20`)
+```javascript
+Memory.settings.recycleOverheadTicks = 20
+```
+
 ## Optional Feature Flags (Read By Modules)
 
 These are consumed by modules but do not currently get explicit defaults in `main.js`.
@@ -131,6 +179,8 @@ visual.overlay(1)      // HUD visuals on
 visual.overlay(0)      // HUD visuals off
 visual.spawnQueue(1)   // spawn queue HUD on
 visual.spawnQueue(0)   // spawn queue HUD off
+visual.baseBuilder(1)  // layout/base planning + overlay on
+visual.baseBuilder(0)  // layout/base planning + overlay off
 visual.DT(1)           // distance transform overlay on
 visual.DT(0)           // distance transform overlay off
 visual.rescanRooms()   // force scout rescan

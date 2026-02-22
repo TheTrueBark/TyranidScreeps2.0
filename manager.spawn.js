@@ -54,6 +54,13 @@ const PRIORITY_HIGH = resolvePriority('miner');
 // HTM task name for sequential miner+hauler spawning
 const TASK_STARTER_COUPLE = 'spawnStarterCouple';
 const MINER_HANDOFF_TTL = 50;
+const OK_CODE = typeof OK !== 'undefined' ? OK : 0;
+const ERR_BUSY_CODE = typeof ERR_BUSY !== 'undefined' ? ERR_BUSY : -4;
+const ERR_NOT_IN_RANGE_CODE =
+  typeof ERR_NOT_IN_RANGE !== 'undefined' ? ERR_NOT_IN_RANGE : -9;
+const ERR_NOT_ENOUGH_ENERGY_CODE =
+  typeof ERR_NOT_ENOUGH_ENERGY !== 'undefined' ? ERR_NOT_ENOUGH_ENERGY : -6;
+const ERR_FULL_CODE = typeof ERR_FULL !== 'undefined' ? ERR_FULL : -8;
 
 // Direction deltas for checking adjacent tiles around a spawn
 const directionDelta = {
@@ -365,20 +372,46 @@ const spawnManager = {
       starter: starter || usedFallback,
       emergency: Boolean(task && task.data && task.data.panic),
     });
+    const isReplacementTask = Boolean(task && task.data && task.data.isReplacement);
+    const replacementFor = isReplacementTask && task.data ? task.data.replacementFor : null;
+    const replacementRouteId =
+      isReplacementTask && task.data && task.data.assignment
+        ? task.data.assignment.routeId
+        : null;
+    const replacementParent =
+      isReplacementTask && (task.parentTaskId || replacementRouteId)
+        ? (task.parentTaskId || `haulerReplacement:${room.name}:${replacementRouteId}`)
+        : task && task.parentTaskId
+          ? task.parentTaskId
+          : null;
     spawnQueue.addToQueue(
       "hauler",
       room.name,
       bodyParts,
-      { role: "hauler", starter: starter || usedFallback },
+      {
+        role: "hauler",
+        starter: starter || usedFallback,
+        ...(isReplacementTask
+          ? {
+              isReplacement: true,
+              replacementFor: replacementFor || undefined,
+              assignment: task.data && task.data.assignment ? task.data.assignment : undefined,
+            }
+          : {}),
+      },
       spawn.id,
       0,
       priority,
       task
         ? {
             ...(starter ? { ignoreRestriction: true } : {}),
-            parentTaskId: task.parentTaskId,
+            ...(replacementParent ? { parentTaskId: replacementParent } : {}),
             subOrder: task.subOrder,
             parentTick: task.origin && task.origin.tickCreated,
+            isReplacement: isReplacementTask,
+            replacementFor: replacementFor || null,
+            dedupeKey: isReplacementTask && replacementParent ? replacementParent : null,
+            spawnReason: isReplacementTask ? 'replacementTask' : null,
           }
         : (starter ? { ignoreRestriction: true } : {})
     );
@@ -623,6 +656,7 @@ const spawnManager = {
       2,
     );
     if (!spawn.spawning) {
+      if (this.processUrgentRequests(spawn)) return;
       if (spawn.memory.currentSpawnRole) {
         delete spawn.memory.currentSpawnRole;
       }
@@ -734,6 +768,92 @@ const spawnManager = {
         2,
       );
     }
+  },
+
+  getUrgentRequests(spawnId) {
+    if (!Memory.spawnUrgentRequests) Memory.spawnUrgentRequests = {};
+    if (!Memory.spawnUrgentRequests[spawnId]) Memory.spawnUrgentRequests[spawnId] = [];
+    return Memory.spawnUrgentRequests[spawnId];
+  },
+
+  processUrgentRequests(spawn) {
+    const queue = this.getUrgentRequests(spawn.id);
+    if (!queue.length) return false;
+    const now = Game.time;
+    const valid = [];
+    for (const req of queue) {
+      if (!req || !req.creepName || !req.action) continue;
+      if (typeof req.expiresAt === 'number' && req.expiresAt < now) continue;
+      valid.push(req);
+    }
+    Memory.spawnUrgentRequests[spawn.id] = valid;
+    if (!valid.length) return false;
+
+    valid.sort((a, b) => {
+      const pa = typeof a.priority === 'number' ? a.priority : 0;
+      const pb = typeof b.priority === 'number' ? b.priority : 0;
+      if (pa !== pb) return pa - pb;
+      const ca = typeof a.createdAt === 'number' ? a.createdAt : now;
+      const cb = typeof b.createdAt === 'number' ? b.createdAt : now;
+      return ca - cb;
+    });
+
+    for (let i = 0; i < valid.length; i++) {
+      const req = valid[i];
+      const creep = Game.creeps && Game.creeps[req.creepName];
+      if (!creep || !creep.room || creep.room.name !== spawn.room.name) {
+        continue;
+      }
+      const range = creep.pos && typeof creep.pos.getRangeTo === 'function'
+        ? creep.pos.getRangeTo(spawn.pos || spawn)
+        : Infinity;
+      if (range > 1) {
+        if (typeof creep.travelTo === 'function') {
+          creep.travelTo(spawn, { range: 1 });
+        }
+        continue;
+      }
+
+      if (req.action === 'renew') {
+        if (typeof spawn.renewCreep !== 'function') continue;
+        const result = spawn.renewCreep(creep);
+        if (result === OK_CODE) {
+          spawnQueue.removeReplacementForCreep(spawn.room.name, req.role || 'hauler', creep);
+          valid.splice(i, 1);
+          Memory.spawnUrgentRequests[spawn.id] = valid;
+          return true;
+        }
+        if (result === ERR_FULL_CODE) {
+          spawnQueue.removeReplacementForCreep(spawn.room.name, req.role || 'hauler', creep);
+          valid.splice(i, 1);
+          Memory.spawnUrgentRequests[spawn.id] = valid;
+          return true;
+        }
+        if (result === ERR_BUSY_CODE) return true;
+        if (result === ERR_NOT_IN_RANGE_CODE) {
+          if (typeof creep.travelTo === 'function') creep.travelTo(spawn, { range: 1 });
+          continue;
+        }
+        if (result === ERR_NOT_ENOUGH_ENERGY_CODE) {
+          continue;
+        }
+      } else if (req.action === 'recycle') {
+        if (typeof spawn.recycleCreep !== 'function') continue;
+        const result = spawn.recycleCreep(creep);
+        if (result === OK_CODE) {
+          valid.splice(i, 1);
+          Memory.spawnUrgentRequests[spawn.id] = valid;
+          return true;
+        }
+        if (result === ERR_BUSY_CODE) return true;
+        if (result === ERR_NOT_IN_RANGE_CODE) {
+          if (typeof creep.travelTo === 'function') creep.travelTo(spawn, { range: 1 });
+          continue;
+        }
+      }
+    }
+    Memory.spawnUrgentRequests[spawn.id] = valid;
+    return false;
   },
 
   /**

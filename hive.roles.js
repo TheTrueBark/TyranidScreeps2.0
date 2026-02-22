@@ -18,6 +18,8 @@ const DEFAULT_BODY_COSTS = {
 };
 
 const ENERGY_REGEN = typeof ENERGY_REGEN_TIME !== 'undefined' ? ENERGY_REGEN_TIME : 300;
+const MAX_BUILDERS = 4;
+const BUILDER_DEMAND_HOLD_TICKS = 100;
 
 function partCost(part) {
   if (typeof BODYPART_COST !== 'undefined' && BODYPART_COST[part] !== undefined) {
@@ -177,12 +179,19 @@ const roles = {
     const hardCap = Math.max(1, availableSpots);
     let dynamicCap = Math.max(1, Math.min(hardCap, capByEnergy));
 
+    const roomMem = Memory.rooms[roomName] || (Memory.rooms[roomName] = {});
     const buildingQueue = (room.memory && room.memory.buildingQueue) || [];
     const constructionSites =
       buildingQueue.length > 0
         ? buildingQueue.length
         : room.find(FIND_CONSTRUCTION_SITES).length;
     const repairDemand = maintenance.getActiveRepairDemand(roomName);
+    if (constructionSites > 0 || repairDemand > 0) {
+      roomMem.builderDemandUntil = Game.time + BUILDER_DEMAND_HOLD_TICKS;
+    }
+    const builderDemandActive =
+      typeof roomMem.builderDemandUntil === 'number' &&
+      roomMem.builderDemandUntil > Game.time;
     let baselineWorkers =
       constructionSites > 0
         ? Math.min(dynamicCap, Math.min(6, constructionSites * 2))
@@ -261,7 +270,12 @@ const roles = {
         Math.min(hardCap, Math.max(1, Math.ceil(targetWorkers / 2))),
       );
     }
-    const desiredBuilders = Math.max(0, targetWorkers - desiredUpgraders);
+    const previousBuilderLimit =
+      roomMem && roomMem.spawnLimits && typeof roomMem.spawnLimits.builders === 'number'
+        ? roomMem.spawnLimits.builders
+        : 0;
+    let desiredBuilders = Math.max(0, targetWorkers - desiredUpgraders);
+    desiredBuilders = Math.min(MAX_BUILDERS, desiredBuilders);
 
     const queuedBuilders = spawnQueue.queue.filter(
       q => q.room === roomName && q.memory && q.memory.role === 'builder',
@@ -291,9 +305,31 @@ const roles = {
 
     const builderTask = tasks.find(t => t.name === 'spawnBuilder' && t.manager === 'spawnManager');
     const builderTaskAmount = builderTask ? builderTask.amount || 0 : 0;
+    if (
+      constructionSites === 0 &&
+      repairDemand <= 0 &&
+      builderDemandActive &&
+      liveBuilders + queuedBuilders + builderTaskAmount > 0
+    ) {
+      desiredBuilders = Math.max(1, desiredBuilders);
+    }
+    if (
+      builderDemandActive &&
+      (manualLimits.builders === undefined || manualLimits.builders === 'auto') &&
+      previousBuilderLimit > desiredBuilders
+    ) {
+      desiredBuilders = Math.min(MAX_BUILDERS, previousBuilderLimit);
+    }
     const totalPlannedBuilders = liveBuilders + queuedBuilders + builderTaskAmount;
     const buildersNeeded = Math.max(0, desiredBuilders - totalPlannedBuilders);
-    if (buildersNeeded > 0) {
+    const blockersInQueue = spawnQueue.queue.some(
+      q =>
+        q.room === roomName &&
+        q.memory &&
+        (q.memory.role === 'miner' || q.memory.role === 'hauler'),
+    );
+    const builderSpawnBlocked = minersToQueue > 0 || blockersInQueue;
+    if (buildersNeeded > 0 && !builderSpawnBlocked) {
       if (builderTask) builderTask.amount += buildersNeeded;
       else
         htm.addColonyTask(
@@ -311,31 +347,46 @@ const roles = {
       if (idx !== -1) container.tasks.splice(idx, 1);
     }
 
-    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
-    if (!Memory.rooms[roomName].spawnLimits)
-      Memory.rooms[roomName].spawnLimits = {};
-    Memory.rooms[roomName].spawnLimits.miners = desiredMiners;
-    Memory.rooms[roomName].spawnLimits.workers = targetWorkers;
-    Memory.rooms[roomName].spawnLimits.upgraders = desiredUpgraders;
-    Memory.rooms[roomName].spawnLimits.builders = desiredBuilders;
+    if (!roomMem.spawnLimits) roomMem.spawnLimits = {};
+    roomMem.spawnLimits.miners = desiredMiners;
+    roomMem.spawnLimits.workers = targetWorkers;
+    roomMem.spawnLimits.upgraders = desiredUpgraders;
+    roomMem.spawnLimits.builders = desiredBuilders;
+    const existingHaulerCap = roomMem.spawnLimits.maxHaulers;
+    const existingHaulerTarget = roomMem.spawnLimits.haulers;
+    const fallbackHaulerTarget = Math.max(1, desiredMiners || 1);
+    if (
+      typeof existingHaulerTarget !== 'number' ||
+      !Number.isFinite(existingHaulerTarget)
+    ) {
+      roomMem.spawnLimits.haulers = fallbackHaulerTarget;
+    }
+    if (
+      typeof existingHaulerCap !== 'number' ||
+      !Number.isFinite(existingHaulerCap)
+    ) {
+      roomMem.spawnLimits.maxHaulers = fallbackHaulerTarget;
+    }
 
-    if (!Memory.rooms[roomName].manualSpawnLimits)
-      Memory.rooms[roomName].manualSpawnLimits = {};
+    if (!roomMem.manualSpawnLimits) roomMem.manualSpawnLimits = {};
     if (manualLimits.miners !== undefined) {
-      Memory.rooms[roomName].manualSpawnLimits.miners = manualLimits.miners;
+      roomMem.manualSpawnLimits.miners = manualLimits.miners;
     }
     if (manualLimits.workers !== undefined) {
-      Memory.rooms[roomName].manualSpawnLimits.workers = manualLimits.workers;
+      roomMem.manualSpawnLimits.workers = manualLimits.workers;
     } else if (manualWorkerLimit !== null) {
-      Memory.rooms[roomName].manualSpawnLimits.workers = manualWorkerLimit;
+      roomMem.manualSpawnLimits.workers = manualWorkerLimit;
     } else {
-      Memory.rooms[roomName].manualSpawnLimits.workers = 'auto';
+      roomMem.manualSpawnLimits.workers = 'auto';
     }
     if (manualLimits.builders !== undefined) {
-      Memory.rooms[roomName].manualSpawnLimits.builders = manualLimits.builders;
+      roomMem.manualSpawnLimits.builders = manualLimits.builders;
     }
     if (manualLimits.upgraders !== undefined) {
-      Memory.rooms[roomName].manualSpawnLimits.upgraders = manualLimits.upgraders;
+      roomMem.manualSpawnLimits.upgraders = manualLimits.upgraders;
+    }
+    if (manualLimits.haulers !== undefined) {
+      roomMem.manualSpawnLimits.haulers = manualLimits.haulers;
     }
 
     Memory.roleEval.lastRun = Game.time;

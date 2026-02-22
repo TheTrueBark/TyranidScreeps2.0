@@ -6,6 +6,7 @@ const movementUtils = require('./utils.movement');
 const demand = require("./manager.hivemind.demand");
 const energyRequests = require('./manager.energyRequests');
 const Traveler = require('./manager.hiveTravel');
+const lifecycleControl = require('./creep.lifecycle');
 const _ = require('lodash');
 const {
   reserveEnergy,
@@ -22,6 +23,7 @@ const DROP_DECAY_PER_TICK = 1;
 const FORECAST_WAIT_EXTRA = 2;
 const FORECAST_WAIT_MAX = 10;
 const FORECAST_WAIT_MIN = 1;
+const FORECAST_WAIT_COST_MULTIPLIER = 1.5;
 const ENERGY_RESOURCE =
   typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
 
@@ -627,6 +629,7 @@ const gatherEnergyCandidates = (creep) => {
         }) || []
       : [];
   for (const container of containers) {
+    if (!container || !container.store) continue;
     pushCandidate('withdraw', container, container.store[RESOURCE_ENERGY]);
   }
 
@@ -640,6 +643,7 @@ const gatherEnergyCandidates = (creep) => {
         }) || []
       : [];
   for (const link of links) {
+    if (!link || !link.store) continue;
     pushCandidate('withdraw', link, link.store[RESOURCE_ENERGY]);
   }
 
@@ -689,16 +693,42 @@ const evaluateCandidate = (creep, startPos, candidate, remaining) => {
   if (projected <= 0) return null;
   const amount = Math.min(projected, remaining);
   if (amount <= 0) return null;
-  const travelCost = distance + 1; // include pickup tick
+  const immediateAvailable = Math.max(
+    0,
+    (candidate.current !== undefined ? candidate.current : 0) - (candidate.reserved || 0),
+  );
+  const shortage = Math.max(0, amount - immediateAvailable);
+  const waitTicks =
+    shortage > 0 && candidate.productionRate > 0
+      ? Math.min(
+          FORECAST_WAIT_MAX,
+          Math.max(
+            FORECAST_WAIT_MIN,
+            Math.ceil(shortage / candidate.productionRate) + FORECAST_WAIT_EXTRA,
+          ),
+        )
+      : 0;
+  const travelCost =
+    distance +
+    1 + // include pickup tick
+    waitTicks * FORECAST_WAIT_COST_MULTIPLIER;
   const efficiency = travelCost / Math.max(1, amount);
+  const fillRatio = Math.max(0, Math.min(1, amount / Math.max(1, remaining)));
+  const fullImmediate = immediateAvailable >= remaining;
+  const fullProjected = projected >= remaining;
   return {
     candidate,
     amount,
     distance,
     travelCost,
     travelTicks,
+    waitTicks,
+    immediateAvailable,
     efficiency,
     projected,
+    fillRatio,
+    fullImmediate,
+    fullProjected,
   };
 };
 
@@ -741,15 +771,32 @@ function buildPickupPlan(creep) {
   const used = new Set();
 
   while (remaining > 0 && plan.steps.length < MAX_PICKUP_CANDIDATES) {
-    const scored = candidates
+    const allScored = candidates
       .filter((c) => !used.has(c.id))
       .map((c) => evaluateCandidate(creep, currentPos, c, remaining))
-      .filter(Boolean)
-      .sort((a, b) => {
+      .filter(Boolean);
+
+    let scored = allScored;
+    const immediateFull = allScored.filter((entry) => entry.fullImmediate);
+    if (immediateFull.length > 0) {
+      scored = immediateFull;
+    } else {
+      const projectedFull = allScored.filter((entry) => entry.fullProjected);
+      if (projectedFull.length > 0) scored = projectedFull;
+    }
+
+    scored = scored.sort((a, b) => {
         const aPriority = a.candidate.priority !== undefined ? a.candidate.priority : 2;
         const bPriority = b.candidate.priority !== undefined ? b.candidate.priority : 2;
         if (aPriority !== bPriority) return aPriority - bPriority;
+        if (a.fullImmediate !== b.fullImmediate) return a.fullImmediate ? -1 : 1;
+        if (a.fullProjected !== b.fullProjected) return a.fullProjected ? -1 : 1;
+        if (a.fillRatio !== b.fillRatio) return b.fillRatio - a.fillRatio;
+        if (a.waitTicks !== b.waitTicks) return a.waitTicks - b.waitTicks;
         if (a.efficiency !== b.efficiency) return a.efficiency - b.efficiency;
+        if (a.immediateAvailable !== b.immediateAvailable) {
+          return b.immediateAvailable - a.immediateAvailable;
+        }
         if (a.candidate.preferred !== b.candidate.preferred) {
           return a.candidate.preferred ? -1 : 1;
         }
@@ -1166,6 +1213,7 @@ function deliverEnergy(creep, target = null) {
 
 module.exports = {
   run: function (creep) {
+    if (lifecycleControl.handle(creep, 'hauler')) return;
     movementUtils.avoidSpawnArea(creep);
     ensureAssignment(creep);
 

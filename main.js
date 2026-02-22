@@ -64,6 +64,9 @@ if (Memory.settings.debugHiveGaze === undefined) {
 if (Memory.settings.debugVisuals === undefined) {
   Memory.settings.debugVisuals = false;
 }
+if (Memory.settings.enableBaseBuilderPlanning === undefined) {
+  Memory.settings.enableBaseBuilderPlanning = true;
+}
 if (Memory.settings.showSpawnQueueHud === undefined) {
   Memory.settings.showSpawnQueueHud = true;
 }
@@ -90,6 +93,27 @@ if (Memory.settings.incidentMaxAge === undefined) {
 }
 if (Memory.settings.enableAutoIncidentCapture === undefined) {
   Memory.settings.enableAutoIncidentCapture = false;
+}
+if (Memory.settings.enableAssimilation === undefined) {
+  Memory.settings.enableAssimilation = true;
+}
+if (Memory.settings.enableRebirth === undefined) {
+  Memory.settings.enableRebirth = true;
+}
+if (Memory.settings.rebirthMaxTtl === undefined) {
+  Memory.settings.rebirthMaxTtl = 180;
+}
+if (Memory.settings.enableRecycling === undefined) {
+  Memory.settings.enableRecycling = true;
+}
+if (Memory.settings.renewOverheadTicks === undefined) {
+  Memory.settings.renewOverheadTicks = 10;
+}
+if (Memory.settings.renewQueueBusyThreshold === undefined) {
+  Memory.settings.renewQueueBusyThreshold = 1;
+}
+if (Memory.settings.recycleOverheadTicks === undefined) {
+  Memory.settings.recycleOverheadTicks = 20;
 }
 if (Memory.settings.alwaysShowHud) {
   Memory.settings.enableVisuals = true;
@@ -149,6 +173,23 @@ global.visual = {
     } else {
       statsConsole.log(
         "Usage: visual.spawnQueue(1) to show, visual.spawnQueue(0) to hide",
+        3,
+      );
+    }
+  },
+  baseBuilder: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.enableBaseBuilderPlanning = true;
+      Memory.settings.showLayoutOverlay = true;
+      statsConsole.log("Base builder planning: ON", 2);
+    } else if (toggle === 0) {
+      Memory.settings.enableBaseBuilderPlanning = false;
+      Memory.settings.showLayoutOverlay = false;
+      statsConsole.log("Base builder planning: OFF", 2);
+    } else {
+      statsConsole.log(
+        "Usage: visual.baseBuilder(1) to enable, visual.baseBuilder(0) to disable",
         3,
       );
     }
@@ -289,11 +330,15 @@ scheduler.addTask({
   name: 'layoutPlanningInit',
   type: ONCE,
   event: 'roomOwnershipEstablished',
-  fn: (data) => layoutPlanner.plan(data.roomName),
+  fn: (data) => {
+    if (Memory.settings && Memory.settings.enableBaseBuilderPlanning === false) return;
+    layoutPlanner.plan(data.roomName);
+  },
 });
 
 // Ensure each owned room has a layout plan
 scheduler.addTask('ensureLayoutPlan', 20, () => {
+  if (Memory.settings && Memory.settings.enableBaseBuilderPlanning === false) return;
   for (const roomName in Game.rooms) {
     layoutPlanner.ensurePlan(roomName);
   }
@@ -301,6 +346,7 @@ scheduler.addTask('ensureLayoutPlan', 20, () => {
 
 // Periodically populate dynamic layouts for owned rooms
 scheduler.addTask('dynamicLayout', 100, () => {
+  if (Memory.settings && Memory.settings.enableBaseBuilderPlanning === false) return;
   for (const roomName in Game.rooms) {
     layoutPlanner.populateDynamicLayout(roomName);
   }

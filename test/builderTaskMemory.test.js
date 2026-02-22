@@ -49,7 +49,12 @@ describe('builder task memory', function () {
     };
     roleBuilder.run(creep);
     expect(creep.memory.mainTask).to.deep.equal({ type: 'build', id: 's1' });
-    expect(Memory.htm.creeps['b1']).to.be.undefined;
+    expect(Memory.htm.creeps['b1']).to.exist;
+    const tasks = Memory.htm.creeps['b1'].tasks || [];
+    const request = tasks.find((t) => t.name === 'deliverEnergy');
+    expect(request).to.exist;
+    expect(request.manager).to.equal('hauler');
+    expect(request.data).to.have.property('amount');
+    expect(request.data.amount).to.be.greaterThan(0);
   });
 });
-

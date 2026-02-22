@@ -78,7 +78,9 @@ const lifecycle = {
       memoryClone.spawnedBy = 'lifecyclePredictor';
       memoryClone.originCreep = hauler.name;
       memoryClone.originDeathTick = Game.time + hauler.ticksToLive;
+      memoryClone.isReplacement = true;
 
+      const replacementParent = `haulerReplacement:${room.name}:${routeId}`;
       spawnQueue.addToQueue(
         'hauler',
         room.name,
@@ -87,6 +89,13 @@ const lifecycle = {
         spawn.id,
         0,
         spawnManager.PRIORITY_HIGH,
+        {
+          parentTaskId: replacementParent,
+          isReplacement: true,
+          replacementFor: hauler.name,
+          dedupeKey: replacementParent,
+          spawnReason: 'lifecyclePredictor',
+        },
       );
       const entry = spawnQueue.queue[spawnQueue.queue.length - 1];
       entry.origin = 'lifecyclePredictor';

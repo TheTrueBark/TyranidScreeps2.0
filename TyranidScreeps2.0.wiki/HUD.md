@@ -13,4 +13,5 @@ This indicates three of the five planned structures in `extCluster1` have been b
 
 - The left HUD column displays spawn energy status, current queue entries, and overall room energy availability. The panel is shown by default (`Memory.settings.showSpawnQueueHud = true`).
 - The right column hosts the Task Board with two task sections: `Tasks Planned` (queued, unclaimed work) and `Tasks In Progress` (claimed tasks with `claimedUntil > Game.time`), followed by energy logistics summaries. This keeps spawn demand visible while remaining unobtrusive on the edge of the room view.
+- The right column also shows `Spawn Limits` so role caps and manual overrides are visible while debugging economy behavior.
 - Reservations for spawn energy update in real time so the board reflects energy in transit; once the spawn is full the entry shows as fully reserved instead of queueing new haulers.

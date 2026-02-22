@@ -87,4 +87,27 @@ describe('hudManager spawn queue panel', function () {
     expect(lines).to.include('  1. Spawn Miner [p1] • Spawn Manager');
     expect(lines).to.include('  1. Spawn Hauler [p2] • Spawn Manager');
   });
+
+  it('shows spawn limits with manual overrides', function () {
+    const hudManager = require('../manager.hud');
+    Game.creeps = {
+      m1: { memory: { role: 'miner' }, room: { name: 'W1N1' } },
+      h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' } },
+      b1: { memory: { role: 'builder' }, room: { name: 'W1N1' } },
+      u1: { memory: { role: 'upgrader' }, room: { name: 'W1N1' } },
+    };
+    Memory.rooms = {
+      W1N1: {
+        spawnLimits: { miners: 2, haulers: 3, upgraders: 4 },
+        manualSpawnLimits: { haulers: 5, upgraders: 'auto' },
+      },
+    };
+
+    const lines = hudManager._buildSpawnLimitLines({ name: 'W1N1' });
+    expect(lines).to.include('Spawn Limits');
+    expect(lines).to.include('  Miners 1/2 (a)');
+    expect(lines).to.include('  Haulers 1/5 (m)');
+    expect(lines).to.include('  Upgraders 1/4 (a)');
+    expect(lines.some((line) => line.includes('Workers'))).to.equal(false);
+  });
 });

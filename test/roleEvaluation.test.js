@@ -106,4 +106,39 @@ describe('hive.roles evaluateRoom', function() {
     expect(limits.upgraders).to.be.at.least(1);
     expect(limits.workers).to.be.at.least(limits.upgraders);
   });
+
+  it('holds builder cap briefly after demand drops to avoid oscillation', function() {
+    const room = Game.rooms['W1N1'];
+    room.find = type => {
+      if (type === FIND_SOURCES) {
+        return [{ id: 's1', energyCapacity: 3000, pos: {} }];
+      }
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [{ id: 'c1', structureType: STRUCTURE_EXTENSION }];
+      }
+      if (type === FIND_STRUCTURES) return [];
+      return [];
+    };
+    room.memory.buildingQueue = [{ id: 'c1', priority: 100 }];
+    roles.evaluateRoom(room);
+    const firstLimit = Memory.rooms['W1N1'].spawnLimits.builders;
+    expect(firstLimit).to.be.at.least(1);
+
+    Game.creeps = {
+      b1: {
+        memory: { role: 'builder' },
+        room: { name: 'W1N1' },
+      },
+    };
+    room.find = type => {
+      if (type === FIND_SOURCES) return [{ id: 's1', energyCapacity: 3000, pos: {} }];
+      if (type === FIND_CONSTRUCTION_SITES) return [];
+      if (type === FIND_STRUCTURES) return [];
+      return [];
+    };
+    room.memory.buildingQueue = [];
+    roles.evaluateRoom(room);
+    const secondLimit = Memory.rooms['W1N1'].spawnLimits.builders;
+    expect(secondLimit).to.equal(firstLimit);
+  });
 });

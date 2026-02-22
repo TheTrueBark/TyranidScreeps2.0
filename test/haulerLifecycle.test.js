@@ -57,6 +57,8 @@ describe('hauler lifecycle predictor', function() {
     const entry = spawnQueue.queue[0];
     expect(entry.origin).to.equal('lifecyclePredictor');
     expect(entry.memory.originCreep).to.equal('hauler1');
+    expect(entry.isReplacement).to.equal(true);
+    expect(entry.parentTaskId).to.equal('haulerReplacement:W1N1:r1');
     expect(entry.priority).to.equal(spawnManager.PRIORITY_HIGH);
   });
 

@@ -30,6 +30,40 @@ function computeHaulerCap(roomName) {
   return Math.max(miners, 0);
 }
 
+function countReplacementCandidates(roomName) {
+  const creeps = Object.values(Game.creeps || {});
+  let count = 0;
+  for (const creep of creeps) {
+    if (
+      !creep ||
+      !creep.memory ||
+      creep.memory.role !== 'hauler' ||
+      !creep.room ||
+      creep.room.name !== roomName ||
+      typeof creep.ticksToLive !== 'number' ||
+      !Array.isArray(creep.body)
+    ) {
+      continue;
+    }
+    const spawnLead = creep.body.length * CREEP_SPAWN_TIME + 12;
+    if (creep.ticksToLive <= spawnLead) count += 1;
+  }
+  return count;
+}
+
+function clampHaulerTaskAmount(task, cap, haulersAlive, queuedRegularHaulers) {
+  if (!task || typeof cap !== 'number' || !Number.isFinite(cap)) return 0;
+  const maxTaskAmount = Math.max(
+    0,
+    Math.floor(cap) - haulersAlive - queuedRegularHaulers,
+  );
+  const currentAmount = Math.max(0, task.amount || 0);
+  if (currentAmount > maxTaskAmount) {
+    task.amount = maxTaskAmount;
+  }
+  return Math.max(0, task.amount || 0);
+}
+
 function initMemory() {
   if (!Memory.demand || !Memory.demand.rooms) {
     Memory.demand = {
@@ -378,8 +412,16 @@ const demandModule = {
           q.room === roomName &&
           (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')),
       ).length;
+      const queuedReplacementHaulers = spawnQueue.queue.filter(
+        (q) =>
+          q.room === roomName &&
+          (q.category === 'hauler' || (q.memory && q.memory.role === 'hauler')) &&
+          q.isReplacement &&
+          (!q.ticksToSpawn || q.ticksToSpawn <= 0),
+      ).length;
+      const queuedRegularHaulers = Math.max(0, queuedHaulers - queuedReplacementHaulers);
       const currentAmount =
-        haulersAlive + queuedHaulers + (existing ? existing.amount || 0 : 0);
+        haulersAlive + queuedRegularHaulers + (existing ? existing.amount || 0 : 0);
 
       const roomMem = getRoomMem(roomName);
       const demandRate = roomMem.totals.demandRate;
@@ -435,15 +477,32 @@ const demandModule = {
         Memory.rooms[roomName].spawnLimits = {};
       Memory.rooms[roomName].spawnLimits.haulers = target;
       Memory.rooms[roomName].spawnLimits.maxHaulers = cap;
+      const replacementAllowance = Math.max(
+        queuedReplacementHaulers,
+        countReplacementCandidates(roomName),
+      );
+      Memory.rooms[roomName].spawnLimits.haulerReplacementAllowance =
+        replacementAllowance;
+
+      const adjustedTaskAmount = clampHaulerTaskAmount(
+        existing,
+        cap,
+        haulersAlive,
+        queuedRegularHaulers,
+      );
+      const adjustedCurrentAmount =
+        haulersAlive + queuedRegularHaulers + adjustedTaskAmount;
 
       if (cap >= 0) {
         spawnQueue.pruneRole(roomName, 'hauler', cap, {
           liveCount: haulersAlive,
+          allowedReplacementCount: replacementAllowance,
         });
       }
 
-      const needsHaulers =
-        roomsNeedingHaulers.has(roomName) || toQueue > 0;
+      const needsHaulers = roomsNeedingHaulers.has(roomName) || toQueue > 0;
+      const queueHeadroom = Math.max(0, cap - adjustedCurrentAmount);
+      toQueue = Math.min(toQueue, queueHeadroom);
 
       if (
         toQueue > 0 &&

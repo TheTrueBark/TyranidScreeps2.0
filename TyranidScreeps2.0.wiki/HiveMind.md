@@ -35,12 +35,25 @@ its queue is empty.
   minimal miner followed by a hauler must be spawned before other
   roles are considered. When available energy drops below the ideal DNA
   cost the manager automatically downgrades miners and haulers to their
-  starter bodies so bootstrap creeps can still be produced.
+  starter bodies so bootstrap creeps can still be produced. Builder demand now
+  uses a short hold window to avoid cap oscillation around construction
+  completion, builder spawn cap is constrained to 4, and additional builder
+  spawns are deferred while miner/hauler pressure is active.
 - **lifecycle** – Runs every 25 ticks via the scheduler to queue miner replacements before the current
   miner expires using precomputed travel times. A second module predicts hauler
   replacements using average roundtrip durations and only queues a new hauler
   when demand persists and no other replacement is scheduled for the same
-  route.
+  route. Retirement-stage assimilation now prefers urgent spawn-assisted recycle
+  before fallback drop+suicide, and urgent renew/recycle requests are serviced
+  before normal spawn queue work. When renew succeeds (or the creep is already
+  at full TTL), linked replacement queue entries are pruned. Renew requests are
+  now opportunistic: creeps only request renew when the full renew tick gain
+  can be applied, and they use idle-spawn windows so spawn throughput is not
+  starved by low-value renew attempts.
+- **worker/builder behavior** – Builders keep tighter local clustering around
+  active construction sites. A cluster leader handles energy fetching requests,
+  while supplied builders share energy with adjacent builders to sustain build
+  uptime.
 - **demand** – Tracks energy deliveries. When the combined
   `demandRate` for requesters exceeds the current `supplyRate` the Hive
   automatically queues enough haulers to close the gap. Delivery statistics are

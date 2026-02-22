@@ -186,12 +186,57 @@ const buildEnergySummaryLines = (room) => {
   return lines;
 };
 
+const buildSpawnLimitLines = (room) => {
+  const roomMem = (Memory.rooms && Memory.rooms[room.name]) || {};
+  const auto = roomMem.spawnLimits || {};
+  const manual = roomMem.manualSpawnLimits || {};
+  const roles = ['miners', 'haulers', 'builders', 'upgraders'];
+  const roleToCreep = {
+    miners: ['miner'],
+    haulers: ['hauler'],
+    builders: ['builder'],
+    upgraders: ['upgrader'],
+  };
+  const liveCounts = { miner: 0, hauler: 0, builder: 0, upgrader: 0 };
+  const creeps = Object.values((typeof Game !== 'undefined' && Game.creeps) || {});
+  for (const creep of creeps) {
+    if (!creep || !creep.memory || !creep.room || creep.room.name !== room.name) continue;
+    const role = creep.memory.role;
+    if (liveCounts[role] !== undefined) liveCounts[role] += 1;
+  }
+  const lines = ['Spawn Limits', '-----------------'];
+  let shown = 0;
+  for (const role of roles) {
+    const autoValue = auto[role];
+    const manualValue = manual[role];
+    const hasAuto = typeof autoValue === 'number' && Number.isFinite(autoValue);
+    const hasManual = typeof manualValue === 'number' && Number.isFinite(manualValue);
+    if (!hasAuto && !hasManual) continue;
+    const maxValue = hasManual ? manualValue : autoValue;
+    const mode = hasManual ? 'm' : 'a';
+    const label = prettifyWords(role);
+    const current = (roleToCreep[role] || []).reduce(
+      (sum, key) => sum + (liveCounts[key] || 0),
+      0,
+    );
+    lines.push(`  ${label} ${current}/${maxValue} (${mode})`);
+    shown += 1;
+  }
+  if (shown === 0) {
+    lines.push('  (none)');
+  }
+  return lines;
+};
+
 const drawTaskHud = (room) => {
   const taskLines = buildColonyTaskLines(room);
   const energyLines = buildEnergySummaryLines(room);
-  const combined = energyLines.length
-    ? [...taskLines, '', ...energyLines]
-    : taskLines;
+  const limitLines = buildSpawnLimitLines(room);
+  const combined = [...taskLines, '', ...limitLines];
+  if (energyLines.length) {
+    combined.push('');
+    combined.push(...energyLines);
+  }
   visualizer.showInfo(
     combined,
     { room, pos: new RoomPosition(TASK_PANEL_POS.x, TASK_PANEL_POS.y, room.name) },
@@ -225,4 +270,5 @@ module.exports = {
   },
   _buildSpawnQueueLines: buildSpawnQueueLines,
   _buildColonyTaskLines: buildColonyTaskLines,
+  _buildSpawnLimitLines: buildSpawnLimitLines,
 };

@@ -103,4 +103,33 @@ describe('demand spawn scaling', function () {
     ).length;
     expect(immediateQueued + liveHaulers).to.be.at.most(5);
   });
+
+  it('clamps existing non-replacement hauler task amount to strict cap', function () {
+    Game.time = 200;
+    Game.creeps = {
+      h1: { memory: { role: 'hauler' }, room: { name: 'W1N1' }, store: {} },
+      m1: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+      m2: { memory: { role: 'miner' }, room: { name: 'W1N1' }, store: {} },
+    };
+    spawnQueue.queue = [];
+    Memory.htm.colonies['W1N1'].tasks = [
+      {
+        name: 'spawnHauler',
+        manager: 'spawnManager',
+        amount: 30,
+        priority: 2,
+        claimedUntil: 0,
+      },
+    ];
+    Memory.demand.rooms.W1N1.runNextTick = true;
+
+    demand.run();
+
+    const haulTask = Memory.htm.colonies['W1N1'].tasks.find(
+      (t) => t.name === 'spawnHauler' && t.manager === 'spawnManager',
+    );
+    expect(haulTask).to.exist;
+    // cap=2 (miners), one live hauler, no generic headroom => max task amount is 1
+    expect(haulTask.amount).to.be.at.most(1);
+  });
 });

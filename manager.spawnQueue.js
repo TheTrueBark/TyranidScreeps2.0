@@ -29,6 +29,7 @@ const isImmediate = (req) => getTicks(req) <= IMMEDIATE_THRESHOLD;
 const getParentTick = (req) => toNumber(req.parentTick, Number.POSITIVE_INFINITY);
 const getSubOrder = (req) => toNumber(req.subOrder, Number.POSITIVE_INFINITY);
 const getRequestId = (req) => (req.requestId || '');
+const isReplacement = (req) => Boolean(req && req.isReplacement);
 
 const buildGroupPriorityMap = (requests) => {
   const map = new Map();
@@ -69,8 +70,11 @@ const compareRequestsFactory = (priorityMap) => (a, b) => {
   const bParentTick = getParentTick(b);
   const aPriority = getPriority(a);
   const bPriority = getPriority(b);
+  const aReplacement = isReplacement(a);
+  const bReplacement = isReplacement(b);
 
   if (aImmediate) {
+    if (aReplacement !== bReplacement) return aReplacement ? -1 : 1;
     if (aGroupPriority !== bGroupPriority) return aGroupPriority - bGroupPriority;
     if (aParentTick !== bParentTick) return aParentTick - bParentTick;
 
@@ -87,6 +91,7 @@ const compareRequestsFactory = (priorityMap) => (a, b) => {
     if (aTicks !== bTicks) return aTicks - bTicks;
   } else {
     if (aTicks !== bTicks) return aTicks - bTicks;
+    if (aReplacement !== bReplacement) return aReplacement ? -1 : 1;
     if (aGroupPriority !== bGroupPriority) return aGroupPriority - bGroupPriority;
     if (aParentTick !== bParentTick) return aParentTick - bParentTick;
 
@@ -190,6 +195,10 @@ const spawnQueue = {
         options.parentTick !== undefined ? options.parentTick : Number.POSITIVE_INFINITY,
       groupPriorityHint: priority,
       ignoreRestriction: Boolean(options.ignoreRestriction),
+      isReplacement: Boolean(options.isReplacement),
+      replacementFor: options.replacementFor || null,
+      spawnReason: options.spawnReason || null,
+      dedupeKey: options.dedupeKey || null,
     };
     this.queue.push(entry);
 
@@ -288,9 +297,17 @@ const spawnQueue = {
     if (
       Memory.rooms &&
       Memory.rooms[room.name] &&
-      Memory.rooms[room.name].spawnLimits &&
-      typeof Memory.rooms[room.name].spawnLimits.maxHaulers === 'number'
+      Memory.rooms[room.name].spawnLimits
     ) {
+      const spawnLimits = Memory.rooms[room.name].spawnLimits;
+      const haulerCap =
+        typeof spawnLimits.maxHaulers === 'number'
+          ? spawnLimits.maxHaulers
+          : spawnLimits.haulers;
+      const replacementAllowance =
+        typeof spawnLimits.haulerReplacementAllowance === 'number'
+          ? Math.max(0, Math.floor(spawnLimits.haulerReplacementAllowance))
+          : 0;
       const liveHaulers = Object.values(Game.creeps || {}).filter(
         (creep) =>
           creep &&
@@ -299,9 +316,13 @@ const spawnQueue = {
           creep.room &&
           creep.room.name === room.name,
       ).length;
-      this.pruneRole(room.name, 'hauler', Memory.rooms[room.name].spawnLimits.maxHaulers, {
-        liveCount: liveHaulers,
-      });
+      if (typeof haulerCap === 'number' && Number.isFinite(haulerCap)) {
+        this.dedupeRole(room.name, 'hauler');
+        this.pruneRole(room.name, 'hauler', haulerCap, {
+          liveCount: liveHaulers,
+          allowedReplacementCount: replacementAllowance,
+        });
+      }
     }
     this.queue = this.getOrderedQueue(this.queue);
   },
@@ -406,7 +427,11 @@ const spawnQueue = {
    */
   pruneRole(roomName, role, limit, options = {}) {
     if (typeof limit !== 'number' || !Number.isFinite(limit)) return 0;
-    const { liveCount = 0, respectDelayed = true } = options;
+    const {
+      liveCount = 0,
+      respectDelayed = true,
+      allowedReplacementCount = 0,
+    } = options;
     const relevant = this.queue.filter(
       (req) =>
         req.room === roomName &&
@@ -416,32 +441,47 @@ const spawnQueue = {
     if (relevant.length === 0) return 0;
 
     let delayedCount = 0;
-    const immediate = [];
+    const immediateRegular = [];
+    const immediateReplacement = [];
     for (const req of relevant) {
       if (req.ignoreRestriction) continue;
       const delay =
         typeof req.ticksToSpawn === 'number' ? req.ticksToSpawn : 0;
       if (respectDelayed && delay > 0) delayedCount += 1;
-      else immediate.push(req);
+      else if (isReplacement(req)) immediateReplacement.push(req);
+      else immediateRegular.push(req);
     }
 
-    const allowedQueued = Math.max(
+    const allowedRegular = Math.max(
       0,
       Math.floor(limit) - liveCount - delayedCount,
     );
-    if (immediate.length <= allowedQueued) return 0;
+    const allowedReplacement = Math.max(0, Math.floor(allowedReplacementCount));
+    const overage =
+      Math.max(0, immediateRegular.length - allowedRegular) +
+      Math.max(0, immediateReplacement.length - allowedReplacement);
+    if (overage === 0) return 0;
 
-    const overage = immediate.length - allowedQueued;
+    const immediate = [...immediateRegular, ...immediateReplacement];
     const priorityMap = buildGroupPriorityMap(immediate);
     const comparator = compareRequestsFactory(priorityMap);
     const ordered = immediate.slice().sort(comparator);
 
     let removed = 0;
+    let regularToRemove = Math.max(0, immediateRegular.length - allowedRegular);
+    let replacementToRemove = Math.max(
+      0,
+      immediateReplacement.length - allowedReplacement,
+    );
     for (let i = ordered.length - 1; i >= 0 && removed < overage; i--) {
       const req = ordered[i];
+      if (isReplacement(req) && replacementToRemove <= 0) continue;
+      if (!isReplacement(req) && regularToRemove <= 0) continue;
       const index = this.queue.indexOf(req);
       if (index !== -1) {
         this.queue.splice(index, 1);
+        if (isReplacement(req)) replacementToRemove -= 1;
+        else regularToRemove -= 1;
         removed += 1;
       }
     }
@@ -450,6 +490,121 @@ const spawnQueue = {
       logger.log(
         'spawnQueue',
         `Trimmed ${removed} ${role} request(s) for ${roomName} to satisfy cap ${limit}`,
+        2,
+      );
+    }
+    return removed;
+  },
+
+  /**
+   * Remove duplicate queued requests for a role in a room using a stable signature
+   * (dedupeKey, replacement group, parent task, assignment route).
+   * Keeps the highest-priority request per signature.
+   */
+  dedupeRole(roomName, role) {
+    const relevant = this.queue.filter(
+      (req) =>
+        req.room === roomName &&
+        (req.category === role || (req.memory && req.memory.role === role)),
+    );
+    if (relevant.length <= 1) return 0;
+
+    const signatureOf = (req) => {
+      if (req.dedupeKey) return `key:${req.dedupeKey}`;
+      if (req.isReplacement && req.parentTaskId) return `repl-parent:${req.parentTaskId}`;
+      if (req.isReplacement && req.replacementFor) return `repl-creep:${req.replacementFor}`;
+      if (
+        req.memory &&
+        req.memory.assignment &&
+        req.memory.assignment.routeId
+      ) {
+        const prefix = req.isReplacement ? 'repl-route' : 'route';
+        return `${prefix}:${req.memory.assignment.routeId}`;
+      }
+      if (req.parentTaskId) return `parent:${req.parentTaskId}:${role}`;
+      return null;
+    };
+
+    const groups = new Map();
+    for (const req of relevant) {
+      const signature = signatureOf(req);
+      if (!signature) continue;
+      if (!groups.has(signature)) groups.set(signature, []);
+      groups.get(signature).push(req);
+    }
+
+    let removed = 0;
+    for (const [, items] of groups.entries()) {
+      if (items.length <= 1) continue;
+      const priorityMap = buildGroupPriorityMap(items);
+      const comparator = compareRequestsFactory(priorityMap);
+      const ordered = items.slice().sort(comparator);
+      for (let i = 1; i < ordered.length; i++) {
+        const idx = this.queue.indexOf(ordered[i]);
+        if (idx !== -1) {
+          this.queue.splice(idx, 1);
+          removed += 1;
+        }
+      }
+    }
+
+    if (removed > 0) {
+      logger.log(
+        'spawnQueue',
+        `Deduped ${removed} ${role} request(s) in ${roomName}`,
+        2,
+      );
+      if (removed >= 5) {
+        incidentDebug.captureAuto(
+          'spawn-queue-hauler-spam',
+          { room: roomName, role, removed },
+          {
+            minInterval: 50,
+            windowTicks: Memory.settings && Memory.settings.incidentLogWindow,
+          },
+        );
+      }
+    }
+    return removed;
+  },
+
+  /**
+   * Remove replacement queue entries linked to a specific living creep.
+   * Useful when a renew succeeded and the replacement is no longer needed.
+   *
+   * @param {string} roomName
+   * @param {string} role
+   * @param {object} creep
+   * @returns {number}
+   */
+  removeReplacementForCreep(roomName, role, creep) {
+    if (!creep || !creep.name) return 0;
+    const routeId =
+      creep.memory &&
+      creep.memory.assignment &&
+      creep.memory.assignment.routeId
+        ? creep.memory.assignment.routeId
+        : null;
+    const parentKey = routeId ? `haulerReplacement:${roomName}:${routeId}` : null;
+    const before = this.queue.length;
+    this.queue = this.queue.filter((req) => {
+      if (
+        req.room !== roomName ||
+        (req.category !== role && (!req.memory || req.memory.role !== role))
+      ) {
+        return true;
+      }
+      if (!req.isReplacement) return true;
+      if (req.replacementFor && req.replacementFor === creep.name) return false;
+      if (req.memory && req.memory.originCreep === creep.name) return false;
+      if (parentKey && req.parentTaskId === parentKey) return false;
+      return true;
+    });
+    const removed = before - this.queue.length;
+    if (removed > 0) {
+      logger.log(
+        'spawnQueue',
+        `Removed ${removed} replacement ${role} request(s) after renew for ${creep.name}`,
         2,
       );
     }
