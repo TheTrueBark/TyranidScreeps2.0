@@ -13,6 +13,27 @@ describe('baseplanner phase 2 algorithm primitives', function () {
     expect(out.every((p) => p.d <= 2)).to.equal(true);
   });
 
+  it('flood fill supports weighted terrain costs and 4-way expansion', function () {
+    const { floodFill } = require('../algorithm.floodFill');
+    const walkable = new Array(2500).fill(1);
+    const terrain = new Array(2500).fill(0);
+    terrain[25 * 50 + 26] = 1; // swamp on east tile
+
+    const weighted = floodFill(walkable, { x: 25, y: 25 }, {
+      weighted: true,
+      diagonal: false,
+      terrainMatrix: terrain,
+      maxDepth: 2,
+      maxCost: 4,
+    });
+
+    const east = weighted.find((p) => p.x === 26 && p.y === 25);
+    expect(east).to.not.exist; // excluded by maxCost due to swamp weight
+    const north = weighted.find((p) => p.x === 25 && p.y === 24);
+    expect(north).to.exist;
+    expect(north.cost).to.equal(1);
+  });
+
   it('checkerboard helper classifies structure vs road parity', function () {
     const checkerboard = require('../algorithm.checkerboard');
     const parity = checkerboard.parityAt(10, 10);
@@ -21,7 +42,7 @@ describe('baseplanner phase 2 algorithm primitives', function () {
     expect(checkerboard.sameParity({ x: 10, y: 10 }, { x: 12, y: 12 })).to.equal(true);
   });
 
-  it('min-cut proxy computes rampart candidates around structure envelope', function () {
+  it('min-cut flow computes rampart candidates around structure envelope', function () {
     const { computeRampartCut } = require('../algorithm.minCut');
     const ctx = {
       structuresByPos: new Map([
@@ -37,9 +58,12 @@ describe('baseplanner phase 2 algorithm primitives', function () {
 
     const result = computeRampartCut(ctx, { margin: 3 });
     expect(result).to.exist;
-    expect(result.meta).to.have.property('method', 'proxy-mincut');
+    expect(result.meta).to.have.property('method', 'flow-mincut');
     expect(result.line).to.be.an('array').that.is.not.empty;
-    const hasTopLeft = result.line.some((p) => p.x === 17 && p.y === 17);
-    expect(hasTopLeft).to.equal(true);
+    expect(result.line.some((p) => p.x === 20 && p.y === 20)).to.equal(false);
+    expect(result.meta).to.have.property('flow');
+    expect(result.meta).to.have.property('continuity');
+    expect(result.meta.continuity).to.have.property('connected');
+    expect(result.meta.continuity.connected).to.equal(true);
   });
 });

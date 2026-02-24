@@ -75,4 +75,50 @@ describe('buildingManager.executeLayout', function() {
     const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
     expect(container).to.be.undefined;
   });
+
+  it('consumes basePlan buildQueue before legacy layout matrix', function() {
+    Memory.rooms.W1N1.basePlan = {
+      buildQueue: [
+        {
+          type: STRUCTURE_SPAWN,
+          pos: { x: 12, y: 12 },
+          rcl: 1,
+          priority: 1,
+          built: false,
+        },
+      ],
+    };
+    buildingManager.executeLayout(Game.rooms.W1N1);
+    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    expect(container).to.exist;
+    expect(container.tasks).to.have.lengthOf(1);
+    expect(container.tasks[0].data).to.include({
+      x: 12,
+      y: 12,
+      structureType: STRUCTURE_SPAWN,
+      queueSource: 'basePlan',
+    });
+  });
+
+  it('marks basePlan queue entry built when structure already exists', function() {
+    Memory.rooms.W1N1.basePlan = {
+      buildQueue: [
+        {
+          type: STRUCTURE_SPAWN,
+          pos: { x: 12, y: 12 },
+          rcl: 1,
+          priority: 1,
+          built: false,
+        },
+      ],
+    };
+    Game.rooms.W1N1.lookForAt = (type, x, y) =>
+      type === LOOK_STRUCTURES && x === 12 && y === 12 ? [{ structureType: STRUCTURE_SPAWN }] : [];
+
+    buildingManager.executeLayout(Game.rooms.W1N1);
+
+    expect(Memory.rooms.W1N1.basePlan.buildQueue[0].built).to.equal(true);
+    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    expect(container).to.be.undefined;
+  });
 });

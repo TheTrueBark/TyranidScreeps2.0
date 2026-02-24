@@ -71,6 +71,13 @@ describe('layoutPlanner.plan', function() {
     expect(layout.theoretical).to.have.property('selectedWeightedScore');
     expect(layout.theoretical.candidates).to.be.an('array').that.is.not.empty;
     expect(layout.roadMatrix).to.be.an('object');
+    expect(Memory.rooms['W1N1'].basePlan).to.exist;
+    expect(Memory.rooms['W1N1'].basePlan).to.have.property('spawnPos');
+    expect(Memory.rooms['W1N1'].basePlan).to.have.property('buildQueue');
+    expect(Memory.rooms['W1N1'].basePlan.buildQueue).to.be.an('array').that.is.not.empty;
+    expect(Memory.rooms['W1N1'].basePlan).to.have.property('evaluation');
+    expect(Memory.rooms['W1N1'].basePlan).to.have.property('validation');
+    expect(Memory.rooms['W1N1'].basePlan.validation).to.have.property('valid');
   });
 
   it('splits theoretical candidate planning into HTM subtasks', function() {
@@ -154,6 +161,47 @@ describe('layoutPlanner.plan', function() {
     expect(after.theoretical.checklist.debug).to.exist;
     expect(after.theoretical.checklist.debug.phaseWindow.from).to.equal(8);
     expect(after.theoretical.checklist.debug.phaseWindow.to).to.equal(9);
+  });
+
+
+
+  it('supports manual phase initialization mode for independent phase range recomputation', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningManualMode: true,
+      layoutPlanningTopCandidates: 2,
+      layoutPlanningCandidatesPerTick: 5,
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    expect(Memory.rooms['W1N1'].layout.theoretical).to.not.exist;
+
+    const queued = layoutPlanner.initializeManualPhaseRun('W1N1', 4, 1);
+    expect(queued).to.equal(true);
+
+    for (let i = 0; i < 6; i++) {
+      Game.time += 1;
+      layoutPlanner.buildTheoreticalLayout('W1N1');
+    }
+
+    const layout = Memory.rooms['W1N1'].layout;
+    expect(layout.theoreticalPipeline).to.exist;
+    expect(['paused_phase_9', 'completed']).to.include(layout.theoreticalPipeline.status);
+    expect(layout.theoretical).to.exist;
+    expect(layout.theoretical.selectedCandidateIndex).to.be.a('number');
+
+    const queuedRecalc = layoutPlanner.initializeManualPhaseRun('W1N1', 4, 3);
+    expect(queuedRecalc).to.equal(true);
+    Game.time += 1;
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    expect(layout.manualPhaseRequest).to.not.exist;
   });
 
   it('switches displayed building overlay candidate via settings index', function() {

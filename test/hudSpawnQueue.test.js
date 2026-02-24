@@ -139,6 +139,38 @@ describe('hudManager spawn queue panel', function () {
     expect(lines).to.include('  Haulers 1/2 (a)');
   });
 
+  it('shows base plan progress, score and next build entry', function () {
+    const hudManager = require('../manager.hud');
+    Memory.rooms = {
+      W1N1: {
+        basePlan: {
+          spawnPos: { x: 24, y: 26 },
+          evaluation: { weightedScore: 0.81234 },
+          validation: { valid: false, issues: ['lab-range-fail:30:30'] },
+          buildQueue: [
+            { type: 'spawn', pos: { x: 24, y: 26 }, built: true },
+            { type: 'extension', pos: { x: 25, y: 26 }, built: false },
+          ],
+        },
+      },
+    };
+
+    const lines = hudManager._buildBasePlanLines({ name: 'W1N1' });
+    expect(lines).to.include('Base Plan');
+    expect(lines).to.include('  Status: ready (1/2)');
+    expect(lines).to.include('  Spawn: 24,26');
+    expect(lines).to.include('  Score: 0.812');
+    expect(lines).to.include('  Validation: warn (1)');
+    expect(lines).to.include('  Next: Extension @25,26');
+  });
+
+  it('shows missing status when no base plan is present', function () {
+    const hudManager = require('../manager.hud');
+    Memory.rooms = { W1N1: {} };
+    const lines = hudManager._buildBasePlanLines({ name: 'W1N1' });
+    expect(lines).to.deep.equal(['Base Plan', '-----------------', '  Status: missing']);
+  });
+
   it('still draws layout overlay when regular visuals are disabled', function () {
     const hudManager = require('../manager.hud');
     const layoutVisualizer = require('../layoutVisualizer');

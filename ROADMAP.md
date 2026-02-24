@@ -193,9 +193,9 @@
 - [x] Add builder-debug controls for phased Baseplanner iteration: HUD phase-window markers, selective theoretical recalculation scopes, and dedicated flood-depth overlay for per-step diagnostics.
 - [x] Implement Phase 2 (Algorithms): flood fill, min-cut integration, checkerboard placement primitives. *(2026-02: added `algorithm.floodFill.js`, `algorithm.minCut.js` (proxy cut), `algorithm.checkerboard.js` and wired them into `planner.buildCompendium.js`.)*
 - [x] Implement Phase 3 (Placement): core/controller/source/lab/tower/rampart/road generation. *(2026-02: `planner.buildCompendium.js` placement pipeline validated and now emits `buildQueue`-ready plans.)*
-- [ ] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection.
-- [ ] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption.
-- [ ] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling.
+- [x] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection. *(2026-02: `planner.buildCompendium.js` now exposes phase-specific APIs (`evaluateLayoutForRoom`, `generateCompleteLayout`, `generateOptimalLayout`) and performs weighted candidate selection across generated layouts.)*
+- [x] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption. *(2026-02: theoretical winner now persists to `Memory.rooms[room].basePlan`, HUD displays base plan status/score/next item, and `manager.building.executeLayout` consumes `basePlan.buildQueue` before legacy matrix tasks.)*
+- [x] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling. *(2026-02: `manager.basePlanValidation.js` now covers queue shape/bounds/border, overlap handling, extension RCL-cap normalization, controller-container + lab-range + rampart-connectivity checks, and records validation duration (`durationMs`) for profiling; manual phase initialization remains available for targeted recomputation.)*
 
 ---
 ## 🧭 Movement & Pathing

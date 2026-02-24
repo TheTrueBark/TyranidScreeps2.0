@@ -247,11 +247,44 @@ const buildSpawnLimitLines = (room) => {
   return lines;
 };
 
+const buildBasePlanLines = (room) => {
+  const roomMem = (Memory.rooms && Memory.rooms[room.name]) || {};
+  const plan = roomMem.basePlan;
+  const lines = ['Base Plan', '-----------------'];
+  if (!plan || !Array.isArray(plan.buildQueue)) {
+    lines.push('  Status: missing');
+    return lines;
+  }
+
+  const total = plan.buildQueue.length;
+  const built = plan.buildQueue.filter((entry) => entry && entry.built).length;
+  lines.push(`  Status: ready (${built}/${total})`);
+  if (plan.spawnPos && typeof plan.spawnPos.x === 'number') {
+    lines.push(`  Spawn: ${plan.spawnPos.x},${plan.spawnPos.y}`);
+  }
+  if (plan.evaluation && typeof plan.evaluation.weightedScore === 'number') {
+    lines.push(`  Score: ${plan.evaluation.weightedScore.toFixed(3)}`);
+  }
+  if (plan.validation) {
+    const issueCount = Array.isArray(plan.validation.issues) ? plan.validation.issues.length : 0;
+    lines.push(`  Validation: ${plan.validation.valid ? 'ok' : `warn (${issueCount})`}`);
+  }
+
+  const next = plan.buildQueue.find((entry) => entry && !entry.built);
+  if (next && next.type && next.pos) {
+    lines.push(`  Next: ${prettifyWords(next.type)} @${next.pos.x},${next.pos.y}`);
+  } else {
+    lines.push('  Next: complete');
+  }
+  return lines;
+};
+
 const drawTaskHud = (room) => {
   const taskLines = buildColonyTaskLines(room);
   const energyLines = buildEnergySummaryLines(room);
   const limitLines = buildSpawnLimitLines(room);
-  const combined = [...taskLines, '', ...limitLines];
+  const basePlanLines = buildBasePlanLines(room);
+  const combined = [...taskLines, '', ...limitLines, '', ...basePlanLines];
   if (energyLines.length) {
     combined.push('');
     combined.push(...energyLines);
@@ -355,4 +388,5 @@ module.exports = {
   _buildSpawnQueueLines: buildSpawnQueueLines,
   _buildColonyTaskLines: buildColonyTaskLines,
   _buildSpawnLimitLines: buildSpawnLimitLines,
+  _buildBasePlanLines: buildBasePlanLines,
 };
