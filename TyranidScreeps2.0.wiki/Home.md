@@ -8,6 +8,7 @@ Welcome to the Tyranid Screeps knowledge base. This wiki replaces the legacy `do
 - [[Settings]] - runtime flags under `Memory.settings`
 - [[Console Stats]] - HUD and CLI tooling for observability
 - [[Scheduler]] - central task orchestration entry point
+- [[Baseplanner-Roadmap]] - full dynamic basebuilding implementation specification and phased rollout checklist
 
 ## Core Systems
 - [[Hierarchical Task Management]] - HTM design, task flow, and lifecycle

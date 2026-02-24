@@ -164,6 +164,17 @@
 
 ---
 
+
+### 🧭 Baseplanner Master-Spec (Prio 5)
+- [x] Integrate comprehensive dynamic baseplanner implementation paper into project docs (`TyranidScreeps2.0.wiki/Baseplanner-Roadmap.md`).
+- [ ] Implement Phase 1 (Foundation): planner scaffolding, utility math, terrain/exit preprocessing.
+- [ ] Implement Phase 2 (Algorithms): flood fill, min-cut integration, checkerboard placement primitives.
+- [ ] Implement Phase 3 (Placement): core/controller/source/lab/tower/rampart/road generation.
+- [ ] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection.
+- [ ] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption.
+- [ ] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling.
+
+---
 ## 🧭 Movement & Pathing
 
 ### 🧍 HiveTravel Integration (Prio 3)
