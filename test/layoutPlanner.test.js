@@ -67,6 +67,7 @@ describe('layoutPlanner.plan', function() {
     expect(layout.theoretical.spawnCandidate).to.include.keys('x', 'y', 'score');
     expect(layout.theoretical.upgraderSlots).to.be.an('array').that.has.lengthOf(8);
     expect(layout.theoretical.sourceContainers).to.be.an('array').that.has.lengthOf(2);
+    expect(layout.theoretical.floodTiles).to.be.an('array').that.is.not.empty;
     expect(layout.theoretical).to.have.property('selectedWeightedScore');
     expect(layout.theoretical.candidates).to.be.an('array').that.is.not.empty;
     expect(layout.roadMatrix).to.be.an('object');
@@ -108,6 +109,51 @@ describe('layoutPlanner.plan', function() {
     expect(layout.theoretical.selectedWeightedScore).to.be.a('number');
     expect(layout.theoretical.selectedCandidateIndex).to.be.a('number');
     expect(layout.theoreticalPipeline.status).to.equal('completed');
+  });
+
+
+
+  it('supports scoped theoretical recalculation for debug phase windows', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 3,
+      layoutPlanningCandidatesPerTick: 5,
+      layoutPlanningDebugPhaseFrom: 8,
+      layoutPlanningDebugPhaseTo: 9,
+      layoutPlanningRecalcScope: 'evaluation',
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.buildTheoreticalLayout('W1N1');
+    const before = Memory.rooms['W1N1'].layout.theoreticalPipeline;
+    expect(before).to.exist;
+
+    const ok = layoutPlanner.recalculateRoom('W1N1', {
+      mode: 'theoretical',
+      subPhase: 'evaluation',
+      phaseFrom: 8,
+      phaseTo: 9,
+      scrubDistanceTransform: false,
+    });
+    expect(ok).to.equal(true);
+
+    for (let i = 0; i < 4; i++) {
+      Game.time += 1;
+      layoutPlanner.buildTheoreticalLayout('W1N1');
+    }
+
+    const after = Memory.rooms['W1N1'].layout;
+    expect(after.theoretical).to.exist;
+    expect(after.theoretical.checklist).to.exist;
+    expect(after.theoretical.checklist.debug).to.exist;
+    expect(after.theoretical.checklist.debug.phaseWindow.from).to.equal(8);
+    expect(after.theoretical.checklist.debug.phaseWindow.to).to.equal(9);
   });
 
   it('switches displayed building overlay candidate via settings index', function() {

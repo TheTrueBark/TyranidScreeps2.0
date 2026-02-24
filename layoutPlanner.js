@@ -113,6 +113,36 @@ function normalizeCandidatesPerTick(value) {
   return Math.max(1, Math.min(5, Math.floor(value)));
 }
 
+function normalizePhase(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(1, Math.min(10, Math.floor(num)));
+}
+
+function readPhaseWindow() {
+  const from = normalizePhase(
+    readNumberSetting('layoutPlanningDebugPhaseFrom', 1),
+    1,
+  );
+  const to = normalizePhase(
+    readNumberSetting('layoutPlanningDebugPhaseTo', 10),
+    10,
+  );
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
+function readRecalcScope() {
+  const value =
+    Memory && Memory.settings && typeof Memory.settings.layoutPlanningRecalcScope === 'string'
+      ? Memory.settings.layoutPlanningRecalcScope
+      : 'all';
+  const normalized = String(value || 'all').toLowerCase();
+  if (['all', 'foundation', 'placement', 'evaluation', 'persist'].includes(normalized)) {
+    return normalized;
+  }
+  return 'all';
+}
+
 function isWalkable(room, x, y) {
   if (!room || !inBounds(x, y)) return false;
   const terrain = room.getTerrain();
@@ -748,6 +778,96 @@ const layoutPlanner = {
     }
   },
 
+  _resolveRecalculateDebugOptions(options = {}) {
+    const phaseFrom = normalizePhase(options.phaseFrom, 1);
+    const phaseTo = normalizePhase(options.phaseTo, 10);
+    const from = Math.min(phaseFrom, phaseTo);
+    const to = Math.max(phaseFrom, phaseTo);
+    const subPhaseRaw = options.subPhase ? String(options.subPhase).toLowerCase() : null;
+    const subPhaseMap = {
+      foundation: { from: 1, to: 3 },
+      placement: { from: 4, to: 7 },
+      evaluation: { from: 8, to: 9 },
+      persist: { from: 10, to: 10 },
+      all: { from: 1, to: 10 },
+    };
+    const mapped = subPhaseRaw && subPhaseMap[subPhaseRaw] ? subPhaseMap[subPhaseRaw] : null;
+    return {
+      phaseFrom: mapped ? mapped.from : from,
+      phaseTo: mapped ? mapped.to : to,
+      subPhase: mapped ? subPhaseRaw : null,
+      fullReset: (mapped ? mapped.from : from) <= 3,
+    };
+  },
+
+  _resetTheoreticalFromPhase(roomName, debugOptions, options = {}) {
+    htm.init();
+    const mem = Memory.rooms && Memory.rooms[roomName];
+    if (!mem || !mem.layout) return false;
+    const layout = mem.layout;
+    const pipeline = layout.theoreticalPipeline;
+    if (!pipeline || !Array.isArray(pipeline.candidates) || !pipeline.candidates.length) {
+      return false;
+    }
+
+    if (debugOptions.phaseFrom <= 7) {
+      pipeline.results = {};
+      pipeline.bestCandidateIndex = null;
+      pipeline.activeCandidateIndex = null;
+      pipeline.status = 'running';
+      pipeline.updatedAt = Game.time;
+      delete pipeline.completedAt;
+      layout.theoreticalCandidatePlans = {};
+      this._clearTheoreticalPlanningTasks(roomName);
+      htm.addColonyTask(
+        roomName,
+        PLAN_LAYOUT_PARENT_TASK,
+        { roomName, runId: pipeline.runId, candidateCount: pipeline.candidateCount },
+        0,
+        2000,
+        1,
+        'layoutPlanner',
+        { module: 'layoutPlanner' },
+        { allowDuplicate: true },
+      );
+      for (const candidate of pipeline.candidates) {
+        htm.addColonyTask(
+          roomName,
+          PLAN_LAYOUT_CANDIDATE_TASK,
+          { roomName, runId: pipeline.runId, candidateIndex: candidate.index, anchor: candidate.anchor },
+          1,
+          2000,
+          1,
+          'layoutPlanner',
+          { module: 'layoutPlanner' },
+          { parentTaskId: pipeline.runId, subOrder: candidate.index, allowDuplicate: true },
+        );
+      }
+    }
+
+    if (debugOptions.phaseFrom >= 8) {
+      pipeline.status = 'running';
+      pipeline.updatedAt = Game.time;
+      delete pipeline.completedAt;
+      if (debugOptions.phaseFrom >= 9) {
+        pipeline.bestCandidateIndex = null;
+      }
+    }
+
+    layout.theoretical = Object.assign({}, layout.theoretical || {}, {
+      planningStatus: 'running',
+      checklist: this._buildTheoreticalChecklist(roomName, pipeline, pipeline.candidates),
+      debug: {
+        phaseFrom: debugOptions.phaseFrom,
+        phaseTo: debugOptions.phaseTo,
+        subPhase: debugOptions.subPhase,
+      },
+    });
+
+    if (options.scrubDistanceTransform) delete mem.distanceTransform;
+    return true;
+  },
+
   recalculateRoom(roomName, options = {}) {
     const room = Game.rooms[roomName];
     if (!room || !room.controller || !room.controller.my) return false;
@@ -757,12 +877,24 @@ const layoutPlanner = {
         'standard',
     ).toLowerCase();
 
-    this.resetRoomPlan(roomName, options);
-    if (mode === 'theoretical') {
-      this.buildTheoreticalLayout(roomName);
-    } else {
+    if (mode !== 'theoretical') {
+      this.resetRoomPlan(roomName, options);
       this.plan(roomName);
+      return true;
     }
+
+    const debugOptions = this._resolveRecalculateDebugOptions(options);
+    if (debugOptions.fullReset) {
+      this.resetRoomPlan(roomName, options);
+      this.buildTheoreticalLayout(roomName);
+      return true;
+    }
+
+    const resumed = this._resetTheoreticalFromPhase(roomName, debugOptions, options);
+    if (!resumed) {
+      this.resetRoomPlan(roomName, options);
+    }
+    this.buildTheoreticalLayout(roomName);
     return true;
   },
 
@@ -899,66 +1031,78 @@ const layoutPlanner = {
       };
     });
 
+    const phaseWindow = readPhaseWindow();
+    const recalcScope = readRecalcScope();
+    const stages = [
+      { number: 1, label: 'Distance Transform', status: dtReady ? 'done' : 'pending', progress: dtReady ? '✔' : 'X' },
+      {
+        number: 2,
+        label: 'Candidate Filter',
+        status: scanned ? 'done' : 'pending',
+        progress: scanned ? `✔ ${filtered}` : 'X',
+      },
+      {
+        number: 3,
+        label: 'Candidate Pre-Scoring',
+        status: total > 0 ? 'done' : 'pending',
+        progress: total > 0 ? `✔ ${total}` : 'X',
+      },
+      {
+        number: 4,
+        label: 'Core + Stations',
+        status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+      },
+      {
+        number: 5,
+        label: 'Flood Fill + Extensions',
+        status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+      },
+      {
+        number: 6,
+        label: 'Labs + Ramparts + Towers',
+        status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+      },
+      {
+        number: 7,
+        label: 'Road Networks',
+        status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+      },
+      {
+        number: 8,
+        label: 'End Evaluation (Weighted)',
+        status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+      },
+      {
+        number: 9,
+        label: 'Winner Selection',
+        status: hasWinner ? 'done' : done > 0 ? 'in_progress' : 'pending',
+        progress: hasWinner ? '✔' : done > 0 ? `${done}/${Math.max(total, 1)}` : 'X',
+      },
+      {
+        number: 10,
+        label: 'Persist + Overlay',
+        status: persisted ? 'done' : hasWinner ? 'in_progress' : 'pending',
+        progress: persisted ? '✔' : hasWinner ? '9/10' : 'X',
+      },
+    ].map((stage) =>
+      Object.assign({}, stage, {
+        activeInDebugWindow: stage.number >= phaseWindow.from && stage.number <= phaseWindow.to,
+      }),
+    );
+
     return {
-      stages: [
-        { number: 1, label: 'Distance Transform', status: dtReady ? 'done' : 'pending', progress: dtReady ? '✔' : 'X' },
-        {
-          number: 2,
-          label: 'Candidate Filter',
-          status: scanned ? 'done' : 'pending',
-          progress: scanned ? `✔ ${filtered}` : 'X',
-        },
-        {
-          number: 3,
-          label: 'Candidate Pre-Scoring',
-          status: total > 0 ? 'done' : 'pending',
-          progress: total > 0 ? `✔ ${total}` : 'X',
-        },
-        {
-          number: 4,
-          label: 'Core + Stations',
-          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
-        },
-        {
-          number: 5,
-          label: 'Flood Fill + Extensions',
-          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
-        },
-        {
-          number: 6,
-          label: 'Labs + Ramparts + Towers',
-          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
-        },
-        {
-          number: 7,
-          label: 'Road Networks',
-          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
-        },
-        {
-          number: 8,
-          label: 'End Evaluation (Weighted)',
-          status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
-        },
-        {
-          number: 9,
-          label: 'Winner Selection',
-          status: hasWinner ? 'done' : done > 0 ? 'in_progress' : 'pending',
-          progress: hasWinner ? '✔' : done > 0 ? `${done}/${Math.max(total, 1)}` : 'X',
-        },
-        {
-          number: 10,
-          label: 'Persist + Overlay',
-          status: persisted ? 'done' : hasWinner ? 'in_progress' : 'pending',
-          progress: persisted ? '✔' : hasWinner ? '9/10' : 'X',
-        },
-      ],
+      stages,
       candidateStates,
       summary: { done, total, finalized },
+      debug: {
+        phaseWindow,
+        recalcScope,
+      },
     };
   },
 
@@ -1035,6 +1179,9 @@ const layoutPlanner = {
       wallDistance: generated.analysis.dt || [],
       controllerDistance: toArrayMap(generated.analysis.controllerDistance || {}),
       floodScore: Array.isArray(generated.analysis.flood) ? generated.analysis.flood.length : 0,
+      floodTiles: Array.isArray(generated.analysis.flood)
+        ? generated.analysis.flood.map((tile) => ({ x: tile.x, y: tile.y, d: tile.d }))
+        : [],
       mincutProxy: generated.placements.filter((p) => p.type === RAMPART_TYPE).length,
       roads: roadTiles,
       validation: generated.meta.validation || [],

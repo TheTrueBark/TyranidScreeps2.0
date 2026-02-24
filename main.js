@@ -357,13 +357,14 @@ global.visual = {
       'walldistance',
       'controllerdistance',
       'flood',
+      'flooddepth',
       'spawnscore',
       'candidates',
       'evaluation',
     ];
     if (!allowed.includes(normalized)) {
       statsConsole.log(
-        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'spawnScore'|'candidates'|'evaluation')",
+        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'floodDepth'|'spawnScore'|'candidates'|'evaluation')",
         3,
       );
       return;
@@ -422,7 +423,34 @@ global.visual = {
       2,
     );
   },
-  recalculateLayout: function (roomName = null, mode = null) {
+
+  layoutPhaseWindow: function (from = 1, to = 10) {
+    if (!Memory.settings) Memory.settings = {};
+    const f = Math.max(1, Math.min(10, Math.floor(Number(from) || 1)));
+    const t = Math.max(1, Math.min(10, Math.floor(Number(to) || 10)));
+    Memory.settings.layoutPlanningDebugPhaseFrom = Math.min(f, t);
+    Memory.settings.layoutPlanningDebugPhaseTo = Math.max(f, t);
+    statsConsole.log(
+      `Layout debug phase window: ${Memory.settings.layoutPlanningDebugPhaseFrom}..${Memory.settings.layoutPlanningDebugPhaseTo}`,
+      2,
+    );
+  },
+  layoutRecalcScope: function (scope = 'all') {
+    if (!Memory.settings) Memory.settings = {};
+    const normalized = String(scope || 'all').toLowerCase();
+    const allowed = ['all', 'foundation', 'placement', 'evaluation', 'persist'];
+    if (!allowed.includes(normalized)) {
+      statsConsole.log(
+        "Usage: visual.layoutRecalcScope('all'|'foundation'|'placement'|'evaluation'|'persist')",
+        3,
+      );
+      return;
+    }
+    Memory.settings.layoutPlanningRecalcScope = normalized;
+    statsConsole.log(`Layout recalc scope: ${normalized.toUpperCase()}`, 2);
+  },
+
+  recalculateLayout: function (roomName = null, mode = null, scope = null, phaseFrom = null, phaseTo = null) {
     const ownedRooms = Object.values(Game.rooms || {}).filter(
       (room) => room && room.controller && room.controller.my,
     );
@@ -438,13 +466,22 @@ global.visual = {
       return false;
     }
     const targetMode = mode || (Memory.settings && Memory.settings.layoutPlanningMode) || 'standard';
-    const ok = layoutPlanner.recalculateRoom(targetName, { mode: targetMode, scrubDistanceTransform: true });
+    const recalcScope = String(scope || (Memory.settings && Memory.settings.layoutPlanningRecalcScope) || 'all').toLowerCase();
+    const phaseFromValue = phaseFrom !== null ? Number(phaseFrom) : (Memory.settings && Memory.settings.layoutPlanningDebugPhaseFrom);
+    const phaseToValue = phaseTo !== null ? Number(phaseTo) : (Memory.settings && Memory.settings.layoutPlanningDebugPhaseTo);
+    const ok = layoutPlanner.recalculateRoom(targetName, {
+      mode: targetMode,
+      scrubDistanceTransform: recalcScope === 'foundation' || recalcScope === 'all',
+      subPhase: recalcScope === 'all' ? null : recalcScope,
+      phaseFrom: Number.isFinite(phaseFromValue) ? phaseFromValue : 1,
+      phaseTo: Number.isFinite(phaseToValue) ? phaseToValue : 10,
+    });
     if (!ok) {
       statsConsole.log(`Layout recalculation failed for ${targetName}`, 4);
       return false;
     }
     statsConsole.log(
-      `Layout recalculation started for ${targetName} (${String(targetMode).toUpperCase()})`,
+      `Layout recalculation started for ${targetName} (${String(targetMode).toUpperCase()}, scope=${recalcScope}, phases=${Number.isFinite(phaseFromValue)?phaseFromValue:1}..${Number.isFinite(phaseToValue)?phaseToValue:10})`,
       2,
     );
     return true;
@@ -787,6 +824,9 @@ module.exports.loop = function () {
   if (Memory.settings.layoutPlanningCandidatesPerTick === undefined) Memory.settings.layoutPlanningCandidatesPerTick = 1;
   if (Memory.settings.layoutPlanningMaxCandidatesPerTick === undefined) Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
   if (Memory.settings.layoutPlanningDynamicBatching === undefined) Memory.settings.layoutPlanningDynamicBatching = true;
+  if (Memory.settings.layoutPlanningDebugPhaseFrom === undefined) Memory.settings.layoutPlanningDebugPhaseFrom = 1;
+  if (Memory.settings.layoutPlanningDebugPhaseTo === undefined) Memory.settings.layoutPlanningDebugPhaseTo = 10;
+  if (Memory.settings.layoutPlanningRecalcScope === undefined) Memory.settings.layoutPlanningRecalcScope = 'all';
 
   if (Memory.settings && Memory.settings.alwaysShowHud) {
     Memory.settings.enableVisuals = true;

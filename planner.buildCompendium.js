@@ -1,5 +1,8 @@
 /** @codex-owner layoutPlanner */
-const distanceTransform = require('./algorithm.distanceTransform');
+const foundation = require('./planner.baseplannerFoundation');
+const floodFillAlgorithm = require('./algorithm.floodFill');
+const minCutAlgorithm = require('./algorithm.minCut');
+const checkerboard = require('./algorithm.checkerboard');
 
 const STRUCTURES = {
   SPAWN: typeof STRUCTURE_SPAWN !== 'undefined' ? STRUCTURE_SPAWN : 'spawn',
@@ -70,55 +73,18 @@ function parseKey(id) {
   return { x, y };
 }
 
-function inBounds(x, y) {
-  return x >= 0 && x <= 49 && y >= 0 && y <= 49;
-}
-
-function idx(x, y) {
-  return y * 50 + x;
-}
-
-function chebyshev(a, b) {
-  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-}
-
-function manhattan(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
-function clamp01(value) {
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-
-function mean(values) {
-  if (!Array.isArray(values) || values.length === 0) return 0;
-  return values.reduce((sum, v) => sum + v, 0) / values.length;
-}
-
-function neighbors8(x, y) {
-  const out = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0) continue;
-      const nx = x + dx;
-      const ny = y + dy;
-      if (!inBounds(nx, ny)) continue;
-      out.push({ x: nx, y: ny });
-    }
-  }
-  return out;
-}
-
-function neighbors4(x, y) {
-  const out = [];
-  if (x > 0) out.push({ x: x - 1, y });
-  if (x < 49) out.push({ x: x + 1, y });
-  if (y > 0) out.push({ x, y: y - 1 });
-  if (y < 49) out.push({ x, y: y + 1 });
-  return out;
-}
+const {
+  inBounds,
+  idx,
+  chebyshev,
+  manhattan,
+  clamp01,
+  mean,
+  neighbors8,
+  neighbors4,
+  buildTerrainMatrices,
+  ensureDistanceTransform,
+} = foundation;
 
 function findFirstNonEmpty(room, queries) {
   if (!room || typeof room.find !== 'function') return [];
@@ -127,60 +93,6 @@ function findFirstNonEmpty(room, queries) {
     if (Array.isArray(found) && found.length > 0) return found;
   }
   return [];
-}
-
-function buildTerrainMatrices(room) {
-  const terrain = room.getTerrain();
-  const terrainMatrix = new Array(2500).fill(0); // 0 plain, 1 swamp, 2 wall
-  const walkableMatrix = new Array(2500).fill(1); // 1 walkable, 0 blocked
-  const edgeExits = [];
-
-  for (let y = 0; y <= 49; y++) {
-    for (let x = 0; x <= 49; x++) {
-      const id = idx(x, y);
-      const t = terrain.get(x, y);
-      if (t === TERRAIN_WALL_MASK) {
-        terrainMatrix[id] = 2;
-        walkableMatrix[id] = 0;
-      } else if (t === TERRAIN_SWAMP_MASK) {
-        terrainMatrix[id] = 1;
-      } else {
-        terrainMatrix[id] = 0;
-      }
-
-      if (walkableMatrix[id] === 1 && (x === 0 || x === 49 || y === 0 || y === 49)) {
-        edgeExits.push({ x, y });
-      }
-    }
-  }
-
-  const exitProximity = new Array(2500).fill(0);
-  for (const ex of edgeExits) {
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const x = ex.x + dx;
-        const y = ex.y + dy;
-        if (!inBounds(x, y)) continue;
-        exitProximity[idx(x, y)] = 1;
-      }
-    }
-  }
-
-  const exitDistance = new Array(2500).fill(-1);
-  const q = edgeExits.map((p) => ({ x: p.x, y: p.y }));
-  for (const p of q) exitDistance[idx(p.x, p.y)] = 0;
-  for (let i = 0; i < q.length; i++) {
-    const cur = q[i];
-    const base = exitDistance[idx(cur.x, cur.y)];
-    for (const n of neighbors8(cur.x, cur.y)) {
-      const nid = idx(n.x, n.y);
-      if (walkableMatrix[nid] === 0 || exitDistance[nid] !== -1) continue;
-      exitDistance[nid] = base + 1;
-      q.push(n);
-    }
-  }
-
-  return { terrainMatrix, walkableMatrix, exitDistance, exitProximity, edgeExits };
 }
 
 function computeStaticBlockedMatrix(room) {
@@ -220,25 +132,6 @@ function computeDistanceMap(walkableWithPlan, origin) {
   return dist;
 }
 
-function floodFill(walkableWithPlan, start, maxDepth = 50) {
-  const out = [];
-  const seen = new Set();
-  const q = [{ x: start.x, y: start.y, d: 0 }];
-  seen.add(key(start.x, start.y));
-  for (let i = 0; i < q.length; i++) {
-    const cur = q[i];
-    out.push(cur);
-    if (cur.d >= maxDepth) continue;
-    for (const n of neighbors8(cur.x, cur.y)) {
-      if (walkableWithPlan[idx(n.x, n.y)] !== 1) continue;
-      const k = key(n.x, n.y);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      q.push({ x: n.x, y: n.y, d: cur.d + 1 });
-    }
-  }
-  return out;
-}
 
 function createPlanContext(room, matrices) {
   return {
@@ -760,11 +653,7 @@ function buildCandidateSet(roomName, options = {}) {
     };
   }
 
-  if (!room.memory.distanceTransform) {
-    distanceTransform.distanceTransform(room);
-  }
-
-  const dt = room.memory.distanceTransform || distanceTransform.distanceTransform(room);
+  const dt = ensureDistanceTransform(room);
   const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
   const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
   const mineral = minerals.length > 0 ? minerals[0] : null;
@@ -1046,13 +935,13 @@ function buildPlanForAnchor(room, input) {
   if (sinkLink) addPlacement(ctx, STRUCTURES.LINK, sinkLink.x, sinkLink.y, 5, 'link.sink');
 
   // Extension field: checkerboard from storage flood, <= 10 BFS.
-  const parity = (storage.x + storage.y) % 2;
-  const floodFromStorage = floodFill(walkableWithPlan(ctx), storage, 12);
+  const parity = checkerboard.parityAt(storage.x, storage.y);
+  const floodFromStorage = floodFillAlgorithm.floodFill(walkableWithPlan(ctx), storage, { maxDepth: 12 });
   let extIdx = 0;
   for (const node of floodFromStorage.sort((a, b) => a.d - b.d)) {
     if (extIdx >= 60) break;
     if (node.d > 10) continue;
-    if ((node.x + node.y) % 2 !== parity) continue;
+    if (checkerboard.classifyTile(node.x, node.y, parity) !== 'structure') continue;
     if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, node.x, node.y)) continue;
     addPlacement(
       ctx,
@@ -1115,15 +1004,18 @@ function buildPlanForAnchor(room, input) {
 
   // Rampart line proxy + ramparts over critical structures + controller ring.
   let rampartMargin = 4;
-  let rampartLine = estimateRampartEnvelope(ctx, rampartMargin);
+  let minCutResult = minCutAlgorithm.computeRampartCut(ctx, { margin: rampartMargin });
+  let rampartLine = minCutResult.line.length ? minCutResult.line : estimateRampartEnvelope(ctx, rampartMargin);
   let rampartStandoff = computeMinRampartStandoff(ctx.placements, rampartLine, storage);
   while (rampartStandoff > 0 && rampartStandoff < 3 && rampartMargin < 8) {
     rampartMargin += 1;
-    rampartLine = estimateRampartEnvelope(ctx, rampartMargin);
+    minCutResult = minCutAlgorithm.computeRampartCut(ctx, { margin: rampartMargin });
+    rampartLine = minCutResult.line.length ? minCutResult.line : estimateRampartEnvelope(ctx, rampartMargin);
     rampartStandoff = computeMinRampartStandoff(ctx.placements, rampartLine, storage);
   }
   ctx.meta.rampartMargin = rampartMargin;
   ctx.meta.rampartStandoff = rampartStandoff;
+  ctx.meta.minCut = minCutResult.meta || { method: 'proxy-mincut', margin: rampartMargin };
   for (const rp of rampartLine) {
     addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', {
       allowOnBlocked: true,
@@ -1363,7 +1255,7 @@ function buildPlanForAnchor(room, input) {
 
   for (const n of floodFromStorage) {
     if (n.d > 10) continue;
-    if ((n.x + n.y) % 2 === parity) continue;
+    if (checkerboard.classifyTile(n.x, n.y, parity) === 'structure') continue;
     addPlacement(ctx, STRUCTURES.ROAD, n.x, n.y, 1, 'road.grid');
   }
   for (const rp of rampartTiles) {
@@ -1409,7 +1301,7 @@ function buildPlanForAnchor(room, input) {
   const exts = ctx.placements.filter((p) => p.type === STRUCTURES.EXTENSION);
   const storageFlood = computeDistanceMap(walkableWithPlan(ctx), storage);
   for (const e of exts) {
-    if ((e.x + e.y) % 2 !== parity) ctx.meta.validation.push(`extension-parity-fail:${e.x},${e.y}`);
+    if (!checkerboard.sameParity(e, storage)) ctx.meta.validation.push(`extension-parity-fail:${e.x},${e.y}`);
     const d = storageFlood[key(e.x, e.y)];
     if (d === undefined || d > 10) ctx.meta.validation.push(`extension-distance-fail:${e.x},${e.y}`);
   }
@@ -1834,15 +1726,51 @@ function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
   return { score, normalized, contributions, weights };
 }
 
+
+
+function structurePriority(type) {
+  if (type === STRUCTURES.SPAWN || type === STRUCTURES.EXTENSION || type === STRUCTURES.STORAGE) return 1;
+  if (type === STRUCTURES.TOWER || type === STRUCTURES.LINK || type === STRUCTURES.TERMINAL) return 2;
+  if (type === STRUCTURES.CONTAINER || type === STRUCTURES.RAMPART || type === STRUCTURES.ROAD) return 3;
+  return 4;
+}
+
+function buildQueueFromPlan(plan) {
+  if (!plan || !Array.isArray(plan.placements)) return [];
+  const spawn = plan.placements.find((p) => p.type === STRUCTURES.SPAWN) || { x: 25, y: 25 };
+  const queue = plan.placements.map((placement, i) => ({
+    type: placement.type,
+    pos: { x: placement.x, y: placement.y },
+    rcl: placement.rcl || 1,
+    priority: structurePriority(placement.type),
+    built: false,
+    tag: placement.tag || null,
+    sequence: i,
+  }));
+
+  queue.sort((a, b) => {
+    if (a.rcl !== b.rcl) return a.rcl - b.rcl;
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    const ad = Math.max(Math.abs(a.pos.x - spawn.x), Math.abs(a.pos.y - spawn.y));
+    const bd = Math.max(Math.abs(b.pos.x - spawn.x), Math.abs(b.pos.y - spawn.y));
+    if (ad !== bd) return ad - bd;
+    return a.sequence - b.sequence;
+  });
+
+  return queue;
+}
+
+function getNextBuild(room, buildQueue) {
+  const rcl = room && room.controller ? room.controller.level || 1 : 1;
+  const queue = Array.isArray(buildQueue) ? buildQueue : [];
+  return queue.find((entry) => !entry.built && (entry.rcl || 1) <= rcl) || null;
+}
+
 function generatePlanForAnchor(roomName, anchorInput, options = {}) {
   const room = Game.rooms[roomName];
   if (!room || !room.controller || !room.controller.my) return null;
 
-  if (!room.memory.distanceTransform) {
-    distanceTransform.distanceTransform(room);
-  }
-
-  const dt = room.memory.distanceTransform || distanceTransform.distanceTransform(room);
+  const dt = ensureDistanceTransform(room);
   const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
   const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
   const mineral = minerals.length > 0 ? minerals[0] : null;
@@ -1878,6 +1806,8 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
 
   const metrics = evaluateLayout(plan, roomName, { sources, controllerPos });
   const weighted = computeWeightedScore(metrics, options.finalWeights || DEFAULT_FINAL_WEIGHTS);
+
+  plan.buildQueue = buildQueueFromPlan(plan);
 
   plan.evaluation = {
     weightedScore: weighted.score,
@@ -1955,9 +1885,11 @@ module.exports = {
   generatePlanForAnchor,
   evaluateLayout,
   computeWeightedScore,
+  buildQueueFromPlan,
+  getNextBuild,
   _helpers: {
     assignExtensionRcl,
-    floodFill,
+    floodFill: floodFillAlgorithm.floodFill,
     computeTowerDamage,
     buildTerrainMatrices,
     scoreCandidate,

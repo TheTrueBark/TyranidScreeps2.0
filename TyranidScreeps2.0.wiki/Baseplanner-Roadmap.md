@@ -22,6 +22,18 @@ Diese Spezifikation beschreibt einen vollständigen, dynamischen Baseplanner fü
 
 ---
 
+
+## Delivery Scope Hinweis (wichtig für spätere Rework-Phase)
+
+Die aktuelle Delivery (Phase 1–3) ist bewusst als **funktionale Erstimplementierung** umgesetzt:
+- vollständiger Planner-Flow bis `buildQueue`-Emission,
+- inklusive Debugbarkeit und modularen Algorithmus-Bausteinen.
+
+Für den **Vollausbau nach Erstimplementierung aller Phasen** sind folgende Rework-Punkte explizit vorgesehen:
+1. **MinCut auf Produktionsniveau:** Ersatz der Proxy-Variante durch echte MaxFlow/Edmonds-Karp-Cut-Extraktion.
+2. **Barrieren-Robustheit:** Validierung zusammenhängender Verteidigungslinien auf schwierigen Karten/Exits.
+3. **Profiling-Absicherung:** CPU/Bucket-Grenzen für Voll-Replans und Edge-Cases systematisch nachziehen.
+
 ## 1) Game Mechanics Reference (numerisch bindend)
 
 ### 1.1 RCL-Limits (kompakt)
@@ -71,9 +83,15 @@ Diese Spezifikation beschreibt einen vollständigen, dynamischen Baseplanner fü
 ## 2) Spawn Position Evaluation System
 
 ### 2.1 Prerequisites
-- [ ] DT verfügbar (`algorithm.distanceTransform.js`)
-- [ ] Terrain, Sources, Mineral, Controller lesbar
-- [ ] Exit-Tiles identifizierbar
+- [x] DT verfügbar (`algorithm.distanceTransform.js`)
+- [x] Terrain, Sources, Mineral, Controller lesbar
+- [x] Exit-Tiles identifizierbar
+
+**Status (2026-02, Phase 1 abgeschlossen):**
+- Foundation-Scaffolding wurde als eigenes Modul `planner.baseplannerFoundation.js` aus dem bestehenden Inspirationscode in `planner.buildCompendium.js` extrahiert.
+- Enthält Utility-Math (`chebyshev`, `manhattan`, `clamp01`, `mean`) sowie Terrain-/Exit-Preprocessing (`buildTerrainMatrices`, `ensureDistanceTransform`).
+- `planner.buildCompendium.js` nutzt diese Foundation nun direkt für Spawn-Kandidatenbewertung und Anchor-Plan-Generierung.
+- Debugging erweitert: Phasenfenster (`layoutPlanningDebugPhaseFrom/To`), selektive Recalc-Scopes (`layoutPlanningRecalcScope`) und Flood-Depth-Visual (`layoutOverlayView = floodDepth`) unterstützen gezielte Fehlersuche pro Phase/Sub-Phase.
 
 ### 2.2 Gewichtete Bewertung
 Form: `score = Σ(w_i * normalize(f_i))`
@@ -115,22 +133,22 @@ Form: `score = Σ(w_i * normalize(f_i))`
 ### 3.2 Flood Fill
 - BFS ab Spawn-Core, Ergebnis = Distanzmatrix
 - Niedrige Distanz = hohe Platzierungspriorität
-- [ ] `algorithm.floodFill.js` erstellen
-- [ ] Mit Walkability-Matrix kombinieren
+- [x] `algorithm.floodFill.js` erstellen
+- [x] Mit Walkability-Matrix kombinieren
 
 ### 3.3 Min-Cut (Edmonds-Karp)
 - Ziel: minimale Rampart-Linie zwischen Core und Exits
 - Graph mit Node-Splitting pro Tile
 - Tile-Gewichte: Swamp teurer, Wall als nicht schneidbar
-- [ ] `algorithm.minCut.js`
+- [x] `algorithm.minCut.js` *(proxy-mincut integration for rampart envelope scoring; full Edmonds-Karp refinement remains optional)*
 - [ ] MaxFlow + Cut-Extraktion
 - [ ] Kontinuierliche Barriere verifizieren
 
 ### 3.4 Checkerboard
 - White/Black Pattern via `(x+y)%2`
 - Extensions auf einer Farbe, Straßen auf der anderen
-- [ ] Generator für Extension-Pattern
-- [ ] Generator für Road-Pattern
+- [x] Generator für Extension-Pattern
+- [x] Generator für Road-Pattern
 
 ---
 
@@ -201,8 +219,8 @@ Memory.rooms[roomName].buildQueue = [
 2. Nach Priorität
 3. Nach Distanz zum Spawn
 
-- [ ] `generateBuildQueue(room, basePlan)`
-- [ ] `getNextBuild(room)`
+- [x] `generateBuildQueue(room, basePlan)` *(implemented as `buildQueueFromPlan(plan)` in `planner.buildCompendium.js`)*
+- [x] `getNextBuild(room)` *(implemented as helper in `planner.buildCompendium.js`)*
 - [ ] Integration in `manager.building.js`
 
 ---
@@ -311,6 +329,9 @@ Zusätzlich temporär:
 - Flood Fill / Min-Cut / Checkerboard
 
 ### Phase 3 – Placement System
+
+**Status (2026-02):** Placement pipeline is active in `planner.buildCompendium.js` (core/controller/source/lab/tower/rampart/road) and now produces buildQueue-ready output for downstream integration.
+
 - Spawn-Eval, Core, Controller, Sources, Extensions, Labs, Towers, Ramparts, Roads
 
 ### Phase 4 – Evaluation & Selection
