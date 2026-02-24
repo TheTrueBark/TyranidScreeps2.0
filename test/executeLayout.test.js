@@ -43,32 +43,51 @@ describe('buildingManager.executeLayout', function() {
     Game.rooms['W1N1'] = dummyRoom();
   });
 
-  it('queues BUILD_LAYOUT_PART task when missing', function() {
+  it('does not queue tasks from legacy layout matrix when basePlan is missing', function() {
     const room = Game.rooms['W1N1'];
     buildingManager.executeLayout(room);
     const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
-    expect(container.tasks.length).to.equal(1);
-    const t = container.tasks[0];
-    expect(t.name).to.equal('BUILD_LAYOUT_PART');
-    expect(t.data).to.include({ x: 10, y: 10, structureType: STRUCTURE_EXTENSION });
+    expect(container).to.be.undefined;
   });
 
-  it('skips when RCL too low', function() {
+  it('ignores legacy layout matrix regardless of room RCL', function() {
     Game.rooms['W1N1'].controller.level = 1;
     buildingManager.executeLayout(Game.rooms['W1N1']);
     const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
     expect(container).to.be.undefined;
   });
 
-  it('does not duplicate queued tasks', function() {
+  it('does not duplicate queued tasks for basePlan entries', function() {
     const room = Game.rooms['W1N1'];
+    Memory.rooms.W1N1.basePlan = {
+      buildQueue: [
+        {
+          type: STRUCTURE_EXTENSION,
+          pos: { x: 10, y: 10 },
+          rcl: 2,
+          priority: 1,
+          built: false,
+        },
+      ],
+    };
     buildingManager.executeLayout(room);
     buildingManager.executeLayout(room);
     const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
     expect(container.tasks.length).to.equal(1);
   });
 
-  it('ignores built structures', function() {
+  it('ignores built structures from basePlan entries', function() {
+    Memory.rooms.W1N1.basePlan = {
+      buildQueue: [
+        {
+          type: STRUCTURE_EXTENSION,
+          pos: { x: 10, y: 10 },
+          rcl: 2,
+          priority: 1,
+          built: false,
+        },
+      ],
+    };
     Game.rooms['W1N1'].lookForAt = (type) =>
       type === LOOK_STRUCTURES ? [{ structureType: STRUCTURE_EXTENSION }] : [];
     buildingManager.executeLayout(Game.rooms['W1N1']);

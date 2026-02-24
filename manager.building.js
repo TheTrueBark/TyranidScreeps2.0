@@ -455,88 +455,46 @@ const buildingManager = {
   executeLayout: function (room) {
     const basePlan = room.memory && room.memory.basePlan;
     const baseQueue = basePlan && Array.isArray(basePlan.buildQueue) ? basePlan.buildQueue : null;
-    if (baseQueue && baseQueue.length > 0) {
-      const next = buildCompendium.getNextBuild(room, baseQueue);
-      if (!next || !next.pos || typeof next.pos.x !== 'number' || typeof next.pos.y !== 'number') {
-        return;
-      }
-
-      const x = Number(next.pos.x);
-      const y = Number(next.pos.y);
-      const type = next.type;
-      const hasStruct = room
-        .lookForAt(LOOK_STRUCTURES, x, y)
-        .some((s) => s.structureType === type);
-      const hasSite = room
-        .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
-        .some((s) => s.structureType === type);
-      if (hasStruct) {
-        next.built = true;
-        next.builtAt = Game.time;
-        return;
-      }
-      const queued = htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
-        x,
-        y,
-        structureType: type,
-      });
-      if (!hasSite && !queued) {
-        htm.addColonyTask(
-          room.name,
-          'BUILD_LAYOUT_PART',
-          { x, y, structureType: type, rcl: next.rcl || 1, queueSource: 'basePlan' },
-          3,
-          200,
-          1,
-          'buildingManager',
-          { module: 'basePlanner' },
-        );
-      }
+    if (!baseQueue || baseQueue.length === 0) {
+      // Legacy matrix-driven queueing has been retired: only Baseplanner output is consumed.
       return;
     }
 
-    if (!room.memory.layout) return;
-    const priority = [
-      STRUCTURE_SPAWN,
-      STRUCTURE_EXTENSION,
-      STRUCTURE_TOWER,
-      STRUCTURE_STORAGE,
-      STRUCTURE_LINK,
-      STRUCTURE_ROAD,
-    ];
-    const matrix = room.memory.layout.matrix || {};
-    for (const type of priority) {
-      for (const x in matrix) {
-        for (const y in matrix[x]) {
-          const cell = matrix[x][y];
-          if (cell.structureType !== type) continue;
-          if (cell.rcl > room.controller.level) continue;
-          const hasStruct = room
-            .lookForAt(LOOK_STRUCTURES, x, y)
-            .some((s) => s.structureType === type);
-          const hasSite = room
-            .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
-            .some((s) => s.structureType === type);
-          const queued = htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
-            x: Number(x),
-            y: Number(y),
-            structureType: type,
-          });
-          if (!hasStruct && !hasSite && !queued) {
-            htm.addColonyTask(
-              room.name,
-              'BUILD_LAYOUT_PART',
-              { x: Number(x), y: Number(y), structureType: type, rcl: cell.rcl },
-              3,
-              200,
-              1,
-              'buildingManager',
-              { module: 'layoutPlanner' },
-            );
-            return;
-          }
-        }
-      }
+    const next = buildCompendium.getNextBuild(room, baseQueue);
+    if (!next || !next.pos || typeof next.pos.x !== 'number' || typeof next.pos.y !== 'number') {
+      return;
+    }
+
+    const x = Number(next.pos.x);
+    const y = Number(next.pos.y);
+    const type = next.type;
+    const hasStruct = room
+      .lookForAt(LOOK_STRUCTURES, x, y)
+      .some((s) => s.structureType === type);
+    const hasSite = room
+      .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
+      .some((s) => s.structureType === type);
+    if (hasStruct) {
+      next.built = true;
+      next.builtAt = Game.time;
+      return;
+    }
+    const queued = htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
+      x,
+      y,
+      structureType: type,
+    });
+    if (!hasSite && !queued) {
+      htm.addColonyTask(
+        room.name,
+        'BUILD_LAYOUT_PART',
+        { x, y, structureType: type, rcl: next.rcl || 1, queueSource: 'basePlan' },
+        3,
+        200,
+        1,
+        'buildingManager',
+        { module: 'basePlanner' },
+      );
     }
   },
 
