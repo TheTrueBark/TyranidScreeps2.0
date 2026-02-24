@@ -450,6 +450,50 @@ global.visual = {
     statsConsole.log(`Layout recalc scope: ${normalized.toUpperCase()}`, 2);
   },
 
+  layoutManualMode: function (toggle = 1) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1 || toggle === true) {
+      Memory.settings.layoutPlanningManualMode = true;
+      Memory.settings.layoutPlanningMode = 'theoretical';
+      Memory.settings.showLayoutOverlay = true;
+      statsConsole.log('Layout manual planner mode: ON (waits for explicit phase initialization)', 2);
+      return;
+    }
+    if (toggle === 0 || toggle === false) {
+      Memory.settings.layoutPlanningManualMode = false;
+      statsConsole.log('Layout manual planner mode: OFF (automatic theoretical planning resumes)', 2);
+      return;
+    }
+    statsConsole.log('Usage: visual.layoutManualMode(1|0)', 3);
+  },
+
+  layoutInitializePhase: function (roomName = null, phaseTo = 4, phaseFrom = 1) {
+    const ownedRooms = Object.values(Game.rooms || {}).filter(
+      (room) => room && room.controller && room.controller.my,
+    );
+    const targetName = roomName || (ownedRooms[0] && ownedRooms[0].name) || null;
+    if (!targetName || !Game.rooms[targetName]) {
+      statsConsole.log("Usage: visual.layoutInitializePhase('W1N1', <phaseTo:1..6>, <phaseFrom:1..6>)", 3);
+      return false;
+    }
+    const to = Math.max(1, Math.min(6, Math.floor(Number(phaseTo) || 4)));
+    const from = Math.max(1, Math.min(6, Math.floor(Number(phaseFrom) || 1)));
+    const ok = layoutPlanner.initializeManualPhaseRun(targetName, to, from);
+    if (!ok) {
+      statsConsole.log(`Manual phase initialization failed for ${targetName}`, 4);
+      return false;
+    }
+    if (!Memory.settings) Memory.settings = {};
+    Memory.settings.layoutPlanningManualMode = true;
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    statsConsole.log(
+      `Manual phase init for ${targetName}: base phases ${Math.min(from,to)}..${Math.max(from,to)} queued`,
+      2,
+    );
+    return true;
+  },
+
+
   recalculateLayout: function (roomName = null, mode = null, scope = null, phaseFrom = null, phaseTo = null) {
     const ownedRooms = Object.values(Game.rooms || {}).filter(
       (room) => room && room.controller && room.controller.my,
@@ -827,6 +871,9 @@ module.exports.loop = function () {
   if (Memory.settings.layoutPlanningDebugPhaseFrom === undefined) Memory.settings.layoutPlanningDebugPhaseFrom = 1;
   if (Memory.settings.layoutPlanningDebugPhaseTo === undefined) Memory.settings.layoutPlanningDebugPhaseTo = 10;
   if (Memory.settings.layoutPlanningRecalcScope === undefined) Memory.settings.layoutPlanningRecalcScope = 'all';
+  // Manual phase planner mode: planner waits idle until a phase range is initialized via visual.layoutInitializePhase().
+  if (Memory.settings.layoutPlanningManualMode === undefined) Memory.settings.layoutPlanningManualMode = false;
+  if (Memory.settings.layoutPlanningManualBypassOnce === undefined) Memory.settings.layoutPlanningManualBypassOnce = false;
 
   if (Memory.settings && Memory.settings.alwaysShowHud) {
     Memory.settings.enableVisuals = true;

@@ -1668,6 +1668,12 @@ function evaluateLayout(plan, roomName, options = {}) {
   return metrics;
 }
 
+function evaluateLayoutForRoom(roomOrName, layout, options = {}) {
+  const roomName = typeof roomOrName === 'string' ? roomOrName : roomOrName && roomOrName.name;
+  if (!roomName || !layout) return null;
+  return evaluateLayout(layout, roomName, options);
+}
+
 function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
   const normalized = {
     avgExtDist: clamp01(1 - (metrics.avgExtDist || 0) / 25),
@@ -1879,11 +1885,23 @@ function generatePlan(roomName, options = {}) {
   return best.plan;
 }
 
+function generateCompleteLayout(roomName, spawnPos, options = {}) {
+  if (!roomName || !spawnPos) return null;
+  return generatePlanForAnchor(roomName, { anchor: spawnPos, index: 0 }, options);
+}
+
+function generateOptimalLayout(roomName, options = {}) {
+  return generatePlan(roomName, options);
+}
+
 module.exports = {
   generatePlan,
+  generateOptimalLayout,
+  generateCompleteLayout,
   buildCandidateSet,
   generatePlanForAnchor,
   evaluateLayout,
+  evaluateLayoutForRoom,
   computeWeightedScore,
   buildQueueFromPlan,
   getNextBuild,

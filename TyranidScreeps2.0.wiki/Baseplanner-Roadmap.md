@@ -8,6 +8,8 @@
 
 ## Executive Summary
 
+**Manuelle Prüfliste:** `TyranidScreeps2.0.wiki/Baseplanner-Manual-Verification-Checklist.md`
+
 Diese Spezifikation beschreibt einen vollständigen, dynamischen Baseplanner für Screeps: statt statischer Stamps wird pro Raum die Topologie bewertet, Spawn-Kandidaten werden über gewichtete Metriken verglichen, und daraus wird ein RCL-gestaffelter Gesamtplan (RCL1→RCL8) erzeugt.
 
 ### Kernziele
@@ -30,7 +32,7 @@ Die aktuelle Delivery (Phase 1–3) ist bewusst als **funktionale Erstimplementi
 - inklusive Debugbarkeit und modularen Algorithmus-Bausteinen.
 
 Für den **Vollausbau nach Erstimplementierung aller Phasen** sind folgende Rework-Punkte explizit vorgesehen:
-1. **MinCut auf Produktionsniveau:** Ersatz der Proxy-Variante durch echte MaxFlow/Edmonds-Karp-Cut-Extraktion.
+1. **MinCut auf Produktionsniveau:** ✅ ersetzt durch flow-basierten Vertex-MinCut (Node-Splitting + MaxFlow + Cut-Extraktion + Continuity-Bridging).
 2. **Barrieren-Robustheit:** Validierung zusammenhängender Verteidigungslinien auf schwierigen Karten/Exits.
 3. **Profiling-Absicherung:** CPU/Bucket-Grenzen für Voll-Replans und Edge-Cases systematisch nachziehen.
 
@@ -135,14 +137,15 @@ Form: `score = Σ(w_i * normalize(f_i))`
 - Niedrige Distanz = hohe Platzierungspriorität
 - [x] `algorithm.floodFill.js` erstellen
 - [x] Mit Walkability-Matrix kombinieren
+- [x] Flood-Fill unterstützt inzwischen auch gewichtete Expansion (terrain-aware, optional 4-way) für swamp-lastige Debug-Analysen.
 
 ### 3.3 Min-Cut (Edmonds-Karp)
 - Ziel: minimale Rampart-Linie zwischen Core und Exits
 - Graph mit Node-Splitting pro Tile
 - Tile-Gewichte: Swamp teurer, Wall als nicht schneidbar
-- [x] `algorithm.minCut.js` *(proxy-mincut integration for rampart envelope scoring; full Edmonds-Karp refinement remains optional)*
-- [ ] MaxFlow + Cut-Extraktion
-- [ ] Kontinuierliche Barriere verifizieren
+- [x] `algorithm.minCut.js` *(flow-based vertex min-cut via node-splitting + max-flow residual cut extraction integrated; used for rampart envelope candidate generation)*
+- [x] MaxFlow + Cut-Extraktion
+- [x] Kontinuierliche Barriere verifizieren *(mincut cut-line now performs post-cut continuity bridging + connectivity metadata)*
 
 ### 3.4 Checkerboard
 - White/Black Pattern via `(x+y)%2`
@@ -249,9 +252,9 @@ Memory.rooms[roomName].buildQueue = [
 4. Bestes Score-Layout wählen
 5. In `Memory.rooms[room].basePlan` persistieren
 
-- [ ] `evaluateLayout(room, layout)`
-- [ ] `generateCompleteLayout(room, spawnPos)`
-- [ ] `generateOptimalLayout(room)`
+- [x] `evaluateLayout(room, layout)` *(implemented as `evaluateLayoutForRoom(roomOrName, layout)` wrapper over planner metrics evaluator)*
+- [x] `generateCompleteLayout(room, spawnPos)`
+- [x] `generateOptimalLayout(room)` *(delegates to weighted `generatePlan` candidate selection)*
 
 ---
 
@@ -314,8 +317,14 @@ Zusätzlich temporär:
 - Boundary-Regel (kein Build auf Exitrand, außer Road/Rampart)
 - Rampart-Konnektivität
 
-- [ ] `validateBasePlan(room, plan)`
-- [ ] Fehlerbehandlung/Fallback (`handleValidationFailure`)
+- [x] `validateBasePlan(room, plan)` *(implemented in `manager.basePlanValidation.js`, integrated during `layoutPlanner` basePlan persistence)*
+- [x] Fehlerbehandlung/Fallback (`handleValidationFailure`) *(implemented in `manager.basePlanValidation.js` and persisted as `basePlan.validationRecovery` metadata)*
+- [x] Overlap- und Queue-Konsistenzprüfung *(dedupe + overlap filtering in `manager.basePlanValidation.js`)*
+- [x] Extension-RCL-Mengenvalidierung *(automatic RCL shift to respect extension caps per RCL)*
+- [x] Controller-Container-Check *(reports missing/out-of-range `controller.container` when room/controller visible)*
+- [x] Lab-Constraint-Check *(reaction labs must stay in range 2 to both source labs)*
+- [x] Rampart-Konnektivitätscheck *(edge ramparts checked for disconnected components)*
+- [x] Profiling: `validateBasePlan` liefert `durationMs` pro Lauf zur Laufzeitbeobachtung
 
 ---
 
@@ -340,10 +349,35 @@ Zusätzlich temporär:
 ### Phase 5 – Memory + HUD
 - Persistenz + Anzeigen + Overlay
 
+**Status (2026-02):**
+- `layoutPlanner.js` persistiert den Gewinner-Plan nach `Memory.rooms[room].basePlan` (inkl. `spawnPos`, `structures`, `buildQueue`, `evaluation`).
+- `manager.hud.js` zeigt Baseplan-Status, Spawn-Position, Score und nächstes Queue-Element im HUD.
+- `manager.building.js` konsumiert `basePlan.buildQueue` priorisiert vor der Legacy-`layout.matrix` und markiert gebaute Einträge als `built`.
+
 ### Phase 6 – Test + Feinschliff
 - Edge-Case-Validierung
 - Performance-Ziele
 - End-to-End Integration mit Construction
+
+### Manual Planner Mode (Debug/Phasensteuerung)
+Settings in `Memory.settings`:
+- `layoutPlanningManualMode` (`true|false`): Wenn `true`, startet der theoretische Planner **nicht automatisch** und wartet auf eine explizite Initialisierung.
+- `layoutPlanningMode` sollte auf `'theoretical'` stehen (wird über `visual.layoutManualMode(1)`/`visual.layoutInitializePhase(...)` gesetzt).
+
+Debug-Commands:
+- `visual.layoutManualMode(1|0)` aktiviert/deaktiviert den manuellen Planner-Modus.
+- `visual.layoutInitializePhase(roomName, phaseTo, phaseFrom=1)` initialisiert eine manuelle Phasenberechnung.
+
+Baseplanner-Phasen-Mapping auf interne Debug-Phasen:
+- Base Phase 1 → intern 1..3 (Foundation)
+- Base Phase 2 → intern 4..4 (Algorithm setup)
+- Base Phase 3 → intern 5..7 (Placement)
+- Base Phase 4 → intern 8..9 (Scoring + Winner Selection)
+- Base Phase 5/6 → intern 10..10 (Persist/Integration bzw. Validation-nah)
+
+Beispiele:
+- „Nichts berechnet, init Phase 4“: `visual.layoutInitializePhase('W1N1', 4, 1)` → berechnet 1..4.
+- „In Phase 4, nur 3..4 neu“: `visual.layoutInitializePhase('W1N1', 4, 3)` → berechnet 3..4 neu.
 
 ---
 
@@ -391,4 +425,3 @@ global.replanRoom(roomName)
 
 ## Quellenhinweis
 - Automating Base Planning in Screeps – A Step-by-Step Guide: https://sy-harabi.github.io/Automating-base-planning-in-screeps/
-

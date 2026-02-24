@@ -112,6 +112,23 @@ describe('build compendium planner', function () {
     expect(selected.weightedContributions).to.have.property('infraCost');
   });
 
+  it('exposes phase-4 compatible layout APIs', function () {
+    const complete = planner.generateCompleteLayout('W1N1', { x: 24, y: 24 });
+    expect(complete).to.exist;
+    expect(complete.evaluation).to.exist;
+    expect(complete.evaluation.weightedScore).to.be.a('number');
+
+    const optimal = planner.generateOptimalLayout('W1N1', { topN: 3 });
+    expect(optimal).to.exist;
+    const metrics = planner.evaluateLayoutForRoom('W1N1', optimal, {
+      sources: Game.rooms.W1N1.find(FIND_SOURCES),
+      controllerPos: Game.rooms.W1N1.controller.pos,
+    });
+    expect(metrics).to.exist;
+    expect(metrics).to.have.property('avgExtDist');
+    expect(metrics).to.have.property('infrastructureCost');
+  });
+
 
 
   it('emits buildQueue entries ordered by rcl and priority', function () {

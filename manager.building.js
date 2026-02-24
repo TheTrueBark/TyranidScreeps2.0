@@ -5,6 +5,7 @@ const scheduler = require('./scheduler');
 const layoutVisualizer = require('./layoutVisualizer');
 const htm = require('./manager.htm');
 const constructionBlocker = require('./constructionBlocker');
+const buildCompendium = require('./planner.buildCompendium');
 
 const REBUILD_RETRY_TICKS = 25;
 const OK_CODE = typeof OK !== 'undefined' ? OK : 0;
@@ -452,6 +453,48 @@ const buildingManager = {
 
 
   executeLayout: function (room) {
+    const basePlan = room.memory && room.memory.basePlan;
+    const baseQueue = basePlan && Array.isArray(basePlan.buildQueue) ? basePlan.buildQueue : null;
+    if (baseQueue && baseQueue.length > 0) {
+      const next = buildCompendium.getNextBuild(room, baseQueue);
+      if (!next || !next.pos || typeof next.pos.x !== 'number' || typeof next.pos.y !== 'number') {
+        return;
+      }
+
+      const x = Number(next.pos.x);
+      const y = Number(next.pos.y);
+      const type = next.type;
+      const hasStruct = room
+        .lookForAt(LOOK_STRUCTURES, x, y)
+        .some((s) => s.structureType === type);
+      const hasSite = room
+        .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
+        .some((s) => s.structureType === type);
+      if (hasStruct) {
+        next.built = true;
+        next.builtAt = Game.time;
+        return;
+      }
+      const queued = htm.taskExistsAt(htm.LEVELS.COLONY, room.name, 'BUILD_LAYOUT_PART', {
+        x,
+        y,
+        structureType: type,
+      });
+      if (!hasSite && !queued) {
+        htm.addColonyTask(
+          room.name,
+          'BUILD_LAYOUT_PART',
+          { x, y, structureType: type, rcl: next.rcl || 1, queueSource: 'basePlan' },
+          3,
+          200,
+          1,
+          'buildingManager',
+          { module: 'basePlanner' },
+        );
+      }
+      return;
+    }
+
     if (!room.memory.layout) return;
     const priority = [
       STRUCTURE_SPAWN,

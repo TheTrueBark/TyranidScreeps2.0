@@ -3,6 +3,7 @@ const distanceTransform = require('./algorithm.distanceTransform');
 const htm = require('./manager.htm');
 const constructionBlocker = require('./constructionBlocker');
 const buildCompendium = require('./planner.buildCompendium');
+const basePlanValidation = require('./manager.basePlanValidation');
 
 /**
  * Modular layout planner storing structure matrix per room.
@@ -38,6 +39,33 @@ const DEFAULT_THEORETICAL_CANDIDATES_PER_TICK = 1;
 const DEFAULT_THEORETICAL_REPLAN_INTERVAL = 1000;
 const DEFAULT_THEORETICAL_MAX_CANDIDATES_PER_TICK = 25;
 const DEFAULT_THEORETICAL_DYNAMIC_BATCH = 1;
+
+
+function mapBasePhaseToDebugWindow(baseFrom = 1, baseTo = 6) {
+  const phaseMap = {
+    1: { from: 1, to: 3 },
+    2: { from: 4, to: 4 },
+    3: { from: 5, to: 7 },
+    4: { from: 8, to: 9 },
+    5: { from: 10, to: 10 },
+    6: { from: 10, to: 10 },
+  };
+  const clamp = (value, fallback) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.max(1, Math.min(6, Math.floor(num)));
+  };
+  const bf = clamp(baseFrom, 1);
+  const bt = clamp(baseTo, 6);
+  const low = Math.min(bf, bt);
+  const high = Math.max(bf, bt);
+  return {
+    baseFrom: low,
+    baseTo: high,
+    debugFrom: phaseMap[low].from,
+    debugTo: phaseMap[high].to,
+  };
+}
 
 function isTheoreticalMode() {
   return (
@@ -81,6 +109,49 @@ function toArrayMap(map) {
     }
   }
   return arr;
+}
+
+function groupStructuresByType(placements = []) {
+  const grouped = {};
+  for (const placement of placements) {
+    if (!placement || !placement.type) continue;
+    if (!grouped[placement.type]) grouped[placement.type] = [];
+    grouped[placement.type].push({
+      x: placement.x,
+      y: placement.y,
+      rcl: placement.rcl || 1,
+      tag: placement.tag || null,
+    });
+  }
+  return grouped;
+}
+
+function persistBasePlan(roomName, generated, pipeline) {
+  if (!Memory.rooms) Memory.rooms = {};
+  if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+  const roomMem = Memory.rooms[roomName];
+  const rawPlan = {
+    version: 1,
+    generatedAt: Game.time,
+    spawnPos: generated.anchor ? { x: generated.anchor.x, y: generated.anchor.y } : null,
+    structures: groupStructuresByType(generated.placements || []),
+    buildQueue: Array.isArray(generated.buildQueue)
+      ? generated.buildQueue.map((entry) => Object.assign({}, entry))
+      : [],
+    evaluation: generated.evaluation || {},
+    selection: generated.selection || null,
+    planningRunId: pipeline && pipeline.runId ? pipeline.runId : null,
+  };
+
+  const validation = basePlanValidation.validateBasePlan(roomName, rawPlan);
+  roomMem.basePlan = validation.normalizedPlan;
+  roomMem.basePlan.validation = {
+    valid: validation.valid,
+    issues: validation.issues,
+    autoFixes: validation.autoFixes,
+    checkedAt: validation.checkedAt,
+  };
+  roomMem.basePlan.validationRecovery = basePlanValidation.handleValidationFailure(roomName, validation);
 }
 
 function readNumberSetting(path, fallback) {
@@ -810,6 +881,8 @@ const layoutPlanner = {
       return false;
     }
 
+    pipeline.stopAtPhase = typeof options.stopAtPhase === 'number' ? options.stopAtPhase : 10;
+
     if (debugOptions.phaseFrom <= 7) {
       pipeline.results = {};
       pipeline.bestCandidateIndex = null;
@@ -868,6 +941,26 @@ const layoutPlanner = {
     return true;
   },
 
+
+  initializeManualPhaseRun(roomName, basePhaseTo = 4, basePhaseFrom = 1) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) return false;
+    if (!Memory.rooms) Memory.rooms = {};
+    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+    const mem = Memory.rooms[roomName];
+    if (!mem.layout) mem.layout = {};
+
+    const mapped = mapBasePhaseToDebugWindow(basePhaseFrom, basePhaseTo);
+    mem.layout.manualPhaseRequest = {
+      baseFrom: mapped.baseFrom,
+      baseTo: mapped.baseTo,
+      phaseFrom: mapped.debugFrom,
+      phaseTo: mapped.debugTo,
+      initializedAt: Game.time,
+    };
+    return true;
+  },
+
   recalculateRoom(roomName, options = {}) {
     const room = Game.rooms[roomName];
     if (!room || !room.controller || !room.controller.my) return false;
@@ -890,7 +983,10 @@ const layoutPlanner = {
       return true;
     }
 
-    const resumed = this._resetTheoreticalFromPhase(roomName, debugOptions, options);
+    const resumed = this._resetTheoreticalFromPhase(roomName, debugOptions, {
+      scrubDistanceTransform: options.scrubDistanceTransform,
+      stopAtPhase: options.stopAtPhase,
+    });
     if (!resumed) {
       this.resetRoomPlan(roomName, options);
     }
@@ -1202,6 +1298,7 @@ const layoutPlanner = {
         ? mem.layout.currentDisplayCandidateIndex
         : pipeline.bestCandidateIndex;
     mem.layout.planVersion = 2;
+    persistBasePlan(room.name, generated, pipeline);
     this._refreshTheoreticalDisplay(room.name, true);
   },
 
@@ -1222,6 +1319,7 @@ const layoutPlanner = {
     }
 
     const runId = `${roomName}:${Game.time}`;
+    const manualRequest = mem.layout.manualPhaseRequest || null;
     const pipeline = {
       runId,
       status: 'running',
@@ -1231,6 +1329,10 @@ const layoutPlanner = {
       bestCandidateIndex: null,
       activeCandidateIndex: null,
       candidateCount: candidateSet.candidates.length,
+      stopAtPhase:
+        manualRequest && typeof manualRequest.phaseTo === 'number'
+          ? manualRequest.phaseTo
+          : 10,
       candidateSet: {
         topN,
         dtThreshold: candidateSet.dtThreshold,
@@ -1482,17 +1584,35 @@ const layoutPlanner = {
     this._refreshTheoreticalDisplay(roomName);
     if (completed < pipeline.candidateCount) return;
 
+    const stopAtPhase = typeof pipeline.stopAtPhase === 'number' ? pipeline.stopAtPhase : 10;
+    if (stopAtPhase <= 8) {
+      pipeline.status = 'paused_phase_8';
+      pipeline.completedAt = Game.time;
+      this._refreshTheoreticalDisplay(roomName);
+      return;
+    }
+
     const ranked = Object.values(pipeline.results).sort(
       (a, b) => (b.weightedScore || 0) - (a.weightedScore || 0),
     );
     const best = ranked[0];
     if (!best) return;
     pipeline.bestCandidateIndex = best.index;
-    pipeline.status = 'completed';
+    pipeline.status = stopAtPhase <= 9 ? 'paused_phase_9' : 'completed';
     pipeline.completedAt = Game.time;
 
     const selectedCandidate = pipeline.candidates.find((c) => c.index === best.index);
     if (!selectedCandidate) return;
+    if (stopAtPhase <= 9) {
+      mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+        selectedCandidateIndex: best.index,
+        selectedWeightedScore: best.weightedScore || 0,
+        planningStatus: 'paused_phase_9',
+        generatedAt: Game.time,
+      });
+      this._refreshTheoreticalDisplay(roomName);
+      return;
+    }
     const generated = buildCompendium.generatePlanForAnchor(roomName, selectedCandidate.anchor, {
       candidateMeta: selectedCandidate,
     });
@@ -1517,6 +1637,38 @@ const layoutPlanner = {
     const mem = Memory.rooms[roomName];
     if (!mem.layout) mem.layout = {};
     mem.layout.mode = 'theoretical';
+
+    const manualMode = Boolean(
+      Memory.settings && Memory.settings.layoutPlanningManualMode,
+    );
+    const manualBypass = Boolean(
+      Memory.settings && Memory.settings.layoutPlanningManualBypassOnce,
+    );
+
+    if (manualMode && mem.layout.manualPhaseRequest) {
+      const req = mem.layout.manualPhaseRequest;
+      delete mem.layout.manualPhaseRequest;
+      if (!Memory.settings) Memory.settings = {};
+      Memory.settings.layoutPlanningManualBypassOnce = true;
+      this.recalculateRoom(roomName, {
+        mode: 'theoretical',
+        scrubDistanceTransform: req.phaseFrom <= 3,
+        phaseFrom: req.phaseFrom,
+        phaseTo: req.phaseTo,
+        stopAtPhase: req.phaseTo,
+      });
+      Memory.settings.layoutPlanningManualBypassOnce = false;
+      return;
+    }
+
+    if (
+      manualMode &&
+      !manualBypass &&
+      !mem.layout.theoreticalPipeline &&
+      !mem.layout.theoretical
+    ) {
+      return;
+    }
 
     if (mem.layout.rebuildLayout) {
       delete mem.layout.theoreticalPipeline;
