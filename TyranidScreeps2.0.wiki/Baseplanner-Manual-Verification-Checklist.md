@@ -140,7 +140,7 @@ Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.ro
 ```
 
 **Soll:**
-- `manager.building.executeLayout` priorisiert `basePlan.buildQueue` vor legacy matrix.
+- `manager.building.executeLayout` arbeitet ausschließlich aus `basePlan.buildQueue` (kein Legacy-Matrix-Fallback).
 
 ---
 
@@ -171,3 +171,64 @@ Ein Algorithmus gilt als abgeschlossen, wenn:
 - es im Manual-Run reproduzierbar funktioniert,
 - die zugehörige Roadmap/Wiki-Markierung gesetzt wurde,
 - und Debug/Metadaten vorhanden sind, um Fehler später nachvollziehen zu können.
+
+
+---
+
+## 8) 10-Minuten Smoke-Test (kompakt)
+
+Wenn du nur schnell "grün/rot" prüfen willst:
+
+1. **Manual Mode aktivieren + Initialisierung:**
+```js
+visual.layoutManualMode(1)
+visual.layoutInitializePhase('W1N1', 4, 1)
+```
+**Erwartung:** Pipeline landet auf `paused_phase_9` oder `completed`, keine Exceptions.
+
+2. **BasePlan vorhanden + Validation ok/warn:**
+```js
+({
+  hasBasePlan: !!(Memory.rooms.W1N1.basePlan),
+  validation: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation
+})
+```
+**Erwartung:** `hasBasePlan === true`, Validation-Objekt vorhanden.
+
+3. **BuildQueue nicht leer + Next Build sichtbar:**
+```js
+Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.rooms.W1N1.basePlan.buildQueue.slice(0,3)
+```
+**Erwartung:** Erste Einträge plausibel (spawn/roads/extensions je nach RCL).
+
+4. **HUD gegenprüfen:**
+- Base-Plan Block zeigt Status/Score/Validation/Next Build.
+- Keine widersprüchlichen Legacy-Indikatoren im HUD.
+
+Wenn diese 4 Punkte passen, ist der Kernpfad für den E2E-Lauf stabil.
+
+---
+
+## 9) Speziell beobachten: Bootstrap-Base → Ziel-Base Umbau
+
+Für deinen Zukunftsplan (Spawn steht anfangs "falsch", später Ziel-Layout):
+
+- **Achte auf diese Signale im Run:**
+  - Wird der erste Spawn im `basePlan.buildQueue` als persistentes Ziel geführt oder nur als Startzustand toleriert?
+  - Entsteht ab RCL 5/6 ein klarer Übergangspfad (zweiter Spawn + kritische Infrastruktur zuerst)?
+  - Bleibt die Queue nach RCL-Upgrades deterministisch (kein Flip-Flop bei Prioritäten)?
+
+- **Snapshot für Vergleich zwischen Strategien (Rush vs. Dual-Mode):**
+```js
+({
+  tick: Game.time,
+  rcl: Game.rooms.W1N1 && Game.rooms.W1N1.controller && Game.rooms.W1N1.controller.level,
+  spawns: (Game.rooms.W1N1 && Game.rooms.W1N1.find(FIND_MY_SPAWNS) || []).map(s => ({ id: s.id, x: s.pos.x, y: s.pos.y })),
+  nextBuilds: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue
+    ? Memory.rooms.W1N1.basePlan.buildQueue.filter(i => !i.built).slice(0,8)
+    : [],
+  validation: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation
+})
+```
+
+Damit kannst du später sauber entscheiden, ob wir einen harten RCL5-Rush-Pfad oder einen temporären Dual-Mode einbauen.

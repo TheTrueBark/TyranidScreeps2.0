@@ -264,9 +264,9 @@
 - [x] Generate multiple dynamic layout candidates with distance transform filters and weighted pre-scoring.
 - [x] Score anchors by controller/source/mineral/exit/terrain symmetry inputs and keep top candidates.
 - [ ] **LEGACY → Baseplanner P3/P5:** Emit lab/extension/tower/road layers as buildQueue-ready structure plans (statt separater Stamp-Pipeline).
-- [ ] **LEGACY → Baseplanner P5:** Teach `manager.building.executeLayout` to consume `basePlan.buildQueue` incl. reserved tiles, rampart overlays, and phased RCL unlocks.
+- [x] **LEGACY → Baseplanner P5:** `manager.building.executeLayout` consumes only `basePlan.buildQueue`; matrix fallback retired to avoid parallel legacy behavior.
 - [x] Persist selected layout + candidate evaluation data in `room.memory.layout` and expose debug overlays (`candidates`, `evaluation`).
-- [ ] **Migration:** Mirror `room.memory.layout` into `Memory.rooms[room].basePlan` until all consumers switched.
+- [ ] **Migration (Restpunkt):** Legacy `room.memory.layout` cleanup for visualization/debug can follow after bootstrap-base strategy (spawn relocation / dual-mode decision).
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
