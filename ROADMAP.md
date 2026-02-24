@@ -30,6 +30,28 @@
 
 ---
 
+## 🧭 Roadmap Refactor – Baseplanner Alignment (2026-02)
+
+> Ziel: Bestehende Aufgaben bleiben erhalten, werden aber gemäß dem neuen Baseplanner-Masterplan neu gruppiert und priorisiert.
+
+### 🔥 Program-Top-Prioritäten (neu gewichtet)
+- [ ] **Prio 5**: Dynamic Baseplanner Phasen 1–6 (siehe `Baseplanner Master-Spec`) als primärer Delivery-Stream.
+- [ ] **Prio 5**: `manager.building` an `basePlan.buildQueue` anbinden (RCL-Gates, Priority-Order, Reserved-Tiles).
+- [ ] **Prio 4**: Memory/HUD/Visual Overlay für Planqualität, Build-Fortschritt, Validation-Warnungen vervollständigen.
+- [ ] **Prio 4**: Validation & Fallback-Strategien (Lab-Constraint, Rampart-Konnektivität, Boundary-Regeln) produktionsreif machen.
+
+### 🧩 Re-Gruppierung bestehender Roadmap-Punkte
+- [ ] Auto-Layout-Aufgaben werden als **Legacy/Transition** geführt und in den Baseplanner-Phasen absorbiert statt parallel erweitert.
+- [ ] Room-Intelligence-Aufgaben (Distance Transform / Kandidatenbewertung / Overlay) zählen künftig zum Baseplanner-Foundation-Track.
+- [ ] Building-Manager-Aufgaben mit Layout-Bezug werden in Phase 3 + Phase 5 des Baseplanner-Plans umgesetzt.
+
+### 📦 Obsoleszenz-Policy (ohne Löschen)
+- [ ] Alte Baseplanning-Einträge als `LEGACY` markieren, wenn sie durch den Masterplan ersetzt wurden.
+- [ ] Ersetzte Einträge mit Verweis auf Zielphase taggen (z. B. `→ Baseplanner P3/P5`).
+- [ ] Nur dann endgültig entfernen, wenn sie seit mindestens 1 Zyklus als `LEGACY` dokumentiert waren.
+
+---
+
 ## 🧱 Core System Foundations
 
 ### ✅ Scheduler (Prio 4)
@@ -164,6 +186,17 @@
 
 ---
 
+
+### 🧭 Baseplanner Master-Spec (Prio 5)
+- [x] Integrate comprehensive dynamic baseplanner implementation paper into project docs (`TyranidScreeps2.0.wiki/Baseplanner-Roadmap.md`).
+- [ ] Implement Phase 1 (Foundation): planner scaffolding, utility math, terrain/exit preprocessing.
+- [ ] Implement Phase 2 (Algorithms): flood fill, min-cut integration, checkerboard placement primitives.
+- [ ] Implement Phase 3 (Placement): core/controller/source/lab/tower/rampart/road generation.
+- [ ] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection.
+- [ ] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption.
+- [ ] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling.
+
+---
 ## 🧭 Movement & Pathing
 
 ### 🧍 HiveTravel Integration (Prio 3)
@@ -226,12 +259,13 @@
 - [ ] Cost-aware scaling by room energy
 - [ ] Templates per role, RCL-dependent
 
-### 🧱 Auto-Layout System (Prio 3)
+### 🧱 Auto-Layout System (Legacy/Transition → Baseplanner, ehem. Prio 3)
 - [x] Generate multiple dynamic layout candidates with distance transform filters and weighted pre-scoring.
 - [x] Score anchors by controller/source/mineral/exit/terrain symmetry inputs and keep top candidates.
-- [ ] Emit lab/extension/tower/road stamps as discrete layers consumable by `manager.building`.
-- [ ] Teach `manager.building.executeLayout` to respect reserved tiles, rampart overlays, and phased RCL unlocks.
+- [ ] **LEGACY → Baseplanner P3/P5:** Emit lab/extension/tower/road layers as buildQueue-ready structure plans (statt separater Stamp-Pipeline).
+- [ ] **LEGACY → Baseplanner P5:** Teach `manager.building.executeLayout` to consume `basePlan.buildQueue` incl. reserved tiles, rampart overlays, and phased RCL unlocks.
 - [x] Persist selected layout + candidate evaluation data in `room.memory.layout` and expose debug overlays (`candidates`, `evaluation`).
+- [ ] **Migration:** Mirror `room.memory.layout` into `Memory.rooms[room].basePlan` until all consumers switched.
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
@@ -255,8 +289,6 @@
 
 ## 🧭 Immediate Focus
 
-> 1. Build out the **Hierarchical Task Management (HTM)** system:
->    - Define task levels and scopes
->    - Trigger dynamically via Scheduler
->    - Assign tasks to creeps and rooms based on need
-> 2. Prototype the **Remote Profitability Modeling** + **Remote Harvest Pipeline** to unlock net-positive remote mining before adding more remotes.
+> 1. Deliver **Baseplanner Phase 1–3** end-to-end (spawn eval → placement → buildQueue emission).
+> 2. Wire **Construction + Memory + HUD** to `basePlan` (Phase 5) so planner output is actually executed and visible.
+> 3. Keep HTM/Remote tracks active only where they unblock planner rollout (task claiming, logistics hooks, remote profitability inputs).
