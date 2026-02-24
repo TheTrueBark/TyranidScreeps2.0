@@ -189,9 +189,10 @@
 
 ### 🧭 Baseplanner Master-Spec (Prio 5)
 - [x] Integrate comprehensive dynamic baseplanner implementation paper into project docs (`TyranidScreeps2.0.wiki/Baseplanner-Roadmap.md`).
-- [ ] Implement Phase 1 (Foundation): planner scaffolding, utility math, terrain/exit preprocessing.
-- [ ] Implement Phase 2 (Algorithms): flood fill, min-cut integration, checkerboard placement primitives.
-- [ ] Implement Phase 3 (Placement): core/controller/source/lab/tower/rampart/road generation.
+- [x] Implement Phase 1 (Foundation): planner scaffolding, utility math, terrain/exit preprocessing. *(2026-02: `planner.baseplannerFoundation.js` extracted from `planner.buildCompendium.js` and wired into candidate + plan generation pipeline.)*
+- [x] Add builder-debug controls for phased Baseplanner iteration: HUD phase-window markers, selective theoretical recalculation scopes, and dedicated flood-depth overlay for per-step diagnostics.
+- [x] Implement Phase 2 (Algorithms): flood fill, min-cut integration, checkerboard placement primitives. *(2026-02: added `algorithm.floodFill.js`, `algorithm.minCut.js` (proxy cut), `algorithm.checkerboard.js` and wired them into `planner.buildCompendium.js`.)*
+- [x] Implement Phase 3 (Placement): core/controller/source/lab/tower/rampart/road generation. *(2026-02: `planner.buildCompendium.js` placement pipeline validated and now emits `buildQueue`-ready plans.)*
 - [ ] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection.
 - [ ] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption.
 - [ ] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling.
@@ -287,8 +288,16 @@
 
 ---
 
+
+### 📌 Baseplanner Delivery Scope (Erstimplementierung vs. Vollausbau)
+- [x] **Erstimplementierung (Phase 1–3 Output-Delivery):** Kandidatenbewertung + Placement + `buildQueue`-Emission sind im Planner-Output vorhanden.
+- [ ] **Vollausbau-Nachzug nach Abschluss aller Phasen:** Algorithmische Kernbausteine mit Produktionsqualität erneut aufgreifen und nachschärfen.
+  - [ ] **MinCut/MaxFlow:** Proxy-MinCut durch vollständige MaxFlow/Edmonds-Karp-Cut-Extraktion ersetzen.
+  - [ ] Kontinuierliche, topologisch robuste Barrierebildung gegen komplexe Exit-Geometrien validieren.
+  - [ ] Performance-Budgets (CPU/Bucket) für Vollraum- und Replan-Läufe gegen Profiling-Grenzen absichern.
+
 ## 🧭 Immediate Focus
 
-> 1. Deliver **Baseplanner Phase 1–3** end-to-end (spawn eval → placement → buildQueue emission).
+> 1. ✅ Delivered **Baseplanner Phase 1–3** end-to-end in planner output (spawn eval → placement → buildQueue emission).
 > 2. Wire **Construction + Memory + HUD** to `basePlan` (Phase 5) so planner output is actually executed and visible.
 > 3. Keep HTM/Remote tracks active only where they unblock planner rollout (task claiming, logistics hooks, remote profitability inputs).

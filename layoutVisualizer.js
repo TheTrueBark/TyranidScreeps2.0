@@ -179,9 +179,26 @@ const layoutVisualizer = {
             { color: '#ffffff', font: 0.6, align: 'left' },
           );
         }
-        if (overlayView === 'flood' && theoretical.spawnCandidate) {
+        if ((overlayView === 'flood' || overlayView === 'flooddepth') && theoretical.spawnCandidate) {
           const sx = theoretical.spawnCandidate.x;
           const sy = theoretical.spawnCandidate.y;
+          const floodTiles = Array.isArray(theoretical.floodTiles) ? theoretical.floodTiles : [];
+          for (const tile of floodTiles) {
+            const depth = typeof tile.d === 'number' ? tile.d : 0;
+            const alpha = overlayView === 'flooddepth' ? Math.max(0.08, 0.32 - depth * 0.012) : 0.18;
+            vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
+              fill: '#55ffaa',
+              opacity: alpha,
+              stroke: 'transparent',
+            });
+            if (overlayView === 'flooddepth' && depth <= 12) {
+              vis.text(String(depth), tile.x, tile.y + 0.12, {
+                color: '#103018',
+                font: 0.35,
+                align: 'center',
+              });
+            }
+          }
           vis.circle(sx, sy, {
             radius: 0.45,
             fill: '#55ffaa',
@@ -502,6 +519,19 @@ const layoutVisualizer = {
             align: 'right',
           });
           cy += 0.7;
+          if (checklist.debug && checklist.debug.phaseWindow) {
+            vis.text(
+              `debug ${checklist.debug.phaseWindow.from}..${checklist.debug.phaseWindow.to} (${checklist.debug.recalcScope || 'all'})`,
+              cx,
+              cy,
+              {
+                color: '#a8d4ff',
+                font: 0.4,
+                align: 'right',
+              },
+            );
+            cy += 0.55;
+          }
           for (const stage of checklist.stages) {
             vis.text(
               `${stage.number || '?'}). ${stage.label} ${stageIndicator(stage)}`,

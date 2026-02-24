@@ -112,6 +112,32 @@ describe('build compendium planner', function () {
     expect(selected.weightedContributions).to.have.property('infraCost');
   });
 
+
+
+  it('emits buildQueue entries ordered by rcl and priority', function () {
+    const plan = planner.generatePlan('W1N1', { topN: 3 });
+    expect(plan).to.exist;
+    expect(plan.buildQueue).to.be.an('array').that.is.not.empty;
+
+    const queue = plan.buildQueue;
+    for (let i = 1; i < queue.length; i++) {
+      const prev = queue[i - 1];
+      const cur = queue[i];
+      const prevKey = `${prev.rcl}:${prev.priority}`;
+      const curKey = `${cur.rcl}:${cur.priority}`;
+      expect(prevKey <= curKey).to.equal(true);
+    }
+
+    const spawnEntry = queue.find((q) => q.type === STRUCTURE_SPAWN);
+    expect(spawnEntry).to.exist;
+    expect(spawnEntry.rcl).to.equal(1);
+    expect(spawnEntry.priority).to.equal(1);
+
+    const nextAtRcl2 = planner.getNextBuild({ controller: { level: 2 } }, queue);
+    expect(nextAtRcl2).to.exist;
+    expect(nextAtRcl2.rcl).to.be.at.most(2);
+  });
+
   it('prunes remote roads unless adjacent to structures or protected logistics', function () {
     const plan = planner.generatePlan('W1N1', { topN: 3 });
     const placements = plan.placements || [];

@@ -114,8 +114,26 @@ Memory.settings.layoutPlanningMode = 'theoretical' // or 'standard'
 
 ### `layoutOverlayView` (default `'plan'`)
 ```javascript
-Memory.settings.layoutOverlayView = 'plan' // plan|wallDistance|controllerDistance|flood|spawnScore|candidates|evaluation
+Memory.settings.layoutOverlayView = 'plan' // plan|wallDistance|controllerDistance|flood|floodDepth|spawnScore|candidates|evaluation
 ```
+
+
+### `layoutPlanningDebugPhaseFrom` / `layoutPlanningDebugPhaseTo` (defaults `1` / `10`)
+
+```js
+Memory.settings.layoutPlanningDebugPhaseFrom = 1
+Memory.settings.layoutPlanningDebugPhaseTo = 10
+```
+
+Controls which theoretical pipeline phases are highlighted in HUD/checklist debug output.
+
+### `layoutPlanningRecalcScope` (default `'all'`)
+
+```js
+Memory.settings.layoutPlanningRecalcScope = 'all' // all|foundation|placement|evaluation|persist
+```
+
+Used by `visual.recalculateLayout(...)` to only recompute selected baseplanner phases/sub-phases.
 
 ### `layoutCandidateOverlayIndex` (default `-1`)
 ```javascript
@@ -255,6 +273,7 @@ visual.layoutView('plan')        // plan view
 visual.layoutView('wallDistance')
 visual.layoutView('controllerDistance')
 visual.layoutView('flood')
+visual.layoutView('floodDepth')
 visual.layoutView('spawnScore')
 visual.layoutView('candidates')
 visual.layoutView('evaluation')
@@ -262,6 +281,9 @@ visual.layoutCandidate('selected')
 visual.layoutCandidate(2)       // show candidate #2 in evaluation overlay (1-based command input)
 visual.layoutBatching('dynamic', 1, 25) // bucket-aware burst planning
 visual.layoutBatching('static', 2, 2)   // fixed candidate batch size
+visual.layoutPhaseWindow(4, 8)          // focus HUD/checklist on placement+evaluation phases
+visual.layoutRecalcScope('evaluation')  // only recalc weighted scoring + winner
+visual.recalculateLayout('W1N1', 'theoretical', 'evaluation', 8, 9)
 visual.recalculateLayout('W1N1', 'theoretical') // scrub + recompute one room
 visual.theoreticalPlanning(1)    // enable suspended theoretical planning mode
 visual.theoreticalPlanning(0)    // return to live mode preset
@@ -307,6 +329,9 @@ To keep visual debugging usable after a wipe, these settings are preserved and r
 - `layoutPlanningMode`
 - `layoutOverlayView`
 - `layoutCandidateOverlayIndex`
+- `layoutPlanningDebugPhaseFrom`
+- `layoutPlanningDebugPhaseTo`
+- `layoutPlanningRecalcScope`
 - `layoutPlanningTopCandidates`
 - `layoutPlanningCandidatesPerTick`
 - `layoutPlanningMaxCandidatesPerTick`
