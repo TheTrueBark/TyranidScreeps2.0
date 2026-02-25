@@ -1,5 +1,6 @@
 const logger = require('./logger');
 const incidentDebug = require('./debug.incident');
+const { DomainQueueScheduler } = require('./scheduler.domainQueues');
 
 const DEFAULT_TASK_TTL = 100;
 // Default cooldown ticks after a task is claimed. HiveMind waits this many
@@ -12,6 +13,34 @@ const HTM_LEVELS = {
   COLONY: 'colony',
   CREEP: 'creep',
 };
+
+let htmQueueScheduler = new DomainQueueScheduler();
+
+function inferTaskDomain(name) {
+  const upper = String(name || '').toUpperCase();
+  if (upper.indexOf('DEFEND') !== -1 || upper.indexOf('HOSTILE') !== -1) return 'combat';
+  if (upper.indexOf('SPAWN') !== -1 || upper.indexOf('ENERGY') !== -1 || upper.indexOf('DELIVER') !== -1) return 'econ';
+  if (upper.indexOf('HAUL') !== -1 || upper.indexOf('LOGISTIC') !== -1) return 'logistics';
+  if (upper.indexOf('BUILD') !== -1 || upper.indexOf('REPAIR') !== -1) return 'build';
+  if (upper.indexOf('SCOUT') !== -1 || upper.indexOf('REMOTE') !== -1 || upper.indexOf('RESERVE') !== -1) return 'scout';
+  if (upper.indexOf('PLAN') !== -1 || upper.indexOf('INTENT_PLAN_PHASE_') !== -1) return 'planner';
+  return 'misc';
+}
+
+function inferPipelineBucket(domain, name) {
+  const upper = String(name || '').toUpperCase();
+  if (domain === 'combat') return 'critical';
+  if (upper.indexOf('INTENT_PLAN_PHASE_') === 0 || upper.indexOf('PLAN_LAYOUT') === 0) return 'burstOnly';
+  if (domain === 'planner') return 'background';
+  return 'realtime';
+}
+
+function inferCostEst(domain, name) {
+  const upper = String(name || '').toUpperCase();
+  if (domain === 'planner' || upper.indexOf('INTENT_PLAN_PHASE_') === 0) return 'high';
+  if (domain === 'build' || domain === 'scout') return 'medium';
+  return 'low';
+}
 
 const htm = {
   /** Ensure the HTM memory structure exists */
@@ -290,6 +319,67 @@ const htm = {
   },
 
   /**
+   * Tick-model aware HTM execution.
+   * Tasks are enqueued into domain queues and executed with budget gates.
+   */
+  runScheduled(options = {}) {
+    this.init();
+    htmQueueScheduler.startTick(Game.time);
+    this._enqueueLevelTasks(HTM_LEVELS.HIVE, 'hive');
+    for (const clusterId in Memory.htm.clusters) {
+      this._enqueueLevelTasks(HTM_LEVELS.CLUSTER, clusterId);
+    }
+    for (const colonyId in Memory.htm.colonies) {
+      this._enqueueLevelTasks(HTM_LEVELS.COLONY, colonyId);
+    }
+    for (const creepName in Memory.htm.creeps) {
+      this._enqueueLevelTasks(HTM_LEVELS.CREEP, creepName);
+    }
+
+    const mode = String(options.mode || 'NORMAL').toUpperCase();
+    const allowedPipelines = Array.isArray(options.allowedPipelines) && options.allowedPipelines.length
+      ? options.allowedPipelines.slice()
+      : mode === 'LOW_BUCKET'
+        ? ['critical', 'realtime']
+        : mode === 'BURST'
+          ? ['critical', 'realtime', 'background', 'burstOnly']
+          : ['critical', 'realtime', 'background'];
+    const startCpu = Game.cpu.getUsed();
+    const softBudget =
+      typeof options.softBudget === 'number' && options.softBudget > 0
+        ? options.softBudget
+        : Game.cpu.tickLimit;
+    const reserve = Math.max(0, Number(options.reserveCpu || 1.5));
+    const budget = Math.max(0, softBudget - startCpu - reserve);
+    const result = htmQueueScheduler.runPhase(
+      'htm-execution',
+      budget,
+      (queueTask) => this._executeScheduledTask(queueTask),
+      { pipelines: allowedPipelines },
+    );
+    const stats = htmQueueScheduler.getStats();
+    const compactStats = {
+      push: Number(stats.push || 0),
+      pop: Number(stats.pop || 0),
+      executed: Number(stats.executed || 0),
+      staleDrops: Number(stats.staleDrops || 0),
+      blockedSkips: Number(stats.blockedSkips || 0),
+      avgCostEst: Number(stats.avgCostEst || 0),
+      costEst: stats.costEst || { low: 0, medium: 0, high: 0, total: 0 },
+    };
+    if (options && options.includeQueueSizes === true) {
+      compactStats.queueSizes = stats.queueSizes || {};
+    }
+    return {
+      executed: Number(result.executed || 0),
+      cpu: Number((Game.cpu.getUsed() - startCpu).toFixed(4)),
+      budget: Number(budget.toFixed(4)),
+      pipelines: allowedPipelines,
+      schedulerStats: compactStats,
+    };
+  },
+
+  /**
    * Remove creep containers that no longer correspond to living creeps.
    * Prevents uncontrolled growth of Memory.htm.creeps.
    */
@@ -335,6 +425,48 @@ const htm = {
     return tasks;
   },
 
+  _forEachContainer(callback) {
+    this.init();
+    callback(HTM_LEVELS.HIVE, 'hive', Memory.htm.hive);
+    for (const cid in Memory.htm.clusters) {
+      callback(HTM_LEVELS.CLUSTER, cid, Memory.htm.clusters[cid]);
+    }
+    for (const cid in Memory.htm.colonies) {
+      callback(HTM_LEVELS.COLONY, cid, Memory.htm.colonies[cid]);
+    }
+    for (const cname in Memory.htm.creeps) {
+      callback(HTM_LEVELS.CREEP, cname, Memory.htm.creeps[cname]);
+    }
+  },
+
+  getRunnableSummary() {
+    const summary = {
+      totalActive: 0,
+      totalRunnable: 0,
+      runnableByPipeline: {
+        critical: 0,
+        realtime: 0,
+        background: 0,
+        burstOnly: 0,
+      },
+    };
+    this._forEachContainer((level, id, container) => {
+      if (!container || !Array.isArray(container.tasks)) return;
+      for (const task of container.tasks) {
+        if (!task || Number(task.amount || 0) <= 0) continue;
+        summary.totalActive += 1;
+        if (typeof task.validUntil === 'number' && task.validUntil > 0 && Game.time > task.validUntil) continue;
+        if (task.cooldownUntil && Game.time < Number(task.cooldownUntil || 0)) continue;
+        if (task.claimedUntil && Game.time < Number(task.claimedUntil || 0)) continue;
+        summary.totalRunnable += 1;
+        const pipeline = String(task.pipelineBucket || inferPipelineBucket(task.domain, task.name) || 'realtime');
+        if (summary.runnableByPipeline[pipeline] === undefined) summary.runnableByPipeline[pipeline] = 0;
+        summary.runnableByPipeline[pipeline] += 1;
+      }
+    });
+    return summary;
+  },
+
   // --- Internal helpers ---
 
   _addTask(
@@ -349,16 +481,56 @@ const htm = {
     origin = {},
     options = {},
   ) {
+    const domain = inferTaskDomain(name);
+    const pipelineBucket = inferPipelineBucket(domain, name);
+    const costEst = inferCostEst(domain, name);
+    const priorityBase = Number(priority || 0);
+    const priorityDyn =
+      options && typeof options.priorityDyn === 'number' ? options.priorityDyn : 0;
     const task = {
-      id: `${Game.time}-${Math.floor(Math.random() * 10000)}`,
+      id: `${Game.time}-${Math.floor(Math.random() * 10000)}`, // legacy field
+      taskId: `${Game.time}-${Math.floor(Math.random() * 10000)}`,
       name,
+      type: String(name || 'UNKNOWN'),
+      domain,
+      pipelineBucket,
+      ownerId: String(id || ''),
+      roomName:
+        level === HTM_LEVELS.COLONY || level === HTM_LEVELS.CLUSTER
+          ? String(id || '')
+          : options.roomName || null,
       data,
       priority,
+      priorityBase,
+      priorityDyn,
+      priorityBand:
+        options && typeof options.priorityBand === 'number'
+          ? Math.max(0, Math.min(3, Math.floor(options.priorityBand)))
+          : Math.max(0, Math.min(3, Math.floor(priorityBase))),
+      deadlineTick:
+        options && typeof options.deadlineTick === 'number'
+          ? Math.floor(options.deadlineTick)
+          : null,
+      costEst,
       ttl,
       age: 0,
       amount,
       manager,
       claimedUntil: 0,
+      cooldownUntil:
+        options && typeof options.cooldownUntil === 'number'
+          ? Math.floor(options.cooldownUntil)
+          : 0,
+      validUntil:
+        options && typeof options.validUntil === 'number'
+          ? Math.floor(options.validUntil)
+          : Game.time + Math.max(1, ttl),
+      maxAssignees:
+        options && typeof options.maxAssignees === 'number'
+          ? Math.max(1, Math.floor(options.maxAssignees))
+          : 1,
+      assigned: [],
+      state: 'NEW',
       origin: {
         module: origin.module || manager || 'unknown',
         createdBy: origin.createdBy || 'unknown',
@@ -376,24 +548,141 @@ const htm = {
     }
   },
 
-  _processLevel(level, id) {
-    const container = this._getContainer(level, id);
+  _ageAndPruneContainerTasks(level, id, container) {
     if (!container || !container.tasks) return;
-
-    // Age tasks and remove expired ones
     for (let i = container.tasks.length - 1; i >= 0; i--) {
       const task = container.tasks[i];
-      task.age += 1;
+      task.age = Number(task.age || 0) + 1;
+      if (!task.state) task.state = 'NEW';
       if (task.age >= task.ttl) {
+        task.state = 'STALE';
         container.tasks.splice(i, 1);
         logger.log('HTM', `Removed expired ${level} task ${task.name} (${id})`, 3);
         continue;
       }
-      if (task.amount <= 0) {
+      if (typeof task.validUntil === 'number' && task.validUntil > 0 && Game.time > task.validUntil) {
+        task.state = 'STALE';
         container.tasks.splice(i, 1);
         continue;
       }
+      if (task.amount <= 0) {
+        task.state = 'DONE';
+        container.tasks.splice(i, 1);
+      }
     }
+  },
+
+  _enqueueLevelTasks(level, id) {
+    const container = this._getContainer(level, id);
+    if (!container || !container.tasks || container.tasks.length === 0) return;
+    this._ageAndPruneContainerTasks(level, id, container);
+    for (const task of container.tasks) {
+      const taskId = String(task.taskId || task.id || `${task.name}:${id}`);
+      task.taskId = taskId;
+      htmQueueScheduler.enqueue({
+        taskId,
+        level,
+        containerId: id,
+        type: String(task.type || task.name || 'UNKNOWN'),
+        name: String(task.name || 'UNKNOWN'),
+        domain: task.domain || inferTaskDomain(task.name),
+        pipeline: task.pipelineBucket || inferPipelineBucket(task.domain, task.name),
+        priorityBand:
+          typeof task.priorityBand === 'number'
+            ? Math.max(0, Math.min(3, Math.floor(task.priorityBand)))
+            : Math.max(0, Math.min(3, Math.floor(Number(task.priorityBase || task.priority || 0)))),
+        priorityBase: Number(task.priorityBase || task.priority || 0),
+        priorityDyn: Number(task.priorityDyn || 0),
+        deadlineTick:
+          typeof task.deadlineTick === 'number' ? Math.floor(task.deadlineTick) : undefined,
+        costEst: task.costEst || inferCostEst(task.domain, task.name),
+        cooldownUntil: Number(task.cooldownUntil || 0),
+        validUntil: Number(task.validUntil || 0),
+      });
+    }
+  },
+
+  _executeScheduledTask(queueTask) {
+    if (!queueTask) return { invalidate: true };
+    const level = queueTask.level;
+    const id = queueTask.containerId;
+    const container = this._getContainer(level, id);
+    if (!container || !container.tasks || !container.tasks.length) {
+      return { invalidate: true };
+    }
+    const task = container.tasks.find(
+      (entry) => String(entry.taskId || entry.id) === String(queueTask.taskId),
+    );
+    if (!task) return { invalidate: true };
+    if (typeof task.validUntil === 'number' && task.validUntil > 0 && Game.time > task.validUntil) {
+      task.state = 'STALE';
+      task.amount = 0;
+      task.cooldownUntil = 0;
+      this._logExecution(task, level, id, 0, 'stale', 'stale-blocked-timeout');
+      return { invalidate: true };
+    }
+    if (task.cooldownUntil && Game.time < task.cooldownUntil) return { deferUntil: task.cooldownUntil };
+    if (Game.time < Number(task.claimedUntil || 0)) return { deferUntil: Number(task.claimedUntil || 0) };
+    const out = this._runTaskHandler(task, level, id);
+    if (out === 'invalidate') return { invalidate: true };
+    if (task.cooldownUntil && task.cooldownUntil > Game.time) return { deferUntil: task.cooldownUntil };
+    return {};
+  },
+
+  _runTaskHandler(task, level, id) {
+    task.state = 'READY';
+    let handler = null;
+    if (this.handlers && this.handlers[level]) {
+      handler = this.handlers[level][task.name];
+    }
+    const start = Game.cpu.getUsed();
+    if (typeof handler === 'function') {
+      try {
+        task.state = 'RUNNING';
+        const handlerResult = handler(task.data, task) || null;
+        if (handlerResult && typeof handlerResult.deferTicks === 'number' && handlerResult.deferTicks > 0) {
+          task.claimedUntil = Game.time + Math.max(1, Math.floor(handlerResult.deferTicks));
+          task.cooldownUntil = task.claimedUntil;
+          task.state = 'BLOCKED';
+        }
+        if (handlerResult && handlerResult.complete === true) {
+          task.amount = 0;
+          task.state = 'DONE';
+        } else if (task.state !== 'BLOCKED') {
+          task.state = 'READY';
+        }
+        logger.log('HTM', `Executed ${level} task ${task.name} (${id})`, 2);
+        this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'ok');
+      } catch (err) {
+        task.state = 'FAILED';
+        task.cooldownUntil = Game.time + 2;
+        logger.log('HTM', `Error executing ${task.name}: ${err}`, 4);
+        this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'err', err.toString());
+        incidentDebug.captureAuto('htm-task-error', {
+          level,
+          containerId: id,
+          taskName: task.name,
+          manager: task.manager || null,
+          reason: err && err.toString ? err.toString() : String(err),
+        }, {
+          minInterval: 25,
+          windowTicks: Memory.settings && Memory.settings.incidentLogWindow,
+        });
+      }
+      return 'handled';
+    }
+    task.state = 'STALE';
+    task.amount = 0;
+    logger.log('HTM', `No handler for ${level} task ${task.name}`, 3);
+    this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'missing');
+    return 'invalidate';
+  },
+
+  _processLevel(level, id) {
+    const container = this._getContainer(level, id);
+    if (!container || !container.tasks) return;
+
+    this._ageAndPruneContainerTasks(level, id, container);
 
     // Sort by priority (lower value = higher priority) only when needed.
     if (container.tasks.length > 1) {
@@ -402,45 +691,14 @@ const htm = {
 
     // Execute tasks that are not claimed
     for (const task of container.tasks) {
+      if (task.cooldownUntil && Game.time < task.cooldownUntil) continue;
       if (Game.time < task.claimedUntil) continue;
-      let handler = null;
-      if (this.handlers && this.handlers[level]) {
-        handler = this.handlers[level][task.name];
-      }
-      const start = Game.cpu.getUsed();
-      if (typeof handler === 'function') {
-        try {
-          const handlerResult = handler(task.data, task) || null;
-          if (handlerResult && typeof handlerResult.deferTicks === 'number' && handlerResult.deferTicks > 0) {
-            task.claimedUntil = Game.time + Math.max(1, Math.floor(handlerResult.deferTicks));
-          }
-          if (handlerResult && handlerResult.complete === true) {
-            task.amount = 0;
-          }
-          logger.log('HTM', `Executed ${level} task ${task.name} (${id})`, 2);
-          this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'ok');
-        } catch (err) {
-          logger.log('HTM', `Error executing ${task.name}: ${err}`, 4);
-          this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'err', err.toString());
-          incidentDebug.captureAuto('htm-task-error', {
-            level,
-            containerId: id,
-            taskName: task.name,
-            manager: task.manager || null,
-            reason: err && err.toString ? err.toString() : String(err),
-          }, {
-            minInterval: 25,
-            windowTicks: Memory.settings && Memory.settings.incidentLogWindow,
-          });
-        }
-      } else {
-        logger.log('HTM', `No handler for ${level} task ${task.name}`, 3);
-        this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'missing');
-      }
+      this._runTaskHandler(task, level, id);
     }
   },
 
   _logExecution(task, level, id, cpu, result, reason = '') {
+    if (Memory.settings && Memory.settings.enableTaskProfiling === false) return;
     if (!Memory.stats) Memory.stats = {};
     if (!Memory.stats.taskLogs) Memory.stats.taskLogs = [];
     const humanTaskName = this._humanizeTaskName(task && task.name);
@@ -458,6 +716,7 @@ const htm = {
   },
 
   logSubtaskExecution(name, cpu, context = {}) {
+    if (Memory.settings && Memory.settings.enableTaskProfiling === false) return;
     if (!Memory.stats) Memory.stats = {};
     if (!Memory.stats.taskLogs) Memory.stats.taskLogs = [];
     this._appendTaskLog({

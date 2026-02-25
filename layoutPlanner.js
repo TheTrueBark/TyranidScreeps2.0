@@ -39,6 +39,7 @@ const DEFAULT_THEORETICAL_CANDIDATES_PER_TICK = 1;
 const DEFAULT_THEORETICAL_REPLAN_INTERVAL = 1000;
 const DEFAULT_THEORETICAL_MAX_CANDIDATES_PER_TICK = 25;
 const DEFAULT_THEORETICAL_DYNAMIC_BATCH = 1;
+const THEORETICAL_KEEP_TOP = 3;
 
 
 function mapBasePhaseToDebugWindow(baseFrom = 1, baseTo = 6) {
@@ -836,6 +837,188 @@ const layoutPlanner = {
     }
   },
 
+  _compactPipelineRun(run, top3Results = {}, winnerIndex = null) {
+    if (!run || typeof run !== 'object') return null;
+    return {
+      runId: run.runId || null,
+      status: run.status || 'unknown',
+      createdAt: Number(run.createdAt || 0),
+      completedAt: Number(run.completedAt || 0),
+      staleAt: Number(run.staleAt || 0),
+      staleReason: run.staleReason || null,
+      bestCandidateIndex:
+        typeof winnerIndex === 'number' ? winnerIndex : run.bestCandidateIndex || null,
+      phases: run.phases || {},
+      topResults: top3Results,
+      compactedAt: Game.time,
+    };
+  },
+
+  _pruneTheoreticalMemory(roomName, options = {}) {
+    if (!Memory.rooms || !Memory.rooms[roomName]) return null;
+    const roomMem = Memory.rooms[roomName];
+    const layout = roomMem.layout;
+    if (!layout) return null;
+
+    const summary = {
+      roomName,
+      tick: Game.time,
+      reason: options.reason || 'auto',
+      removedCandidates: 0,
+      removedCandidatePlans: 0,
+      removedPipelineResults: 0,
+      removedPipelineRuns: 0,
+      keptCandidates: 0,
+      keptPipelineRuns: 0,
+      removedTotal: 0,
+    };
+
+    const pipeline = layout.theoreticalPipeline || null;
+    const theoretical = layout.theoretical || null;
+    const plans = layout.theoreticalCandidatePlans || {};
+    const winnerIndex =
+      pipeline && typeof pipeline.bestCandidateIndex === 'number'
+        ? pipeline.bestCandidateIndex
+        : theoretical && typeof theoretical.selectedCandidateIndex === 'number'
+          ? theoretical.selectedCandidateIndex
+          : null;
+
+    const scoreByIndex = {};
+    if (pipeline && pipeline.results) {
+      for (const key in pipeline.results) {
+        const result = pipeline.results[key] || {};
+        const idx = Number(result.index !== undefined ? result.index : key);
+        if (!Number.isFinite(idx)) continue;
+        scoreByIndex[idx] = Number(result.weightedScore || 0);
+      }
+    }
+    if ((!Object.keys(scoreByIndex).length) && theoretical && Array.isArray(theoretical.candidates)) {
+      for (const candidate of theoretical.candidates) {
+        if (!candidate || typeof candidate.index !== 'number') continue;
+        const weighted =
+          typeof candidate.weightedScore === 'number'
+            ? candidate.weightedScore
+            : Number(candidate.initialScore || 0);
+        scoreByIndex[candidate.index] = weighted;
+      }
+    }
+    for (const key of Object.keys(plans)) {
+      const idx = Number(key);
+      if (!Number.isFinite(idx)) continue;
+      if (scoreByIndex[idx] === undefined) {
+        scoreByIndex[idx] = Number(plans[key] && plans[key].weightedScore ? plans[key].weightedScore : 0);
+      }
+    }
+
+    let ranked = Object.keys(scoreByIndex)
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => Number(scoreByIndex[b] || 0) - Number(scoreByIndex[a] || 0));
+    if (typeof winnerIndex === 'number' && ranked.indexOf(winnerIndex) === -1) {
+      ranked.unshift(winnerIndex);
+    }
+    ranked = ranked.slice(0, THEORETICAL_KEEP_TOP);
+    const requestedOverlayIndex =
+      Memory.settings && typeof Memory.settings.layoutCandidateOverlayIndex === 'number'
+        ? Memory.settings.layoutCandidateOverlayIndex
+        : -1;
+    if (requestedOverlayIndex >= 0 && ranked.indexOf(requestedOverlayIndex) === -1) {
+      ranked.push(requestedOverlayIndex);
+    }
+    const keepSet = {};
+    for (const idx of ranked) keepSet[String(idx)] = true;
+
+    if (theoretical && Array.isArray(theoretical.candidates)) {
+      const before = theoretical.candidates.length;
+      theoretical.candidates = theoretical.candidates.filter((candidate) => {
+        const idx = candidate && typeof candidate.index === 'number' ? candidate.index : null;
+        return idx !== null && keepSet[String(idx)] === true;
+      });
+      summary.removedCandidates += Math.max(0, before - theoretical.candidates.length);
+      summary.keptCandidates = theoretical.candidates.length;
+    }
+
+    if (layout.theoreticalCandidatePlans && typeof layout.theoreticalCandidatePlans === 'object') {
+      const compactPlans = {};
+      for (const key in layout.theoreticalCandidatePlans) {
+        if (!keepSet[String(key)]) {
+          summary.removedCandidatePlans += 1;
+          continue;
+        }
+        const plan = layout.theoreticalCandidatePlans[key] || {};
+        compactPlans[key] = {
+          index: typeof plan.index === 'number' ? plan.index : Number(key),
+          anchor: plan.anchor || null,
+          placements: Array.isArray(plan.placements) ? plan.placements : [],
+          weightedScore: Number(plan.weightedScore || 0),
+          weightedMetrics: plan.weightedMetrics || {},
+          weightedContributions: plan.weightedContributions || {},
+          validation: plan.validation || [],
+          defenseScore: Number(plan.defenseScore || 0),
+          completedAt: Number(plan.completedAt || 0),
+        };
+      }
+      layout.theoreticalCandidatePlans = compactPlans;
+    }
+
+    if (pipeline && pipeline.results && typeof pipeline.results === 'object') {
+      const compactResults = {};
+      for (const key in pipeline.results) {
+        if (!keepSet[String(key)]) {
+          summary.removedPipelineResults += 1;
+          continue;
+        }
+        const result = pipeline.results[key] || {};
+        compactResults[key] = {
+          index: typeof result.index === 'number' ? result.index : Number(key),
+          weightedScore: Number(result.weightedScore || 0),
+          weightedMetrics: result.weightedMetrics || {},
+          weightedContributions: result.weightedContributions || {},
+          validation: result.validation || [],
+          defenseScore: Number(result.defenseScore || 0),
+          completedAt: Number(result.completedAt || 0),
+        };
+      }
+      pipeline.results = compactResults;
+      if (Array.isArray(pipeline.candidates)) {
+        pipeline.candidates = pipeline.candidates.filter((candidate) => {
+          return candidate && typeof candidate.index === 'number' && keepSet[String(candidate.index)];
+        });
+      }
+    }
+
+    if (layout.pipelineRuns && typeof layout.pipelineRuns === 'object') {
+      const runIds = Object.keys(layout.pipelineRuns);
+      if (runIds.length > 0) {
+        let keepRunId = options.runId || (pipeline && pipeline.runId) || null;
+        if (!keepRunId) {
+          keepRunId = runIds.sort((a, b) => {
+            const ra = layout.pipelineRuns[a] || {};
+            const rb = layout.pipelineRuns[b] || {};
+            return Number(rb.createdAt || 0) - Number(ra.createdAt || 0);
+          })[0];
+        }
+        const topResults = pipeline && pipeline.results ? pipeline.results : {};
+        const compact = this._compactPipelineRun(layout.pipelineRuns[keepRunId], topResults, winnerIndex);
+        const compactRuns = {};
+        if (compact) compactRuns[keepRunId] = compact;
+        summary.removedPipelineRuns = Math.max(0, runIds.length - Object.keys(compactRuns).length);
+        layout.pipelineRuns = compactRuns;
+        summary.keptPipelineRuns = Object.keys(compactRuns).length;
+      }
+    }
+
+    summary.removedTotal =
+      summary.removedCandidates +
+      summary.removedCandidatePlans +
+      summary.removedPipelineResults +
+      summary.removedPipelineRuns;
+    layout.memTrimLast = summary;
+    if (!Memory.stats) Memory.stats = {};
+    Memory.stats.memTrimLast = summary;
+    return summary;
+  },
+
   resetRoomPlan(roomName, options = {}) {
     if (!Memory.rooms) Memory.rooms = {};
     if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
@@ -901,7 +1084,10 @@ const layoutPlanner = {
     if (debugOptions.phaseFrom <= 7) {
       pipeline.results = {};
       pipeline.bestCandidateIndex = null;
+      pipeline.activeCandidate = null;
       pipeline.activeCandidateIndex = null;
+      pipeline.lastResultsDone = 0;
+      pipeline.lastProgressTick = Game.time;
       pipeline.status = 'running';
       pipeline.updatedAt = Game.time;
       delete pipeline.completedAt;
@@ -936,6 +1122,8 @@ const layoutPlanner = {
     if (debugOptions.phaseFrom >= 8) {
       pipeline.status = 'running';
       pipeline.updatedAt = Game.time;
+      pipeline.activeCandidate = null;
+      pipeline.activeCandidateIndex = null;
       delete pipeline.completedAt;
       if (debugOptions.phaseFrom >= 9) {
         pipeline.bestCandidateIndex = null;
@@ -1377,7 +1565,10 @@ const layoutPlanner = {
       updatedAt: Game.time,
       completedAt: null,
       bestCandidateIndex: null,
+      activeCandidate: null,
       activeCandidateIndex: null,
+      lastProgressTick: Game.time,
+      lastResultsDone: 0,
       candidateCount: candidateSet.candidates.length,
       stopAtPhase:
         manualRequest && typeof manualRequest.phaseTo === 'number'
@@ -1544,6 +1735,7 @@ const layoutPlanner = {
         container.tasks.splice(container.tasks.indexOf(nextTask), 1);
         continue;
       }
+      pipeline.activeCandidate = candidate.index;
       pipeline.activeCandidateIndex = candidate.index;
 
       const generated = buildCompendium.generatePlanForAnchor(roomName, candidate.anchor, {
@@ -1593,10 +1785,15 @@ const layoutPlanner = {
       container.tasks.splice(container.tasks.indexOf(nextTask), 1);
       processed += 1;
       pipeline.updatedAt = Game.time;
+      pipeline.activeCandidate = null;
       pipeline.activeCandidateIndex = null;
     }
 
     const completed = Object.keys(pipeline.results || {}).length;
+    if (completed > Number(pipeline.lastResultsDone || 0)) {
+      pipeline.lastResultsDone = completed;
+      pipeline.lastProgressTick = Game.time;
+    }
     const parentTask = container.tasks.find(
       (task) =>
         task.name === PLAN_LAYOUT_PARENT_TASK &&
@@ -1647,6 +1844,8 @@ const layoutPlanner = {
     );
     const best = ranked[0];
     if (!best) return;
+    pipeline.activeCandidate = null;
+    pipeline.activeCandidateIndex = null;
     pipeline.bestCandidateIndex = best.index;
     pipeline.status = stopAtPhase <= 9 ? 'paused_phase_9' : 'completed';
     pipeline.completedAt = Game.time;
@@ -1660,6 +1859,7 @@ const layoutPlanner = {
         planningStatus: 'paused_phase_9',
         generatedAt: Game.time,
       });
+      this._pruneTheoreticalMemory(roomName, { runId: pipeline.runId, reason: 'phase9-complete' });
       this._refreshTheoreticalDisplay(roomName);
       return;
     }
@@ -1669,6 +1869,7 @@ const layoutPlanner = {
     if (!generated) return;
 
     this._writeTheoreticalLayoutFromPlan(room, generated, pipeline);
+    this._pruneTheoreticalMemory(roomName, { runId: pipeline.runId, reason: 'completed' });
     this._clearTheoreticalPlanningTasks(roomName, pipeline.runId);
     statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
   },
@@ -1787,6 +1988,7 @@ const layoutPlanner = {
           }
         }
         this._writeTheoreticalLayoutFromPlan(room, generated, singlePipeline);
+        this._pruneTheoreticalMemory(roomName, { runId: singlePipeline.runId, reason: 'fallback-completed' });
         statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
         return;
       }

@@ -21,6 +21,8 @@ const toNumber = (value) => {
   const num = Number(value || 0);
   return Number.isFinite(num) ? num : 0;
 };
+const getOverlayMode = () =>
+  String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
 
 const sortSpawnRequests = (requests) => spawnQueue.getOrderedQueue(requests);
 
@@ -363,17 +365,19 @@ const buildTheoreticalStatusRows = (room) => {
       font: 0.48,
     });
   }
-  const taskLogs = Memory.stats && Array.isArray(Memory.stats.taskLogs) ? Memory.stats.taskLogs : [];
-  const recentIntents = taskLogs
-    .filter((entry) => entry && /^INTENT_/.test(String(entry.name || '')))
-    .slice(-12);
-  const latest = recentIntents.length ? recentIntents[recentIntents.length - 1] : null;
-  if (latest) {
-    rows.push({
-      text: `Last Intent: ${latest.name} (${Number(latest.cpu || 0).toFixed(2)} CPU)`,
-      color: '#f8c87a',
-      font: 0.45,
-    });
+  if (Memory.settings && Memory.settings.enableTaskProfiling) {
+    const taskLogs = Memory.stats && Array.isArray(Memory.stats.taskLogs) ? Memory.stats.taskLogs : [];
+    const recentIntents = taskLogs
+      .filter((entry) => entry && /^INTENT_/.test(String(entry.name || '')))
+      .slice(-12);
+    const latest = recentIntents.length ? recentIntents[recentIntents.length - 1] : null;
+    if (latest) {
+      rows.push({
+        text: `Last Intent: ${latest.name} (${Number(latest.cpu || 0).toFixed(2)} CPU)`,
+        color: '#f8c87a',
+        font: 0.45,
+      });
+    }
   }
   rows.push({
     text: "Switch: visual.layoutCandidate('selected'|1..N)",
@@ -384,6 +388,7 @@ const buildTheoreticalStatusRows = (room) => {
 };
 
 const getLatestIntentSummary = (roomName) => {
+  if (!Memory.settings || Memory.settings.enableTaskProfiling !== true) return null;
   const taskLogs = Memory.stats && Array.isArray(Memory.stats.taskLogs) ? Memory.stats.taskLogs : [];
   for (let i = taskLogs.length - 1; i >= 0; i--) {
     const entry = taskLogs[i];
@@ -685,48 +690,63 @@ const drawHtmOverlay = (room) => {
 module.exports = {
   createHUD(room) {
     const settings = Memory.settings || {};
+    const overlayMode = getOverlayMode();
+    if (overlayMode === 'off') return;
     const theoreticalMode =
       String(settings.layoutPlanningMode || 'standard').toLowerCase() === 'theoretical';
+    const visualsEnabled = Boolean(visualizer.enabled);
 
-    // Allow layout overlay rendering even when regular HUD visuals are disabled.
-    if (!visualizer.enabled) {
-      layoutVisualizer.drawLayout(room.name);
+    if (overlayMode === 'debug') {
+      if (theoreticalMode) {
+        const start = Game.cpu.getUsed();
+        drawTheoreticalStatusHud(room);
+        recordRenderSubtask(room.name, 'Status Overlay (Top Left)', Game.cpu.getUsed() - start);
+      }
+      drawHtmOverlay(room);
+      return;
+    }
+
+    if (!visualsEnabled && settings.showHtmOverlay !== true) {
       return;
     }
 
     if (theoreticalMode) {
       // In planning mode we only draw planning HUD to avoid overlap with checklist panels.
-      let start = Game.cpu.getUsed();
-      drawTheoreticalStatusHud(room);
-      recordRenderSubtask(room.name, 'Status Overlay (Top Left)', Game.cpu.getUsed() - start);
-      start = Game.cpu.getUsed();
-      layoutVisualizer.drawLayout(room.name);
-      recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
+      if (visualsEnabled) {
+        let start = Game.cpu.getUsed();
+        drawTheoreticalStatusHud(room);
+        recordRenderSubtask(room.name, 'Status Overlay (Top Left)', Game.cpu.getUsed() - start);
+        start = Game.cpu.getUsed();
+        layoutVisualizer.drawLayout(room.name);
+        recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
+      }
       drawHtmOverlay(room);
       return;
     }
 
-    drawSpawnQueueHud(room);
-    drawTaskHud(room);
+    if (visualsEnabled) {
+      drawSpawnQueueHud(room);
+      drawTaskHud(room);
 
-    // Controller level near controller
-    if (room.controller) {
-      visualizer.showInfo([`RCL: ${room.controller.level}`], {
-        room,
-        pos: room.controller.pos,
-      });
+      // Controller level near controller
+      if (room.controller) {
+        visualizer.showInfo([`RCL: ${room.controller.level}`], {
+          room,
+          pos: room.controller.pos,
+        });
+      }
+
+      // Mark energy sources
+      const sources = room.find(FIND_SOURCES);
+      for (const source of sources) {
+        visualizer.circle(source.pos, "yellow");
+      }
+
+      // Task summary for this colony
+      const start = Game.cpu.getUsed();
+      layoutVisualizer.drawLayout(room.name);
+      recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
     }
-
-    // Mark energy sources
-    const sources = room.find(FIND_SOURCES);
-    for (const source of sources) {
-      visualizer.circle(source.pos, "yellow");
-    }
-
-    // Task summary for this colony
-    let start = Game.cpu.getUsed();
-    layoutVisualizer.drawLayout(room.name);
-    recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
     drawHtmOverlay(room);
   },
   _buildSpawnQueueLines: buildSpawnQueueLines,

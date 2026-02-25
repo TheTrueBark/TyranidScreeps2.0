@@ -9,15 +9,15 @@ Ziel: Probleme schnell isolieren, reproduzieren und später vergleichen.
 
 1. Sicherstellen, dass du in einer **eigenen Test-Session** bist.
 2. Bot pausieren oder in theoretischen Modus wechseln, damit keine Live-Tasks stören.
+3. Für reproduzierbare CPU-Werte: Runtime + Overlay-Modus explizit setzen (kein Mischzustand aus alten Toggles).
 
 ### Console-Setup (copy/paste)
 ```js
+visual.runMode('theoretical');
+visual.cpuPolicy('aggressive');
+visual.overlayMode('debug'); // alternativ 'off' für reine CPU-Messung ohne Draws
+visual.memHack(1);
 Memory.settings = Memory.settings || {};
-Memory.settings.pauseBot = false;
-Memory.settings.enableVisuals = true;
-Memory.settings.showLayoutOverlay = true;
-Memory.settings.layoutOverlayView = 'plan';
-Memory.settings.layoutPlanningMode = 'theoretical';
 Memory.settings.layoutPlanningManualMode = true;
 Memory.settings.layoutPlanningTopCandidates = 5;
 Memory.settings.layoutPlanningCandidatesPerTick = 1;
@@ -26,6 +26,13 @@ Memory.settings.layoutPlanningDynamicBatching = true;
 Memory.settings.layoutPlanningDebugPhaseFrom = 1;
 Memory.settings.layoutPlanningDebugPhaseTo = 10;
 Memory.settings.layoutPlanningRecalcScope = 'all';
+```
+
+### Optional: sauberer Start nur für Planner-Debug
+```js
+startFresh({ theoreticalBuildingMode: true });
+visual.cpuPolicy('aggressive');
+visual.memHack(1);
 ```
 
 ---
@@ -48,6 +55,7 @@ Dann 5–20 Ticks laufen lassen.
 - `Memory.rooms.W1N1.layout.theoreticalPipeline.status` ist `paused_phase_9` oder `completed`.
 - `Memory.rooms.W1N1.layout.theoretical.selectedCandidateIndex` ist gesetzt.
 - Keine Exceptions im Log.
+- Bei `overlayMode('off')` entstehen keine Render-Intents (`INTENT_RENDER_HUD` / `INTENT_SYNC_OVERLAY`).
 
 ### C) Nur Base-Phasen 3..4 neu rechnen
 ```js
@@ -141,6 +149,7 @@ Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.ro
 
 **Soll:**
 - `manager.building.executeLayout` arbeitet ausschließlich aus `basePlan.buildQueue` (kein Legacy-Matrix-Fallback).
+- Wenn `visual.overlayMode('off')` gesetzt ist: keine Layout-/HUD-Darstellung trotz laufender Pipeline (by design).
 
 ---
 
@@ -204,6 +213,7 @@ Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.ro
 4. **HUD gegenprüfen:**
 - Base-Plan Block zeigt Status/Score/Validation/Next Build.
 - Keine widersprüchlichen Legacy-Indikatoren im HUD.
+- Bei `overlayMode('off')`: HUD bleibt aus, Datenprüfung erfolgt nur via Memory/Console.
 
 Wenn diese 4 Punkte passen, ist der Kernpfad für den E2E-Lauf stabil.
 
@@ -232,3 +242,26 @@ Für deinen Zukunftsplan (Spawn steht anfangs "falsch", später Ziel-Layout):
 ```
 
 Damit kannst du später sauber entscheiden, ob wir einen harten RCL5-Rush-Pfad oder einen temporären Dual-Mode einbauen.
+
+---
+
+## 10) Runtime/Memory Schnellcheck (neu)
+
+Für Baseplanner-Debug mit stabiler CPU:
+
+```js
+JSON.stringify(visual.runtimeExplain(), null, 2)
+```
+
+```js
+JSON.stringify(visual.memHack('status'), null, 2)
+```
+
+```js
+JSON.stringify(visual.memoryFootprint('W1N1'), null, 2)
+```
+
+Erwartung:
+- Runtime zeigt klar `active` (bei laufender Planung) oder `idle` (ohne Work).
+- MemHack steht auf `enabled=true` und idealerweise `mode='hit'`.
+- Candidate-/Pipeline-Daten bleiben nach Abschluss kompakt (Top-Kandidaten + letzter Run).

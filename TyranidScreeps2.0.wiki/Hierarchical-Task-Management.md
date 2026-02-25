@@ -33,7 +33,7 @@ The HTM system breaks down objectives from the top level hive to individual cree
 }
 ```
 
-Handlers can be registered via `htm.registerHandler(level, name, fn)` and are executed when `htm.run()` is called by the scheduler. Expired tasks are removed automatically.
+Handlers can be registered via `htm.registerHandler(level, name, fn)`. Runtime execution now prefers `htm.runScheduled()` inside the main tick pipeline (Phase D), which applies pipeline/domain priority queues and budget guards. `htm.run()` remains as legacy fallback.
 
 Tasks are typically queued by the `HiveMind` module which inspects the current game state and decides which objectives should be tackled.
 

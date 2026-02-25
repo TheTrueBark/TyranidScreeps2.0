@@ -36,6 +36,20 @@ Für den **Vollausbau nach Erstimplementierung aller Phasen** sind folgende Rewo
 2. **Barrieren-Robustheit:** Validierung zusammenhängender Verteidigungslinien auf schwierigen Karten/Exits.
 3. **Profiling-Absicherung:** CPU/Bucket-Grenzen für Voll-Replans und Edge-Cases systematisch nachziehen.
 
+## Runtime-Prerequisites (2026-02 Update)
+
+Für reproduzierbares Baseplanner-Verhalten gelten folgende Laufzeit-Prinzipien:
+
+1. Planner-Tests laufen bevorzugt in `visual.runMode('theoretical')`.
+2. Overlay-Last wird bewusst gesteuert:
+   - `visual.overlayMode('debug')` für visuelle Analyse
+   - `visual.overlayMode('off')` für reine CPU-/Pipeline-Messung
+3. Runtime nutzt Idle-Gating + HTM-Budget-Policy; teure Planner-Arbeit erfolgt intent-driven.
+4. MemHack ist standardmäßig aktiv und reduziert Memory-Parse-Overhead im Tick.
+5. Theoretical Memory wird nach Abschluss/Stale-Runs auf kompakte Daten reduziert (Top-Kandidaten + letzter Run).
+
+Diese Rahmenbedingungen sind Teil der Zielarchitektur und müssen bei manuellen Verifikationen berücksichtigt werden.
+
 ## 1) Game Mechanics Reference (numerisch bindend)
 
 ### 1.1 RCL-Limits (kompakt)

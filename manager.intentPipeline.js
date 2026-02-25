@@ -55,6 +55,9 @@ const PHASE_MIN_BUCKET = {
 
 const SOFT_CPU = 18;
 const MAX_BACKOFF = 25;
+const PHASE4_STUCK_TIMEOUT = 50;
+const TOPOLOGY_MIN_INTERVAL = 100;
+const VALUE_EVAL_MIN_INTERVAL = 200;
 
 function ensureRoomMemory(roomName) {
   if (!Memory.rooms) Memory.rooms = {};
@@ -67,6 +70,22 @@ function ensureRoomMemory(roomName) {
     lastCompletedPhase: 0,
     lastValueEvalTick: null,
     lastIntentReason: null,
+    recovery: {},
+  };
+  if (!roomMem.intentState.pendingIntents) roomMem.intentState.pendingIntents = {};
+  if (!roomMem.intentState.fingerprints) roomMem.intentState.fingerprints = {};
+  if (typeof roomMem.intentState.lastCompletedPhase !== 'number') roomMem.intentState.lastCompletedPhase = 0;
+  if (roomMem.intentState.lastValueEvalTick === undefined) roomMem.intentState.lastValueEvalTick = null;
+  if (roomMem.intentState.lastIntentReason === undefined) roomMem.intentState.lastIntentReason = null;
+  if (roomMem.intentState.activeRunId === undefined) roomMem.intentState.activeRunId = null;
+  roomMem.intentState.recovery = roomMem.intentState.recovery || {
+    stuckSinceTick: null,
+    trackedRunId: null,
+    lastResultsDone: null,
+    lastRecoveredTick: null,
+    autoRecoveredCount: 0,
+    lastRecoveredRunId: null,
+    lastStaleReason: null,
   };
   if (!roomMem.layout) roomMem.layout = {};
   roomMem.layout.pipelineRuns = roomMem.layout.pipelineRuns || {};
@@ -196,6 +215,56 @@ function queuePhase(roomName, runId, phase, reason = 'follow-up') {
   );
 }
 
+function phaseResultCount(pipeline) {
+  if (!pipeline || !pipeline.results) return 0;
+  return Object.keys(pipeline.results).length;
+}
+
+function clearPhasePendingSignatures(roomMem, runId, intentName) {
+  if (!roomMem || !roomMem.intentState || !roomMem.intentState.pendingIntents) return;
+  const pending = roomMem.intentState.pendingIntents;
+  for (const sig of Object.keys(pending)) {
+    const entry = pending[sig];
+    if (!entry || entry.intent !== intentName) continue;
+    if (runId && entry.runId && entry.runId !== runId) continue;
+    delete pending[sig];
+  }
+}
+
+function clearPhaseIntentTasks(roomName, runId, intentName) {
+  const container = getContainer(roomName);
+  if (!container || !Array.isArray(container.tasks)) return 0;
+  let removed = 0;
+  for (let i = container.tasks.length - 1; i >= 0; i--) {
+    const task = container.tasks[i];
+    if (!task || task.name !== intentName) continue;
+    const taskRunId = task.data && task.data.runId ? task.data.runId : null;
+    if (runId && taskRunId && taskRunId !== runId) continue;
+    container.tasks.splice(i, 1);
+    removed += 1;
+  }
+  return removed;
+}
+
+function shouldQueueHudRender() {
+  const mode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+  return mode !== 'off';
+}
+
+function shouldQueueOverlaySync() {
+  const mode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+  return mode === 'normal';
+}
+
+function clearStuckTracking(roomMem, runId = null) {
+  if (!roomMem || !roomMem.intentState || !roomMem.intentState.recovery) return;
+  const recovery = roomMem.intentState.recovery;
+  if (runId && recovery.trackedRunId && recovery.trackedRunId !== runId) return;
+  recovery.stuckSinceTick = null;
+  recovery.trackedRunId = null;
+  recovery.lastResultsDone = null;
+}
+
 function queuePlanningRun(roomName, reason = 'manual') {
   const roomMem = ensureRoomMemory(roomName);
   const runId = `${roomName}:${Game.time}:${Math.floor(Math.random() * 1000)}`;
@@ -212,7 +281,12 @@ function calculateRoomValue(roomName) {
   const srcCount = room.find(FIND_SOURCES).length;
   const feasible = Number(mem.feasibleMiningPositions || 0);
   const controllerLevel = room.controller ? Number(room.controller.level || 0) : 0;
-  const structures = Array.isArray(mem.structures) ? mem.structures.length : 0;
+  const structures =
+    typeof mem.structureCount === 'number'
+      ? mem.structureCount
+      : Array.isArray(mem.structures)
+        ? mem.structures.length
+        : 0;
   const score =
     Math.min(1, srcCount / 3) * 0.35 +
     Math.min(1, feasible / 8) * 0.35 +
@@ -297,6 +371,89 @@ const intentPipeline = {
   PHASE_INTENTS,
   _handlersRegistered: false,
 
+  recoverStuckTheoreticalRun(roomName, runId, task) {
+    const roomMem = ensureRoomMemory(roomName);
+    const layout = roomMem.layout || {};
+    const pipeline = layout.theoreticalPipeline || null;
+    if (!pipeline || pipeline.runId !== runId) {
+      clearStuckTracking(roomMem, runId);
+      return null;
+    }
+    const candidateCount =
+      typeof pipeline.candidateCount === 'number' ? pipeline.candidateCount : 0;
+    const resultsDone = phaseResultCount(pipeline);
+    const activeCandidate =
+      pipeline.activeCandidate !== undefined && pipeline.activeCandidate !== null
+        ? pipeline.activeCandidate
+        : pipeline.activeCandidateIndex;
+    const inconsistent =
+      pipeline.status === 'running' &&
+      (activeCandidate === null || activeCandidate === undefined) &&
+      resultsDone < candidateCount;
+    const recovery = roomMem.intentState.recovery;
+    if (!inconsistent) {
+      clearStuckTracking(roomMem, runId);
+      return null;
+    }
+
+    const progressTick =
+      typeof pipeline.lastProgressTick === 'number' ? pipeline.lastProgressTick : null;
+    if (recovery.trackedRunId !== runId || recovery.lastResultsDone !== resultsDone) {
+      recovery.trackedRunId = runId;
+      recovery.lastResultsDone = resultsDone;
+      recovery.stuckSinceTick = progressTick && progressTick <= Game.time ? progressTick : Game.time;
+      return null;
+    }
+    if (!recovery.stuckSinceTick || Game.time - recovery.stuckSinceTick <= PHASE4_STUCK_TIMEOUT) {
+      return null;
+    }
+
+    const pipelineRun =
+      roomMem.layout &&
+      roomMem.layout.pipelineRuns &&
+      roomMem.layout.pipelineRuns[runId]
+        ? roomMem.layout.pipelineRuns[runId]
+        : null;
+    if (pipelineRun) {
+      pipelineRun.status = 'stale';
+      pipelineRun.staleAt = Game.time;
+      pipelineRun.staleReason = 'phase4-stuck-no-active-candidate';
+    }
+    if (typeof layoutPlanner._pruneTheoreticalMemory === 'function') {
+      layoutPlanner._pruneTheoreticalMemory(roomName, { runId, reason: 'phase4-recovery-stale' });
+    }
+
+    clearPhasePendingSignatures(roomMem, runId, INTENTS.PLAN_PHASE_4);
+    clearPhaseIntentTasks(roomName, runId, INTENTS.PLAN_PHASE_4);
+    const queued = enqueueIntent(
+      roomName,
+      INTENTS.PLAN_PHASE_4,
+      {
+        runId,
+        phase: 4,
+        reason: 'auto-recover-phase4',
+        key: `${runId}:4:auto-recover`,
+      },
+      { priority: 1, ttl: 400 },
+    );
+    if (task) {
+      task.state = 'STALE';
+      task.amount = 0;
+    }
+    recovery.lastRecoveredTick = Game.time;
+    recovery.autoRecoveredCount = Number(recovery.autoRecoveredCount || 0) + 1;
+    recovery.lastRecoveredRunId = runId;
+    recovery.lastStaleReason = 'phase4-stuck-no-active-candidate';
+    recovery.stuckSinceTick = null;
+    recovery.trackedRunId = null;
+    recovery.lastResultsDone = null;
+    statsConsole.log(
+      `[intentPipeline] Auto-recovered phase 4 in ${roomName} (runId=${runId}, requeued=${queued ? 1 : 0})`,
+      2,
+    );
+    return { recovered: true };
+  },
+
   registerHandlers() {
     if (this._handlersRegistered) return;
     this._handlersRegistered = true;
@@ -345,29 +502,48 @@ const intentPipeline = {
 
     for (const intentName of PHASE_INTENTS) {
       const phase = PHASE_BY_INTENT[intentName];
-      handle(intentName, (roomName, data) => {
+      handle(intentName, (roomName, data, task) => {
         const runId = data.runId || queuePlanningRun(roomName, 'implicit-run');
         const out = runPlanningPhase(roomName, runId, phase);
         if (!out.done) {
+          if (phase === 4) {
+            const recovered = this.recoverStuckTheoreticalRun(roomName, runId, task);
+            if (recovered && recovered.recovered) {
+              return { complete: true };
+            }
+          }
           return { deferTicks: 1 };
         }
+        const roomMem = ensureRoomMemory(roomName);
+        clearStuckTracking(roomMem, runId);
         if (phase < 10) {
           queuePhase(roomName, runId, phase + 1, 'phase-complete');
           if (phase === 9) {
-            enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { runId, reason: 'phase9-complete' }, { ttl: 100 });
-            enqueueIntent(roomName, INTENTS.RENDER_HUD, { runId, reason: 'phase9-complete' }, { ttl: 100 });
+            if (shouldQueueOverlaySync()) {
+              enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { runId, reason: 'phase9-complete' }, { ttl: 100 });
+            }
+            if (shouldQueueHudRender()) {
+              enqueueIntent(roomName, INTENTS.RENDER_HUD, { runId, reason: 'phase9-complete' }, { ttl: 100 });
+            }
           }
         } else {
-          enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { runId, reason: 'pipeline-complete' }, { ttl: 100 });
-          enqueueIntent(roomName, INTENTS.RENDER_HUD, { runId, reason: 'pipeline-complete' }, { ttl: 100 });
-          const roomMem = ensureRoomMemory(roomName);
+          if (shouldQueueOverlaySync()) {
+            enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { runId, reason: 'pipeline-complete' }, { ttl: 100 });
+          }
+          if (shouldQueueHudRender()) {
+            enqueueIntent(roomName, INTENTS.RENDER_HUD, { runId, reason: 'pipeline-complete' }, { ttl: 100 });
+          }
           roomMem.intentState.activeRunId = null;
+          if (typeof layoutPlanner._pruneTheoreticalMemory === 'function') {
+            layoutPlanner._pruneTheoreticalMemory(roomName, { runId, reason: 'intent-phase10-complete' });
+          }
         }
         return { complete: true };
       }, PHASE_MIN_BUCKET[phase] || 1000);
     }
 
     handle(INTENTS.SYNC_OVERLAY, (roomName) => {
+      if (!shouldQueueOverlaySync()) return { complete: true };
       const room = Game.rooms[roomName];
       if (!room) return { complete: true };
       layoutPlanner._refreshTheoreticalDisplay(roomName, true);
@@ -376,6 +552,11 @@ const intentPipeline = {
     }, 0, 0);
 
     handle(INTENTS.RENDER_HUD, (roomName) => {
+      if (!shouldQueueHudRender()) return { complete: true };
+      // In live mode the main loop runs the HUD pass already; avoid duplicate rendering via intents.
+      if (!Memory.settings || Memory.settings.buildPreviewOnly !== true) {
+        return { complete: true };
+      }
       const room = Game.rooms[roomName];
       if (!room) return { complete: true };
       hudManager.createHUD(room);
@@ -389,6 +570,16 @@ const intentPipeline = {
   },
 
   queuePlanStart(roomName, reason = 'manual') {
+    const roomMem = ensureRoomMemory(roomName);
+    const activeRunId = roomMem.intentState && roomMem.intentState.activeRunId;
+    if (activeRunId) {
+      const active = roomMem.layout && roomMem.layout.pipelineRuns
+        ? roomMem.layout.pipelineRuns[activeRunId]
+        : null;
+      if (active && active.status !== 'completed' && active.status !== 'failed') {
+        return activeRunId;
+      }
+    }
     const runId = queuePlanningRun(roomName, reason);
     enqueueIntent(roomName, INTENTS.SCAN_ROOM, { runId, reason: `${reason}:scan` });
     enqueueIntent(roomName, INTENTS.EVALUATE_ROOM_VALUE, { runId, reason: `${reason}:eval` });
@@ -396,8 +587,16 @@ const intentPipeline = {
   },
 
   queueOverlayRefresh(roomName, reason = 'overlay-change') {
-    enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { reason });
-    enqueueIntent(roomName, INTENTS.RENDER_HUD, { reason });
+    if (!shouldQueueHudRender() && !shouldQueueOverlaySync()) {
+      return false;
+    }
+    if (shouldQueueOverlaySync()) {
+      enqueueIntent(roomName, INTENTS.SYNC_OVERLAY, { reason });
+    }
+    if (shouldQueueHudRender()) {
+      enqueueIntent(roomName, INTENTS.RENDER_HUD, { reason });
+    }
+    return true;
   },
 
   produceRoomIntents(room, options = {}) {
@@ -406,10 +605,29 @@ const intentPipeline = {
     const roomMem = ensureRoomMemory(roomName);
     const state = roomMem.intentState;
     const fingerprints = state.fingerprints || (state.fingerprints = {});
-    const hasSpawn =
-      typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
-        ? room.find(FIND_MY_SPAWNS).length > 0
-        : false;
+    const forceProducer = options.force === true;
+    const eventDriven = options.eventDriven === true;
+    const nextEligibleTick = Number(fingerprints.nextEligibleTick || 0);
+    if (!forceProducer && !eventDriven && nextEligibleTick > Game.time) {
+      return;
+    }
+
+    const snapshot = options.roomSnapshot || null;
+    let hasSpawn = false;
+    if (snapshot && typeof snapshot.hasSpawn === 'boolean') {
+      hasSpawn = snapshot.hasSpawn;
+    } else if (fingerprints.hasSpawn !== undefined && Game.time - Number(fingerprints.lastSpawnCheckTick || 0) < 5) {
+      hasSpawn = Boolean(fingerprints.hasSpawn);
+    } else {
+      hasSpawn =
+        typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
+          ? room.find(FIND_MY_SPAWNS).length > 0
+          : false;
+      fingerprints.lastSpawnCheckTick = Game.time;
+    }
+    fingerprints.lastEvaluatedTick = Game.time;
+    const cadence = hasSpawn ? VALUE_EVAL_MIN_INTERVAL : TOPOLOGY_MIN_INTERVAL;
+    fingerprints.nextEligibleTick = Game.time + cadence;
 
     if (!fingerprints.initialized) {
       fingerprints.initialized = true;
@@ -429,14 +647,39 @@ const intentPipeline = {
       }
     }
 
-    const structureCount = room.find(FIND_STRUCTURES).length;
-    const siteCount = room.find(FIND_CONSTRUCTION_SITES).length;
-    if (fingerprints.structureCount !== structureCount || fingerprints.siteCount !== siteCount) {
-      fingerprints.structureCount = structureCount;
-      fingerprints.siteCount = siteCount;
-      enqueueIntent(roomName, INTENTS.SCAN_ROOM, { reason: 'topology-change' });
-      if (hasSpawn) {
-        enqueueIntent(roomName, INTENTS.EVALUATE_ROOM_VALUE, { reason: 'topology-change' });
+    const topologyEvery =
+      typeof options.topologyEvery === 'number'
+        ? Math.max(5, Math.floor(options.topologyEvery))
+        : TOPOLOGY_MIN_INTERVAL;
+    const shouldCheckTopology =
+      options.forceTopologyCheck === true ||
+      !fingerprints.lastTopologyCheckTick ||
+      Game.time - Number(fingerprints.lastTopologyCheckTick || 0) >= topologyEvery;
+    if (shouldCheckTopology) {
+      const structureCount =
+        typeof roomMem.structureCount === 'number'
+          ? roomMem.structureCount
+          : Array.isArray(roomMem.structures)
+            ? roomMem.structures.length
+            : typeof FIND_STRUCTURES !== 'undefined' && typeof room.find === 'function'
+              ? room.find(FIND_STRUCTURES).length
+              : 0;
+      const siteCount =
+        snapshot && typeof snapshot.constructionSiteCount === 'number'
+          ? snapshot.constructionSiteCount
+          : typeof roomMem.constructionSiteCount === 'number'
+            ? roomMem.constructionSiteCount
+            : typeof FIND_CONSTRUCTION_SITES !== 'undefined' && typeof room.find === 'function'
+              ? room.find(FIND_CONSTRUCTION_SITES).length
+              : 0;
+      fingerprints.lastTopologyCheckTick = Game.time;
+      if (fingerprints.structureCount !== structureCount || fingerprints.siteCount !== siteCount) {
+        fingerprints.structureCount = structureCount;
+        fingerprints.siteCount = siteCount;
+        enqueueIntent(roomName, INTENTS.SCAN_ROOM, { reason: 'topology-change' });
+        if (hasSpawn) {
+          enqueueIntent(roomName, INTENTS.EVALUATE_ROOM_VALUE, { reason: 'topology-change' });
+        }
       }
     }
 
@@ -450,17 +693,42 @@ const intentPipeline = {
     }
 
     const layout = roomMem.layout || {};
-    if (layout.rebuildLayout || layout.manualPhaseRequest) {
-      this.queuePlanStart(roomName, layout.rebuildLayout ? 'rebuild-layout' : 'manual-phase');
+    if (layout.rebuildLayout) {
+      if (!fingerprints.rebuildQueued) {
+        this.queuePlanStart(roomName, 'rebuild-layout');
+        fingerprints.rebuildQueued = true;
+      }
+    } else {
+      fingerprints.rebuildQueued = false;
+    }
+
+    if (layout.manualPhaseRequest) {
+      const req = layout.manualPhaseRequest;
+      const reqKey =
+        typeof req === 'object'
+          ? [
+              req.from || req.fromPhase || '',
+              req.to || req.toPhase || '',
+              req.requestedAt || req.tick || 0,
+            ].join(':')
+          : String(req);
+      if (fingerprints.manualRequestKey !== reqKey) {
+        fingerprints.manualRequestKey = reqKey;
+        this.queuePlanStart(roomName, 'manual-phase');
+      }
+    } else if (fingerprints.manualRequestKey) {
+      delete fingerprints.manualRequestKey;
     }
 
     if (options.previewOnly) {
-      enqueueIntent(
-        roomName,
-        INTENTS.RENDER_HUD,
-        { reason: 'preview-draw', key: String(Game.time) },
-        { ttl: 20 },
-      );
+      if (shouldQueueHudRender()) {
+        enqueueIntent(
+          roomName,
+          INTENTS.RENDER_HUD,
+          { reason: 'preview-draw', key: String(Game.time) },
+          { ttl: 20 },
+        );
+      }
     }
   },
 
@@ -529,6 +797,9 @@ const intentPipeline = {
     const roomMem = ensureRoomMemory(roomName);
     if (!runId || roomMem.intentState.activeRunId === runId) {
       roomMem.intentState.activeRunId = null;
+    }
+    if (typeof layoutPlanner._pruneTheoreticalMemory === 'function') {
+      layoutPlanner._pruneTheoreticalMemory(roomName, { runId: runId || null, reason: 'cancel-intent-run' });
     }
     return removed;
   },

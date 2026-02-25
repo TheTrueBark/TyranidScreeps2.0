@@ -240,15 +240,35 @@ const buildingManager = {
   processHTMTasks: function(room) {
     const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
     if (!container || !container.tasks) return;
+    const layoutTasks = container.tasks.filter((task) => task && task.name === 'BUILD_LAYOUT_PART');
+    if (!layoutTasks.length) return;
     const counts = {};
     const showDebug = Memory.settings && Memory.settings.debugBuilding;
     const vis = showDebug ? new RoomVisual(room.name) : null;
     const terrain = room.getTerrain();
+    const structures = room.find(FIND_STRUCTURES);
+    const sites = room.find(FIND_CONSTRUCTION_SITES);
+    const builtByType = {};
+    const sitesByType = {};
+    const structureAt = {};
+    const siteAt = {};
+    for (const structure of structures) {
+      if (!structure || !structure.structureType || !structure.pos) continue;
+      builtByType[structure.structureType] = (builtByType[structure.structureType] || 0) + 1;
+      structureAt[`${structure.pos.x}:${structure.pos.y}:${structure.structureType}`] = true;
+    }
+    for (const site of sites) {
+      if (!site || !site.structureType || !site.pos) continue;
+      sitesByType[site.structureType] = (sitesByType[site.structureType] || 0) + 1;
+      siteAt[`${site.pos.x}:${site.pos.y}:${site.structureType}`] = true;
+    }
     for (const type in CONTROLLER_STRUCTURES) {
       const allowed = CONTROLLER_STRUCTURES[type][room.controller.level] || 0;
-      const built = room.find(FIND_STRUCTURES, { filter: s => s.structureType === type }).length;
-      const sites = room.find(FIND_CONSTRUCTION_SITES, { filter: s => s.structureType === type }).length;
-      counts[type] = { allowed, built, sites };
+      counts[type] = {
+        allowed,
+        built: builtByType[type] || 0,
+        sites: sitesByType[type] || 0,
+      };
     }
     for (let i = container.tasks.length - 1; i >= 0; i--) {
       const task = container.tasks[i];
@@ -264,8 +284,19 @@ const buildingManager = {
         container.tasks.splice(i, 1);
         continue;
       }
-      const hasStruct = room.lookForAt(LOOK_STRUCTURES, x, y).some(s => s.structureType === structureType);
-      const hasSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).some(s => s.structureType === structureType);
+      const posKey = `${x}:${y}:${structureType}`;
+      let hasStruct = Boolean(structureAt[posKey]);
+      let hasSite = Boolean(siteAt[posKey]);
+      if (!hasStruct && typeof room.lookForAt === 'function') {
+        hasStruct = room
+          .lookForAt(LOOK_STRUCTURES, x, y)
+          .some((s) => s && s.structureType === structureType);
+      }
+      if (!hasSite && typeof room.lookForAt === 'function') {
+        hasSite = room
+          .lookForAt(LOOK_CONSTRUCTION_SITES, x, y)
+          .some((s) => s && s.structureType === structureType);
+      }
       const cell =
         room.memory.layout && room.memory.layout.matrix[x] && room.memory.layout.matrix[x][y];
       if (cell && cell.rcl > room.controller.level) continue;
@@ -315,6 +346,7 @@ const buildingManager = {
           }
           if (res === OK) {
             counts[structureType].sites += 1;
+            siteAt[posKey] = true;
             if (vis) vis.text('✅', x, y, { color: 'white', font: 0.8 });
           } else if (vis) {
             vis.text('❌', x, y, { color: 'red', font: 0.8 });

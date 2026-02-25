@@ -171,7 +171,7 @@ describe('hudManager spawn queue panel', function () {
     expect(lines).to.deep.equal(['Base Plan', '-----------------', '  Status: missing']);
   });
 
-  it('still draws layout overlay when regular visuals are disabled', function () {
+  it('does not draw layout overlay when regular visuals are disabled', function () {
     const hudManager = require('../manager.hud');
     const layoutVisualizer = require('../layoutVisualizer');
     const visualizer = require('../manager.visualizer');
@@ -192,7 +192,7 @@ describe('hudManager spawn queue panel', function () {
     const room = { name: 'W1N1', find: () => [], controller: null };
     hudManager.createHUD(room);
 
-    expect(layoutCalls).to.equal(1);
+    expect(layoutCalls).to.equal(0);
 
     layoutVisualizer.drawLayout = origLayout;
     visualizer.showInfo = origShowInfo;

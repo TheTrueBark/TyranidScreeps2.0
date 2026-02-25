@@ -28,6 +28,17 @@ const roomManager = {
     }
 
     const sources = room.find(FIND_SOURCES);
+    const spawns = room.find(FIND_MY_SPAWNS);
+    const spawn = spawns && spawns.length > 0 ? spawns[0] : null;
+    const allStructures =
+      typeof FIND_STRUCTURES !== 'undefined' ? room.find(FIND_STRUCTURES) : [];
+    const structureContainer =
+      typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container';
+    const structureRoad =
+      typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
+    const containerStructures = allStructures.filter(
+      (s) => s && s.structureType === structureContainer,
+    );
     if (!Memory.rooms[room.name].miningPositions) {
       Memory.rooms[room.name].miningPositions = {};
     }
@@ -36,11 +47,6 @@ const roomManager = {
     sources.forEach((source) => {
       const lookStructures =
         typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
-      const structureContainer =
-        typeof STRUCTURE_CONTAINER !== 'undefined' ? STRUCTURE_CONTAINER : 'container';
-      const structureRoad =
-        typeof STRUCTURE_ROAD !== 'undefined' ? STRUCTURE_ROAD : 'road';
-      const spawn = room.find(FIND_MY_SPAWNS)[0];
       const sourcePos = source.pos;
       const potential = [
         { x: sourcePos.x + 1, y: sourcePos.y },
@@ -71,12 +77,8 @@ const roomManager = {
       // Determine container spot near source; prefer spawn-closest valid tile.
       let distanceFromSpawn = 0;
       if (spawn) {
-        const result = PathFinder.search(
-          spawn.pos,
-          { pos: sourcePos, range: 1 },
-          { swampCost: 2, plainCost: 2, ignoreCreeps: true },
-        );
-        distanceFromSpawn = result.path ? result.path.length : 0;
+        // Range proxy is sufficient for spawn-ordering and much cheaper than pathfinding on every scan.
+        distanceFromSpawn = spawn.pos.getRangeTo(sourcePos.x, sourcePos.y);
       }
 
       // Sort potential positions by proximity to spawn when available.
@@ -91,9 +93,7 @@ const roomManager = {
         });
       }
 
-      const containers = room.find(FIND_STRUCTURES, {
-        filter: s => s.structureType === structureContainer && s.pos.inRangeTo(source, 1),
-      });
+      const containers = containerStructures.filter((s) => s.pos && s.pos.inRangeTo(source, 1));
 
       let bestPositions = potential.slice();
       if (containers.length > 0) {
@@ -130,21 +130,29 @@ const roomManager = {
     Memory.rooms[room.name].feasibleMiningPositions = roomFeasibleMiningPositions;
 
     // Additional room-specific data can be gathered here
-    const structures = room.find(FIND_STRUCTURES);
-    Memory.rooms[room.name].structures = structures.map((structure) => ({
-      id: structure.id,
-      structureType: structure.structureType,
-      pos: { x: structure.pos.x, y: structure.pos.y },
-    }));
-
-  const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
-  Memory.rooms[room.name].constructionSites = constructionSites.map(
-      (site) => ({
+    Memory.rooms[room.name].structureCount = allStructures.length;
+    const constructionSites =
+      typeof FIND_CONSTRUCTION_SITES !== 'undefined'
+        ? room.find(FIND_CONSTRUCTION_SITES)
+        : [];
+    Memory.rooms[room.name].constructionSiteCount = constructionSites.length;
+    const includeVerbose =
+      Memory.settings && Memory.settings.debugRoomScan === true;
+    if (includeVerbose) {
+      Memory.rooms[room.name].structures = allStructures.map((structure) => ({
+        id: structure.id,
+        structureType: structure.structureType,
+        pos: { x: structure.pos.x, y: structure.pos.y },
+      }));
+      Memory.rooms[room.name].constructionSites = constructionSites.map((site) => ({
         id: site.id,
         structureType: site.structureType,
         pos: { x: site.pos.x, y: site.pos.y },
-      }),
-    );
+      }));
+    } else {
+      delete Memory.rooms[room.name].structures;
+      delete Memory.rooms[room.name].constructionSites;
+    }
 
     // Determine upgrade spots around the controller
     if (room.controller) {

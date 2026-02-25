@@ -86,6 +86,11 @@
 
 ### 🧠 Hierarchical Task Management (HTM) (Prio 5)
 - [x] Intent-only meta pipeline for planning/evaluation (`INTENT_*` HTM colony tasks) with phase follow-up chaining and no periodic layout fallback loops.
+- [x] Tick-model main pipeline (A-E) with explicit Bootstrap/Snapshot/Planning/Execution/Commit phases and per-phase CPU accounting.
+- [x] HTM Phase-D execution migrated from `scheduler` interval task to budget-gated `htm.runScheduled()` call.
+- [x] Idle-gated runtime rollout: aggressive live fast-path, snapshot split (minimal/full), planning heartbeat cadence, and CPU stop/throttle policy controls.
+- [x] Domain queue backbone (`critical/realtime/background/burstOnly` x domain x priority-band) with binary-heap pop and lazy invalidation.
+- [x] Memory optimization rollout: MemHack runtime cache + theoretical planning memory pruning (top candidates + compact last run only).
 - [x] Intent diagnostics + control commands (`visual.showIntents`, `visual.retryIntent`, `visual.cancelIntentRun`).
 - [x] HTM overlay telemetry with parent/subtask CPU breakdown (topbound room HUD, absolute CPU precision).
 - [ ] **Hive-level tasks**: expansion, attack, reservation
@@ -199,6 +204,14 @@
 - [x] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection. *(2026-02: `planner.buildCompendium.js` now exposes phase-specific APIs (`evaluateLayoutForRoom`, `generateCompleteLayout`, `generateOptimalLayout`) and performs weighted candidate selection across generated layouts.)*
 - [x] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption. *(2026-02: theoretical winner now persists to `Memory.rooms[room].basePlan`, HUD displays base plan status/score/next item, and `manager.building.executeLayout` consumes `basePlan.buildQueue` before legacy matrix tasks.)*
 - [x] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling. *(2026-02: `manager.basePlanValidation.js` now covers queue shape/bounds/border, overlap handling, extension RCL-cap normalization, controller-container + lab-range + rampart-connectivity checks, and records validation duration (`durationMs`) for profiling; manual phase initialization remains available for targeted recomputation.)*
+
+### 🧱 Base-Building Workstream (Next)
+- [x] Runtime stabilisiert für Planner-Debug: Idle-Gating + HTM-Budgeting + strict overlay off-policy.
+- [x] Memory-Overhead reduziert: MemHack (default on) + theoretical pruning (Top-Kandidaten + kompakter Last-Run).
+- [ ] Building rollout im Live-Mode gegen `basePlan.buildQueue` auf RCL-Stufen feinjustieren (Phase-spezifische Baufenster).
+- [ ] `manager.building` Prioritäten mit Planner-Scoring koppeln (kritische Infrastruktur zuerst bei CPU-/Bucket-Druck).
+- [ ] Candidate-to-build Traceability im HUD erweitern (Winner + Top-3 mit Build-Fortschritt je Kandidat).
+- [ ] Base-building failure playbook ergänzen (stale phase recovery, queue drift, validation regression).
 
 ---
 ## 🧭 Movement & Pathing

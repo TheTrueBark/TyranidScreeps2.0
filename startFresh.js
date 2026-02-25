@@ -11,9 +11,17 @@ function startFresh(options = {}) {
     typeof options === 'object' && options !== null
       ? Boolean(options.theoreticalBuildingMode)
       : false;
+  const maintenanceMode =
+    typeof options === 'object' && options !== null
+      ? Boolean(options.maintenanceMode)
+      : false;
+  const useMaintenanceMode = maintenanceMode;
+  const useTheoreticalMode = theoreticalMode && !useMaintenanceMode;
   const previousSettings = Memory.settings || {};
   const preservedSettings = {};
   const preserveKeys = [
+    'runtimeMode',
+    'overlayMode',
     'enableVisuals',
     'alwaysShowHud',
     'showSpawnQueueHud',
@@ -29,6 +37,9 @@ function startFresh(options = {}) {
     'layoutPlanningMaxCandidatesPerTick',
     'layoutPlanningDynamicBatching',
     'layoutPlanningReplanInterval',
+    'enableTaskProfiling',
+    'enableMemHack',
+    'memHackDebug',
   ];
   for (const key of preserveKeys) {
     if (previousSettings[key] !== undefined) preservedSettings[key] = previousSettings[key];
@@ -51,13 +62,28 @@ function startFresh(options = {}) {
   ];
   for (var i = 0; i < keys.length; i++) delete Memory[keys[i]];
 
-  if (Object.keys(preservedSettings).length > 0 || shouldPause || theoreticalMode) {
+  if (
+    Object.keys(preservedSettings).length > 0 ||
+    shouldPause ||
+    useTheoreticalMode ||
+    useMaintenanceMode
+  ) {
     Memory.settings = preservedSettings;
   }
 
-  if (theoreticalMode) {
+  if (useMaintenanceMode && theoreticalMode) {
+    if (!Memory.stats) Memory.stats = {};
+    statsConsole.log(
+      'startFresh: maintenanceMode + theoreticalBuildingMode requested; maintenanceMode takes priority.',
+      3,
+    );
+  }
+
+  if (useTheoreticalMode) {
     if (!Memory.settings) Memory.settings = {};
     if (!Memory.stats) Memory.stats = {};
+    Memory.settings.runtimeMode = 'theoretical';
+    Memory.settings.overlayMode = 'normal';
     Memory.settings.pauseBot = false;
     Memory.settings.enableVisuals = true;
     Memory.settings.alwaysShowHud = true;
@@ -76,7 +102,37 @@ function startFresh(options = {}) {
     Memory.settings.layoutPlanningReplanInterval = 1000;
     Memory.settings.layoutRecalculateRequested = 'all';
     Memory.settings.layoutRecalculateMode = 'theoretical';
+    Memory.settings.enableTaskProfiling = false;
+    Memory.settings.enableMemHack = true;
+    Memory.settings.memHackDebug = false;
     statsConsole.log('Theoretical building mode enabled (planning overlay only).', 2);
+  }
+
+  if (useMaintenanceMode) {
+    if (!Memory.settings) Memory.settings = {};
+    if (!Memory.stats) Memory.stats = {};
+    Memory.settings.runtimeMode = 'maintenance';
+    Memory.settings.pauseBot = false;
+    Memory.settings.buildPreviewOnly = false;
+    Memory.settings.layoutPlanningMode = 'standard';
+    Memory.settings.enableBaseBuilderPlanning = false;
+    Memory.settings.overlayMode = 'off';
+    Memory.settings.enableVisuals = false;
+    Memory.settings.alwaysShowHud = false;
+    Memory.settings.showSpawnQueueHud = false;
+    Memory.settings.showLayoutOverlay = false;
+    Memory.settings.showLayoutLegend = false;
+    Memory.settings.showHtmOverlay = false;
+    Memory.settings.enableTaskProfiling = false;
+    Memory.settings.enableScreepsProfiler = false;
+    Memory.settings.enableMemHack = true;
+    Memory.settings.memHackDebug = false;
+    delete Memory.settings.layoutRecalculateRequested;
+    delete Memory.settings.layoutRecalculateMode;
+    delete Memory.settings.profilerControl;
+    Memory.settings.profilerEnabledByOverlay = false;
+    Memory.settings.profilerResetPending = true;
+    statsConsole.log('Maintenance mode enabled (strict minimal runtime + CPU telemetry).', 2);
   }
 
   if (shouldPause) {

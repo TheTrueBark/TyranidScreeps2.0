@@ -74,6 +74,31 @@ describe('intentPipeline', function () {
     expect(renderCount).to.equal(1);
   });
 
+  it('does not queue render/sync intents when overlay mode is off', function () {
+    Memory.settings.overlayMode = 'off';
+    intentPipeline.queueOverlayRefresh('W1N1', 'off-mode');
+    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    const names = container && Array.isArray(container.tasks) ? container.tasks.map((task) => task.name) : [];
+    expect(names.includes(intentPipeline.INTENTS.SYNC_OVERLAY)).to.equal(false);
+    expect(names.includes(intentPipeline.INTENTS.RENDER_HUD)).to.equal(false);
+  });
+
+  it('completes existing render/sync intents immediately when overlay mode is off', function () {
+    Memory.settings.overlayMode = 'normal';
+    intentPipeline.queueOverlayRefresh('W1N1', 'prefill');
+    let container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    expect(container.tasks.some((task) => task.name === intentPipeline.INTENTS.RENDER_HUD)).to.equal(true);
+    expect(container.tasks.some((task) => task.name === intentPipeline.INTENTS.SYNC_OVERLAY)).to.equal(true);
+    Memory.settings.overlayMode = 'off';
+    Game.time += 1;
+    htm.run();
+    Game.time += 1;
+    htm.run();
+    container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    expect(container.tasks.some((task) => task.name === intentPipeline.INTENTS.RENDER_HUD)).to.equal(false);
+    expect(container.tasks.some((task) => task.name === intentPipeline.INTENTS.SYNC_OVERLAY)).to.equal(false);
+  });
+
   it('chains planning phases through follow-up intents', function () {
     const runId = intentPipeline.queuePlanStart('W1N1', 'test-chain');
     expect(runId).to.be.a('string');
@@ -97,5 +122,60 @@ describe('intentPipeline', function () {
     expect(firstScan).to.exist;
     htm.run();
     expect(firstScan.claimedUntil).to.be.greaterThan(Game.time);
+  });
+
+  it('reuses active planning run instead of queuing duplicate run chains', function () {
+    const runIdA = intentPipeline.queuePlanStart('W1N1', 'manual-a');
+    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    const before = 0;
+    const afterFirst = container.tasks.length;
+    const runIdB = intentPipeline.queuePlanStart('W1N1', 'manual-b');
+    const afterSecond = container.tasks.length;
+    expect(runIdA).to.equal(runIdB);
+    expect(afterFirst).to.be.greaterThan(before);
+    expect(afterSecond).to.equal(afterFirst);
+  });
+
+  it('auto-recovers stuck phase 4 runs after timeout without duplicate requeues', function () {
+    const runId = 'W1N1:123:1';
+    Memory.rooms.W1N1.layout.pipelineRuns = {
+      [runId]: { runId, status: 'running', phases: {} },
+    };
+    Memory.rooms.W1N1.layout.theoreticalPipeline = {
+      runId,
+      status: 'running',
+      candidateCount: 5,
+      activeCandidate: null,
+      activeCandidateIndex: null,
+      lastProgressTick: Game.time,
+      lastResultsDone: 1,
+      results: { '0': { weightedScore: 1 } },
+    };
+    Memory.rooms.W1N1.intentState = Memory.rooms.W1N1.intentState || {};
+    Memory.rooms.W1N1.intentState.activeRunId = runId;
+    Memory.rooms.W1N1.intentState.pendingIntents = Memory.rooms.W1N1.intentState.pendingIntents || {};
+
+    intentPipeline.retryIntent('W1N1', runId, intentPipeline.INTENTS.PLAN_PHASE_4);
+    for (let i = 0; i < 55; i++) {
+      Game.time += 1;
+      htm.run();
+    }
+
+    const roomMem = Memory.rooms.W1N1;
+    const run = roomMem.layout.pipelineRuns[runId];
+    expect(run.status).to.equal('stale');
+    expect(run.staleReason).to.equal('phase4-stuck-no-active-candidate');
+    expect(roomMem.intentState.recovery.autoRecoveredCount).to.equal(1);
+    expect(roomMem.intentState.recovery.lastRecoveredRunId).to.equal(runId);
+
+    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
+    const recoveryTasks = container.tasks.filter(
+      (task) =>
+        task.name === intentPipeline.INTENTS.PLAN_PHASE_4 &&
+        task.data &&
+        task.data.reason === 'auto-recover-phase4' &&
+        task.data.runId === runId,
+    );
+    expect(recoveryTasks.length).to.be.at.most(1);
   });
 });

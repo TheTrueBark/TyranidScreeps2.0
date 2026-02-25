@@ -36,6 +36,8 @@ const lifecycle = require('./hiveMind.lifecycle');
 const haulerLifecycle = require('./haulerLifecycle');
 const movementUtils = require("./utils.movement");
 const profilerRegistry = require('./profiler.registry');
+const tickPipeline = require('./manager.tickPipeline');
+const { DomainQueueScheduler } = require('./scheduler.domainQueues');
 
 const energyDemand = require("./manager.hivemind.demand");
 const hiveRoles = require('./hive.roles');
@@ -46,6 +48,7 @@ let profilerModuleRegistry = {};
 let profilerRuntimeRegistry = {};
 let profilerLastCacheSize = -1;
 let profilerAdditionalRegistered = false;
+let domainQueueScheduler = new DomainQueueScheduler();
 
 global.spawnQueue = spawnQueue;
 
@@ -118,11 +121,53 @@ if (Memory.settings.enableScreepsProfiler === undefined) {
   Memory.settings.enableScreepsProfiler = false;
 }
 if (Memory.settings.enableTaskProfiling === undefined) {
-  Memory.settings.enableTaskProfiling = true;
+  Memory.settings.enableTaskProfiling = false;
+}
+if (Memory.settings.enableLegacyHtmRun === undefined) {
+  Memory.settings.enableLegacyHtmRun = false;
+}
+if (Memory.settings.runtimeMode === undefined) {
+  Memory.settings.runtimeMode = 'live';
+}
+if (Memory.settings.overlayMode === undefined) {
+  Memory.settings.overlayMode = 'normal';
 }
 if (Memory.settings.enableHudCalcCache === undefined) {
   Memory.settings.enableHudCalcCache = true;
 }
+if (Memory.settings.enableMemHack === undefined) {
+  Memory.settings.enableMemHack = true;
+}
+if (Memory.settings.memHackDebug === undefined) {
+  Memory.settings.memHackDebug = false;
+}
+if (Memory.settings.enableIdleGating === undefined) {
+  Memory.settings.enableIdleGating = true;
+}
+if (Memory.settings.enablePlanningHeartbeat === undefined) {
+  Memory.settings.enablePlanningHeartbeat = true;
+}
+if (Memory.settings.planningHeartbeatTicks === undefined) {
+  Memory.settings.planningHeartbeatTicks = 50;
+}
+if (!Memory.settings.cpu || typeof Memory.settings.cpu !== 'object') {
+  Memory.settings.cpu = {};
+}
+if (!Memory.settings.cpu.stopAt || typeof Memory.settings.cpu.stopAt !== 'object') {
+  Memory.settings.cpu.stopAt = {};
+}
+if (!Memory.settings.cpu.throttleAt || typeof Memory.settings.cpu.throttleAt !== 'object') {
+  Memory.settings.cpu.throttleAt = {};
+}
+if (Memory.settings.cpu.stopAt.critical === undefined) Memory.settings.cpu.stopAt.critical = 500;
+if (Memory.settings.cpu.stopAt.realtime === undefined) Memory.settings.cpu.stopAt.realtime = 2000;
+if (Memory.settings.cpu.stopAt.background === undefined) Memory.settings.cpu.stopAt.background = 4000;
+if (Memory.settings.cpu.stopAt.burstOnly === undefined) Memory.settings.cpu.stopAt.burstOnly = 8000;
+if (Memory.settings.cpu.throttleAt.critical === undefined) Memory.settings.cpu.throttleAt.critical = 1000;
+if (Memory.settings.cpu.throttleAt.realtime === undefined) Memory.settings.cpu.throttleAt.realtime = 4000;
+if (Memory.settings.cpu.throttleAt.background === undefined) Memory.settings.cpu.throttleAt.background = 7000;
+if (Memory.settings.cpu.throttleAt.burstOnly === undefined) Memory.settings.cpu.throttleAt.burstOnly = 9000;
+if (Memory.settings.cpu.emergencyBrakeRatio === undefined) Memory.settings.cpu.emergencyBrakeRatio = 0.85;
 if (Memory.settings.layoutPlanningMode === undefined) {
   Memory.settings.layoutPlanningMode = 'standard';
 }
@@ -186,7 +231,7 @@ if (Memory.settings.renewQueueBusyThreshold === undefined) {
 if (Memory.settings.recycleOverheadTicks === undefined) {
   Memory.settings.recycleOverheadTicks = 20;
 }
-if (Memory.settings.alwaysShowHud) {
+if ((Memory.settings.overlayMode || 'normal') === 'normal' && Memory.settings.alwaysShowHud) {
   Memory.settings.enableVisuals = true;
   Memory.settings.showSpawnQueueHud = true;
 }
@@ -198,11 +243,40 @@ if (Memory.settings.energyLogs) {
   logger.toggle('demandManager', false);
 }
 
+function syncOverlayModeSettings() {
+  if (!Memory.settings) Memory.settings = {};
+  const mode = String(Memory.settings.overlayMode || 'normal').toLowerCase();
+  if (mode === 'off') {
+    Memory.settings.enableVisuals = false;
+    Memory.settings.alwaysShowHud = false;
+    Memory.settings.showSpawnQueueHud = false;
+    Memory.settings.showLayoutOverlay = false;
+    Memory.settings.showLayoutLegend = false;
+    Memory.settings.showHtmOverlay = false;
+    Memory.settings.enableTaskProfiling = false;
+    return mode;
+  }
+  if (mode === 'debug') {
+    Memory.settings.enableVisuals = false;
+    Memory.settings.alwaysShowHud = false;
+    Memory.settings.showSpawnQueueHud = false;
+    Memory.settings.showLayoutOverlay = false;
+    Memory.settings.showLayoutLegend = false;
+    Memory.settings.showHtmOverlay = true;
+    Memory.settings.enableTaskProfiling = true;
+    return mode;
+  }
+  return 'normal';
+}
+
 function applyRuntimeMode(mode, options = {}) {
   if (!Memory.settings) Memory.settings = {};
+  Memory.settings.enableMemHack = true;
+  if (Memory.settings.memHackDebug === undefined) Memory.settings.memHackDebug = false;
   const normalized = String(mode || '').toLowerCase();
   if (normalized === 'theoretical') {
     const suspend = options.suspend !== false;
+    Memory.settings.runtimeMode = 'theoretical';
     Memory.settings.layoutPlanningMode = 'theoretical';
     if (!Memory.settings.layoutOverlayView) {
       Memory.settings.layoutOverlayView = 'plan';
@@ -229,6 +303,7 @@ function applyRuntimeMode(mode, options = {}) {
   }
 
   if (normalized === 'live') {
+    Memory.settings.runtimeMode = 'live';
     Memory.settings.layoutPlanningMode = 'standard';
     Memory.settings.buildPreviewOnly = false;
     Memory.settings.pauseBot = false;
@@ -237,6 +312,29 @@ function applyRuntimeMode(mode, options = {}) {
     }
     if (Memory.settings.alwaysShowHud) {
       Memory.settings.enableVisuals = true;
+    }
+    return;
+  }
+
+  if (normalized === 'maintenance') {
+    Memory.settings.runtimeMode = 'maintenance';
+    Memory.settings.pauseBot = false;
+    Memory.settings.buildPreviewOnly = false;
+    Memory.settings.enableBaseBuilderPlanning = false;
+    Memory.settings.overlayMode = 'off';
+    Memory.settings.enableVisuals = false;
+    Memory.settings.showSpawnQueueHud = false;
+    Memory.settings.showLayoutOverlay = false;
+    Memory.settings.showLayoutLegend = false;
+    Memory.settings.showHtmOverlay = false;
+    Memory.settings.enableTaskProfiling = false;
+    delete Memory.settings.layoutRecalculateRequested;
+    delete Memory.settings.layoutRecalculateMode;
+    if (Memory.settings.profilerEnabledByOverlay) {
+      Memory.settings.profilerEnabledByOverlay = false;
+      Memory.settings.enableScreepsProfiler = false;
+      Memory.settings.profilerResetPending = true;
+      delete Memory.settings.profilerControl;
     }
   }
 }
@@ -256,6 +354,616 @@ function drawAsciiConsole() {
   if (!Memory.stats) Memory.stats = {};
   Memory.stats.consoleDrawTime = drawTime;
   return drawTime;
+}
+
+function compactTickSeries(store, keep = 100) {
+  if (!store || !Array.isArray(store.ticks) || typeof store.byTick !== 'object' || !store.byTick) return;
+  const limit = Math.max(1, Math.floor(Number(keep) || 100));
+  if (store.ticks.length <= limit) return;
+  const keepTicks = store.ticks.slice(-limit);
+  const keepMap = {};
+  for (const t of keepTicks) {
+    keepMap[String(t)] = true;
+  }
+  for (const key in store.byTick) {
+    if (!keepMap[key]) delete store.byTick[key];
+  }
+  store.ticks = keepTicks;
+}
+
+function performMemorySweep(mode = 'ownedOnly') {
+  const normalized = String(mode || 'ownedOnly').toLowerCase();
+  const summary = {
+    mode: normalized,
+    removedRooms: 0,
+    keptRooms: 0,
+    trimmedLogs: 0,
+    trimmedTaskLogs: 0,
+    trimmedTaskAverages: 0,
+    trimmedTickPipeline: 0,
+    trimmedProfilerBreakdown: 0,
+    trimmedIncidents: 0,
+    trimmedSavestates: 0,
+    beforeRawBytes: typeof RawMemory !== 'undefined' && typeof RawMemory.get === 'function' ? (RawMemory.get() || '').length : 0,
+    afterRawBytes: 0,
+  };
+
+  if (!Memory.rooms) Memory.rooms = {};
+  const ownedSet = {};
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (room && room.controller && room.controller.my) ownedSet[roomName] = true;
+  }
+
+  if (normalized === 'ownedonly' || normalized === 'hard') {
+    const names = Object.keys(Memory.rooms);
+    for (const roomName of names) {
+      if (!ownedSet[roomName]) {
+        delete Memory.rooms[roomName];
+        summary.removedRooms += 1;
+      } else {
+        summary.keptRooms += 1;
+      }
+    }
+  } else {
+    summary.keptRooms = Object.keys(Memory.rooms).length;
+  }
+
+  if (normalized !== 'statsonly') {
+    for (const roomName in Memory.rooms) {
+      layoutPlanner._pruneTheoreticalMemory(roomName, { reason: `memory-sweep:${normalized}` });
+    }
+  }
+
+  if (!Memory.stats) Memory.stats = {};
+  const stats = Memory.stats;
+  if (Array.isArray(stats.logs) && stats.logs.length > 100) {
+    summary.trimmedLogs = stats.logs.length - 100;
+    stats.logs = stats.logs.slice(-100);
+  }
+  if (Array.isArray(stats.taskLogs) && stats.taskLogs.length > 100) {
+    summary.trimmedTaskLogs = stats.taskLogs.length - 100;
+    stats.taskLogs = stats.taskLogs.slice(-100);
+  }
+  if (stats.taskAverages && typeof stats.taskAverages === 'object') {
+    const recentNames = {};
+    for (const entry of stats.taskLogs || []) {
+      if (entry && entry.name) recentNames[String(entry.name)] = true;
+    }
+    const before = Object.keys(stats.taskAverages).length;
+    for (const name in stats.taskAverages) {
+      if (!recentNames[name]) delete stats.taskAverages[name];
+    }
+    summary.trimmedTaskAverages = Math.max(0, before - Object.keys(stats.taskAverages).length);
+  }
+  if (stats.tickPipeline && Array.isArray(stats.tickPipeline.ticks)) {
+    const before = stats.tickPipeline.ticks.length;
+    compactTickSeries(stats.tickPipeline, 100);
+    summary.trimmedTickPipeline = Math.max(0, before - stats.tickPipeline.ticks.length);
+  }
+  if (stats.profilerTickBreakdown && Array.isArray(stats.profilerTickBreakdown.ticks)) {
+    const before = stats.profilerTickBreakdown.ticks.length;
+    compactTickSeries(stats.profilerTickBreakdown, 50);
+    summary.trimmedProfilerBreakdown = Math.max(0, before - stats.profilerTickBreakdown.ticks.length);
+  }
+
+  if (normalized === 'hard' && Memory.debug) {
+    if (Memory.debug.incidents && typeof Memory.debug.incidents === 'object') {
+      const ids = Object.keys(Memory.debug.incidents);
+      if (ids.length > 3) {
+        ids.sort((a, b) => {
+          const ia = Memory.debug.incidents[a] || {};
+          const ib = Memory.debug.incidents[b] || {};
+          return Number((ib.created || 0)) - Number((ia.created || 0));
+        });
+        const keep = {};
+        for (const id of ids.slice(0, 3)) keep[id] = true;
+        for (const id of ids) {
+          if (!keep[id]) {
+            delete Memory.debug.incidents[id];
+            summary.trimmedIncidents += 1;
+          }
+        }
+      }
+    }
+    if (Memory.debug.savestates && typeof Memory.debug.savestates === 'object') {
+      const ids = Object.keys(Memory.debug.savestates);
+      if (ids.length > 3) {
+        ids.sort((a, b) => {
+          const sa = Memory.debug.savestates[a] || {};
+          const sb = Memory.debug.savestates[b] || {};
+          return Number((sb.created || 0)) - Number((sa.created || 0));
+        });
+        const keep = {};
+        for (const id of ids.slice(0, 3)) keep[id] = true;
+        for (const id of ids) {
+          if (!keep[id]) {
+            delete Memory.debug.savestates[id];
+            summary.trimmedSavestates += 1;
+          }
+        }
+      }
+    }
+  }
+
+  summary.afterRawBytes = typeof RawMemory !== 'undefined' && typeof RawMemory.get === 'function' ? (RawMemory.get() || '').length : 0;
+  return summary;
+}
+
+function recordTickPhase(ctx, phaseName, fn, extra = {}) {
+  tickPipeline.markPhaseStart(ctx, phaseName);
+  let out;
+  try {
+    out = fn();
+  } finally {
+    tickPipeline.markPhaseEnd(ctx, phaseName, extra);
+  }
+  return out;
+}
+
+function getCpuPolicySettings() {
+  if (!Memory.settings) Memory.settings = {};
+  if (!Memory.settings.cpu || typeof Memory.settings.cpu !== 'object') {
+    Memory.settings.cpu = {};
+  }
+  const cpu = Memory.settings.cpu;
+  cpu.stopAt = cpu.stopAt || {};
+  cpu.throttleAt = cpu.throttleAt || {};
+  if (cpu.stopAt.critical === undefined) cpu.stopAt.critical = 500;
+  if (cpu.stopAt.realtime === undefined) cpu.stopAt.realtime = 2000;
+  if (cpu.stopAt.background === undefined) cpu.stopAt.background = 4000;
+  if (cpu.stopAt.burstOnly === undefined) cpu.stopAt.burstOnly = 8000;
+  if (cpu.throttleAt.critical === undefined) cpu.throttleAt.critical = 1000;
+  if (cpu.throttleAt.realtime === undefined) cpu.throttleAt.realtime = 4000;
+  if (cpu.throttleAt.background === undefined) cpu.throttleAt.background = 7000;
+  if (cpu.throttleAt.burstOnly === undefined) cpu.throttleAt.burstOnly = 9000;
+  if (cpu.emergencyBrakeRatio === undefined) cpu.emergencyBrakeRatio = 0.85;
+  return cpu;
+}
+
+function hasActivePlanningRun() {
+  const runHasPendingTasks = function (roomName, runId) {
+    if (!roomName || !runId || typeof htm._getContainer !== 'function') return false;
+    const container = htm._getContainer(htm.LEVELS.COLONY, roomName);
+    if (!container || !Array.isArray(container.tasks)) return false;
+    for (const task of container.tasks) {
+      if (!task || Number(task.amount || 0) <= 0) continue;
+      const taskRunId = task.data && task.data.runId ? String(task.data.runId) : '';
+      if (taskRunId && taskRunId === String(runId)) return true;
+    }
+    return false;
+  };
+
+  if (!Memory.rooms) return false;
+  for (const roomName in Memory.rooms) {
+    const roomMem = Memory.rooms[roomName];
+    if (!roomMem) continue;
+    const intentState = roomMem.intentState || null;
+    if (intentState && intentState.activeRunId) {
+      const runId = String(intentState.activeRunId);
+      const runs = roomMem.layout && roomMem.layout.pipelineRuns ? roomMem.layout.pipelineRuns : null;
+      const runState = runs && runs[runId] ? String(runs[runId].status || '') : '';
+      const isActiveRunState = runState !== 'completed' && runState !== 'failed' && runState !== 'stale';
+      if (isActiveRunState || runState === '') return true;
+      intentState.activeRunId = null;
+    }
+    const pipeline = roomMem.layout && roomMem.layout.theoreticalPipeline;
+    if (pipeline && String(pipeline.status || '') === 'running') {
+      const runId = String(pipeline.runId || '');
+      const activeCandidate =
+        pipeline.activeCandidate !== undefined && pipeline.activeCandidate !== null
+          ? pipeline.activeCandidate
+          : pipeline.activeCandidateIndex;
+      const lastProgressTick =
+        typeof pipeline.lastProgressTick === 'number'
+          ? pipeline.lastProgressTick
+          : typeof pipeline.updatedAt === 'number'
+            ? pipeline.updatedAt
+            : 0;
+      const staleAge = Math.max(0, Game.time - Number(lastProgressTick || 0));
+      const hasPendingTasks = runHasPendingTasks(roomName, runId);
+      const hasRunContext = Boolean(intentState && intentState.activeRunId);
+      const staleNoProgress =
+        !hasRunContext &&
+        (activeCandidate === null || activeCandidate === undefined) &&
+        staleAge > 50 &&
+        !hasPendingTasks;
+      if (staleNoProgress) {
+        pipeline.status = 'stale';
+        pipeline.staleReason = 'auto-heal:no-run-context-no-pending-tasks';
+        pipeline.updatedAt = Game.time;
+        continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasManualPlanningTrigger() {
+  if (Memory.settings && Memory.settings.layoutRecalculateRequested) return true;
+  if (!Memory.rooms) return false;
+  for (const roomName in Memory.rooms) {
+    const roomMem = Memory.rooms[roomName];
+    if (!roomMem || !roomMem.layout) continue;
+    if (roomMem.layout.manualPhaseRequest || roomMem.layout.rebuildLayout) return true;
+  }
+  return false;
+}
+
+function refreshCriticalEventCache() {
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.runtime = Memory.stats.runtime || {};
+  const runtime = Memory.stats.runtime;
+  const now = Game.time;
+  const lastCheck = Number(runtime.lastCriticalCheckTick || 0);
+  const checkInterval = Math.max(3, Math.floor(Number((Memory.settings && Memory.settings.criticalCheckIntervalTicks) || 10)));
+  if (now - lastCheck < checkInterval) {
+    return Boolean(runtime.hasCriticalEvent);
+  }
+  let found = false;
+  for (const roomName in Game.rooms) {
+    const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) continue;
+    if (typeof FIND_HOSTILE_CREEPS === 'undefined' || typeof room.find !== 'function') continue;
+    if (room.find(FIND_HOSTILE_CREEPS).length > 0) {
+      found = true;
+      runtime.lastCriticalEventTick = now;
+      break;
+    }
+  }
+  runtime.lastCriticalCheckTick = now;
+  runtime.hasCriticalEvent = found;
+  if (!found && Number(runtime.lastCriticalEventTick || 0) + 10 < now) {
+    runtime.lastCriticalEventTick = 0;
+  }
+  return found;
+}
+
+function shouldForcePlanningTick() {
+  if (!Memory.settings) return false;
+  if (Memory.settings.layoutRecalculateRequested) return true;
+  if (hasManualPlanningTrigger()) return true;
+  if (!Memory.settings.enablePlanningHeartbeat) return false;
+  const ticks = Math.max(10, Math.floor(Number(Memory.settings.planningHeartbeatTicks || 50)));
+  return Game.time % ticks === 0;
+}
+
+function buildRuntimeState(tickCtx) {
+  const state = {
+    runtimeState: 'active',
+    runtimeReason: 'default-active',
+    forcePlanningTick: shouldForcePlanningTick(),
+    nextPlanningHeartbeatTick: 0,
+    htmSummary: { totalActive: 0, totalRunnable: 0, runnableByPipeline: {} },
+  };
+  const hbTicks = Math.max(10, Math.floor(Number((Memory.settings && Memory.settings.planningHeartbeatTicks) || 50)));
+  const mod = Game.time % hbTicks;
+  state.nextPlanningHeartbeatTick = hbTicks > 0 ? (mod === 0 ? Game.time + hbTicks : Game.time + (hbTicks - mod)) : 0;
+  if (!Memory.settings || String(Memory.settings.runtimeMode || 'live').toLowerCase() !== 'live') {
+    state.runtimeReason = 'non-live-mode';
+    return state;
+  }
+  if (Memory.settings.enableIdleGating === false) {
+    state.runtimeReason = 'idle-gating-disabled';
+    return state;
+  }
+  if (state.forcePlanningTick) {
+    state.runtimeReason = 'planning-heartbeat';
+    return state;
+  }
+  if (hasManualPlanningTrigger()) {
+    state.runtimeReason = 'manual-trigger';
+    return state;
+  }
+  if (hasActivePlanningRun()) {
+    state.runtimeReason = 'active-planning-run';
+    return state;
+  }
+  if (refreshCriticalEventCache()) {
+    state.runtimeReason = 'critical-event-cache';
+    return state;
+  }
+  const htmSummary = typeof htm.getRunnableSummary === 'function'
+    ? htm.getRunnableSummary()
+    : { totalActive: 0, totalRunnable: 0, runnableByPipeline: {} };
+  state.htmSummary = htmSummary;
+  if (Number(htmSummary.totalRunnable || 0) > 0) {
+    state.runtimeReason = 'runnable-htm-tasks';
+    return state;
+  }
+  if (Number(htmSummary.totalActive || 0) > 0) {
+    state.runtimeReason = 'blocked-htm-tasks';
+    return state;
+  }
+  state.runtimeState = 'idle';
+  state.runtimeReason = 'no-work';
+  return state;
+}
+
+function filterPipelinesByBucket(basePipelines) {
+  const cpu = getCpuPolicySettings();
+  const bucket = Number(Game.cpu.bucket || 0);
+  const list = [];
+  for (const pipeline of basePipelines) {
+    const stopAt = Number(cpu.stopAt[pipeline] || 0);
+    if (bucket < stopAt) continue;
+    list.push(pipeline);
+  }
+  return list;
+}
+
+function queueDomainEvents(ctx, options = {}) {
+  if (!ctx || !ctx.snapshot) return;
+  domainQueueScheduler.startTick(Game.time);
+  const previewOnly = Boolean(Memory.settings && Memory.settings.buildPreviewOnly);
+  const includeIntentProducer = Boolean(options.includeIntentProducer);
+  if (includeIntentProducer) {
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (!room || !room.controller || !room.controller.my) continue;
+      domainQueueScheduler.enqueue({
+        taskId: `intent:${roomName}:${Game.time}`,
+        type: 'ROOM_INTENT_PRODUCER',
+        domain: 'planner',
+        pipeline: ctx && ctx.flags && ctx.flags.BURST ? 'background' : 'realtime',
+        priorityBand: 1,
+        priorityBase: 1,
+        priorityDyn: 0,
+        roomName,
+        previewOnly,
+        forceProducer: Boolean(options.forceProducer),
+        roomSnapshot: ctx.snapshot && ctx.snapshot.rooms ? ctx.snapshot.rooms[roomName] || null : null,
+        costEst: 'low',
+        validUntil: Game.time + 1,
+      });
+    }
+  }
+  if (!Array.isArray(ctx.snapshot.events)) return;
+  for (const event of ctx.snapshot.events) {
+    if (!event || !event.type) continue;
+    if (event.type === 'hostilesSeen') {
+      domainQueueScheduler.enqueue({
+        taskId: `combat:${event.roomName}:${Game.time}`,
+        type: 'EVENT_HOSTILES_SEEN',
+        domain: 'combat',
+        pipeline: 'critical',
+        priorityBand: 0,
+        priorityBase: 0,
+        priorityDyn: 0,
+        roomName: event.roomName,
+        deadlineTick: Game.time + 1,
+        costEst: 'low',
+        validUntil: Game.time + 1,
+      });
+    } else if (event.type === 'constructionSitesPresent') {
+      domainQueueScheduler.enqueue({
+        taskId: `build:${event.roomName}:${Game.time}`,
+        type: 'EVENT_CONSTRUCTION_PRESENT',
+        domain: 'build',
+        pipeline: 'background',
+        priorityBand: 2,
+        priorityBase: 2,
+        priorityDyn: 0,
+        roomName: event.roomName,
+        deadlineTick: Game.time + 10,
+        costEst: 'low',
+        validUntil: Game.time + 5,
+      });
+    }
+  }
+}
+
+function runDomainPlanning(ctx) {
+  const maxBudget = Math.max(0, Number(ctx && ctx.softBudget ? ctx.softBudget : Game.cpu.tickLimit) * 0.12);
+  const basePipelines = ctx && ctx.flags && ctx.flags.LOW_BUCKET
+    ? ['critical', 'realtime']
+    : ctx && ctx.flags && ctx.flags.BURST
+    ? ['critical', 'realtime', 'background', 'burstOnly']
+    : ['critical', 'realtime', 'background'];
+  const pipelines = filterPipelinesByBucket(basePipelines);
+  if (!pipelines.length) return;
+  const result = domainQueueScheduler.runPhase(
+    'planning',
+    maxBudget,
+    (task) => {
+      if (!task) return { invalidate: true };
+      if (task.type === 'ROOM_INTENT_PRODUCER') {
+        const room = Game.rooms[task.roomName];
+        if (!room || !room.controller || !room.controller.my) return { invalidate: true };
+        if (ctx && ctx.flags && ctx.flags.LOW_BUCKET) {
+          const roomSnap = ctx.snapshot && ctx.snapshot.rooms ? ctx.snapshot.rooms[task.roomName] : null;
+          const hostileCount = roomSnap ? Number(roomSnap.hostileCount || 0) : 0;
+          const hasSpawnFast = roomSnap ? Boolean(roomSnap.hasSpawn) : false;
+          if (!hasSpawnFast && hostileCount === 0) return { invalidate: true };
+        }
+        intentPipeline.produceRoomIntents(room, {
+          previewOnly: Boolean(task.previewOnly),
+          roomSnapshot: task.roomSnapshot || null,
+          eventDriven: Boolean(task.eventDriven),
+          force: Boolean(task.forceProducer),
+        });
+        const hasSpawns =
+          typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
+            ? room.find(FIND_MY_SPAWNS).length > 0
+            : false;
+        if (hasSpawns) {
+          if (!Memory.rooms) Memory.rooms = {};
+          if (!Memory.rooms[task.roomName]) Memory.rooms[task.roomName] = {};
+          const scoutInit = Memory.rooms[task.roomName].scoutInit;
+          const needsInit =
+            !scoutInit ||
+            scoutInit.version !== hiveGaze.SCOUT_INIT_VERSION ||
+            !scoutInit.completed;
+          if (needsInit && !(scoutInit && scoutInit.pending)) {
+            const taskName = `initializeScoutMemory_${task.roomName}`;
+            scheduler.addTask(taskName, 0, () => hiveGaze.initializeScoutMemory(task.roomName), {
+              once: true,
+            });
+            Memory.rooms[task.roomName].scoutInit = {
+              version: hiveGaze.SCOUT_INIT_VERSION,
+              pending: true,
+              queuedAt: Game.time,
+            };
+          }
+        }
+        return { invalidate: true };
+      }
+      if (task.type === 'EVENT_HOSTILES_SEEN' && task.roomName) {
+        if (!Memory.stats) Memory.stats = {};
+        Memory.stats.runtime = Memory.stats.runtime || {};
+        Memory.stats.runtime.lastCriticalEventTick = Game.time;
+        Memory.stats.runtime.hasCriticalEvent = true;
+        intentPipeline.queueOverlayRefresh(task.roomName, 'hostiles-seen');
+        return { invalidate: true };
+      }
+      if (task.type === 'EVENT_CONSTRUCTION_PRESENT' && task.roomName) {
+        intentPipeline.queueOverlayRefresh(task.roomName, 'construction-sites-seen');
+        return { invalidate: true };
+      }
+      return { invalidate: true };
+    },
+    { pipelines },
+  );
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.domainScheduler = Memory.stats.domainScheduler || {};
+  const rawStats = domainQueueScheduler.getStats();
+  const compactStats = {
+    push: Number(rawStats.push || 0),
+    pop: Number(rawStats.pop || 0),
+    executed: Number(rawStats.executed || 0),
+    staleDrops: Number(rawStats.staleDrops || 0),
+    blockedSkips: Number(rawStats.blockedSkips || 0),
+    avgCostEst: Number(rawStats.avgCostEst || 0),
+    costEst: rawStats.costEst || { low: 0, medium: 0, high: 0, total: 0 },
+  };
+  if (Memory.settings && Memory.settings.debugDomainScheduler === true) {
+    compactStats.queueSizes = rawStats.queueSizes || {};
+  }
+  Memory.stats.domainScheduler.lastPlanning = {
+    tick: Game.time,
+    executed: result.executed,
+    cpu: Number(result.cpu.toFixed(4)),
+    pipelines,
+    mode: ctx && ctx.mode ? ctx.mode : 'NORMAL',
+    stats: compactStats,
+  };
+}
+
+function executeHtmPhase(tickCtx, reason) {
+  const start = Game.cpu.getUsed();
+  const preferPipeline = !(Memory.settings && Memory.settings.enableLegacyHtmRun === true);
+  let result = null;
+  const cpuPolicy = getCpuPolicySettings();
+  const fallbackTickLimit =
+    typeof Game.cpu.tickLimit === 'number' && Number.isFinite(Game.cpu.tickLimit)
+      ? Game.cpu.tickLimit
+      : Number(Game.cpu.limit || 0);
+  const htmSummary =
+    typeof htm.getRunnableSummary === 'function'
+      ? htm.getRunnableSummary()
+      : { totalRunnable: 0, runnableByPipeline: {} };
+  if (Number(htmSummary.totalRunnable || 0) <= 0) {
+    result = {
+      executed: 0,
+      cpu: 0,
+      budget: 0,
+      pipelines: [],
+      schedulerStats: null,
+      skipped: 'no-runnable',
+    };
+  }
+  const bucket = Number(Game.cpu.bucket || 0);
+  const softBudget =
+    tickCtx && typeof tickCtx.softBudget === 'number' ? tickCtx.softBudget : fallbackTickLimit;
+  const emergencyRatio = Math.max(0.5, Math.min(0.98, Number(cpuPolicy.emergencyBrakeRatio || 0.85)));
+  const emergencyUsed = Game.cpu.getUsed() > Number(softBudget) * emergencyRatio;
+  const hasCriticalRunnable = Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.critical) || 0) > 0;
+  const hasRealtimeRunnable = Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.realtime) || 0) > 0;
+  if (!result && emergencyUsed && !hasCriticalRunnable) {
+    result = {
+      executed: 0,
+      cpu: 0,
+      budget: 0,
+      pipelines: [],
+      schedulerStats: null,
+      skipped: 'emergency-brake',
+    };
+  }
+  if (!result && !hasCriticalRunnable && !hasRealtimeRunnable && bucket < Number(cpuPolicy.stopAt.background || 4000)) {
+    result = {
+      executed: 0,
+      cpu: 0,
+      budget: 0,
+      pipelines: [],
+      schedulerStats: null,
+      skipped: 'background-gated',
+    };
+  }
+  if (!result && !hasCriticalRunnable && !hasRealtimeRunnable &&
+      Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.background) || 0) <= 0 &&
+      Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.burstOnly) || 0) > 0 &&
+      bucket < Number(cpuPolicy.stopAt.burstOnly || 8000)) {
+    result = {
+      executed: 0,
+      cpu: 0,
+      budget: 0,
+      pipelines: [],
+      schedulerStats: null,
+      skipped: 'burst-gated',
+    };
+  }
+
+  if (!result && preferPipeline && typeof htm.runScheduled === 'function') {
+    const mode = tickCtx && tickCtx.mode ? tickCtx.mode : 'NORMAL';
+    const basePipelines =
+      mode === 'LOW_BUCKET'
+        ? ['critical', 'realtime']
+        : mode === 'BURST'
+          ? ['critical', 'realtime', 'background', 'burstOnly']
+          : ['critical', 'realtime', 'background'];
+    const allowedPipelines = filterPipelinesByBucket(basePipelines);
+    if (!allowedPipelines.length) {
+      result = {
+        executed: 0,
+        cpu: 0,
+        budget: 0,
+        pipelines: [],
+        schedulerStats: null,
+        skipped: 'pipeline-stopat',
+      };
+    } else {
+      result = htm.runScheduled({
+        mode,
+        softBudget,
+        reserveCpu: reason === 'preview' ? 1.2 : 2,
+        includeQueueSizes: Boolean(Memory.settings && Memory.settings.debugDomainScheduler === true),
+        allowedPipelines,
+      });
+    }
+  } else if (!result) {
+    htm.run();
+    result = {
+      executed: 0,
+      cpu: Number((Game.cpu.getUsed() - start).toFixed(4)),
+      budget: 0,
+      pipelines: ['legacy'],
+      schedulerStats: null,
+    };
+  }
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.htmExecution = {
+    tick: Game.time,
+    reason: String(reason || 'live'),
+    mode: tickCtx && tickCtx.mode ? tickCtx.mode : 'NORMAL',
+    executed: Number(result && result.executed ? result.executed : 0),
+    cpu: Number((result && result.cpu ? result.cpu : Game.cpu.getUsed() - start).toFixed(4)),
+    budget: Number(result && result.budget ? result.budget : 0),
+    pipelines: result && Array.isArray(result.pipelines) ? result.pipelines : [],
+    queueStats: result && result.schedulerStats ? result.schedulerStats : null,
+    skipped: result && result.skipped ? String(result.skipped) : '',
+  };
+  return result;
 }
 
 function gatherIntentCpuForTick(tick) {
@@ -954,6 +1662,95 @@ function processProfilerResetPending() {
   Memory.settings.profilerResetPending = false;
 }
 
+function ensureMemHackState() {
+  if (!global.__memHack || typeof global.__memHack !== 'object') {
+    global.__memHack = {
+      enabled: true,
+      parsed: global.Memory || null,
+      raw: null,
+      tick: 0,
+      lastRawBytes: 0,
+      hits: 0,
+      misses: 0,
+      lastMode: 'cold',
+      lastError: '',
+      lastAppliedTick: 0,
+    };
+  }
+  return global.__memHack;
+}
+
+function primeMemHackForTick() {
+  const state = ensureMemHackState();
+  if (typeof RawMemory === 'undefined') {
+    state.lastMode = 'unsupported';
+    state.enabled = false;
+    return state;
+  }
+  try {
+    // Classic memhack: reuse previously parsed Memory only on consecutive ticks.
+    if (state.enabled !== false && state.parsed && state.tick === Game.time - 1) {
+      delete global.Memory;
+      global.Memory = state.parsed;
+      state.hits += 1;
+      state.lastMode = 'hit';
+      state.lastAppliedTick = Game.time;
+    } else {
+      state.misses += 1;
+      state.lastMode = 'miss';
+    }
+  } catch (err) {
+    state.lastMode = 'error';
+    state.lastError = err && err.toString ? err.toString() : String(err);
+  }
+  return state;
+}
+
+function finalizeMemHackForTick() {
+  const state = ensureMemHackState();
+  const enabledSetting =
+    Memory && Memory.settings ? Memory.settings.enableMemHack !== false : true;
+  state.enabled = enabledSetting;
+  if (!enabledSetting) {
+    state.lastMode = state.lastMode === 'unsupported' ? state.lastMode : 'disabled';
+    return;
+  }
+  try {
+    if (
+      typeof RawMemory !== 'undefined' &&
+      typeof RawMemory.get === 'function' &&
+      (Game.time % 25 === 0 || !state.lastRawBytes)
+    ) {
+      const raw = RawMemory.get();
+      state.raw = raw;
+      state.lastRawBytes = raw ? raw.length : state.lastRawBytes;
+    }
+    state.parsed = global.Memory || Memory || null;
+    state.tick = Game.time;
+  } catch (err) {
+    state.lastMode = 'error';
+    state.lastError = err && err.toString ? err.toString() : String(err);
+  }
+}
+
+function recordLoopEnvelope(loopStartCpu = 0) {
+  if (typeof Game === 'undefined' || !Game.cpu || typeof Game.cpu.getUsed !== 'function') return;
+  const fullLoopCpu = Math.max(0, Number(Game.cpu.getUsed() || 0) - Number(loopStartCpu || 0));
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.runtime = Memory.stats.runtime || {};
+  Memory.stats.runtime.fullLoopCpu = Number(fullLoopCpu.toFixed(4));
+  Memory.stats.runtime.fullLoopTick = Number(Game.time || 0);
+  if (Memory.stats.tickPipeline && Memory.stats.tickPipeline.byTick) {
+    const key = String(Game.time);
+    const byTick = Memory.stats.tickPipeline.byTick[key];
+    if (byTick && typeof byTick === 'object') {
+      byTick.fullLoopCpu = Number(fullLoopCpu.toFixed(4));
+      const totalCpu = Number(byTick.totalCpu || 0);
+      byTick.postCommitCpu = Number(Math.max(0, fullLoopCpu - totalCpu).toFixed(4));
+    }
+  }
+}
+
 global.visual = {
   DT: function (toggle) {
     if (toggle === 1) {
@@ -969,14 +1766,14 @@ global.visual = {
   overlay: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
+      Memory.settings.overlayMode = 'normal';
       Memory.settings.alwaysShowHud = true;
       Memory.settings.enableVisuals = true;
+      syncOverlayModeSettings();
       statsConsole.log("HUD visuals: ON", 2);
     } else if (toggle === 0) {
-      if (Memory.settings.alwaysShowHud) {
-        Memory.settings.alwaysShowHud = false;
-      }
-      Memory.settings.enableVisuals = false;
+      Memory.settings.overlayMode = 'off';
+      syncOverlayModeSettings();
       statsConsole.log("HUD visuals: OFF", 2);
     } else {
       statsConsole.log(
@@ -1007,16 +1804,13 @@ global.visual = {
   hudAll: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 0) {
-      Memory.settings.enableVisuals = false;
-      Memory.settings.alwaysShowHud = false;
-      Memory.settings.showSpawnQueueHud = false;
-      Memory.settings.showLayoutOverlay = false;
-      Memory.settings.showLayoutLegend = false;
-      Memory.settings.showHtmOverlay = false;
+      Memory.settings.overlayMode = 'off';
+      syncOverlayModeSettings();
       statsConsole.log("All HUD/overlay visuals: OFF", 2);
       return;
     }
     if (toggle === 1) {
+      Memory.settings.overlayMode = 'normal';
       Memory.settings.enableVisuals = true;
       Memory.settings.alwaysShowHud = true;
       Memory.settings.showSpawnQueueHud = true;
@@ -1024,10 +1818,32 @@ global.visual = {
       if (Memory.settings.layoutPlanningMode === 'theoretical') {
         Memory.settings.showLayoutOverlay = true;
       }
+      syncOverlayModeSettings();
       statsConsole.log("All HUD/overlay visuals: ON", 2);
       return;
     }
     statsConsole.log("Usage: visual.hudAll(1) to enable, visual.hudAll(0) to disable", 3);
+  },
+  overlayMode: function (mode) {
+    if (!Memory.settings) Memory.settings = {};
+    if (mode === undefined || mode === null || mode === '') {
+      const current = String(Memory.settings.overlayMode || 'normal').toLowerCase();
+      statsConsole.log(`Overlay mode: ${current.toUpperCase()}`, 2);
+      return;
+    }
+    const normalized = String(mode || '').toLowerCase();
+    if (normalized !== 'off' && normalized !== 'normal' && normalized !== 'debug') {
+      statsConsole.log("Usage: visual.overlayMode('off'|'normal'|'debug')", 3);
+      return;
+    }
+    Memory.settings.overlayMode = normalized;
+    if (normalized === 'normal') {
+      if (Memory.settings.enableVisuals === false) Memory.settings.enableVisuals = true;
+      if (Memory.settings.alwaysShowHud === false) Memory.settings.alwaysShowHud = true;
+      if (Memory.settings.showSpawnQueueHud === false) Memory.settings.showSpawnQueueHud = true;
+    }
+    syncOverlayModeSettings();
+    statsConsole.log(`Overlay mode: ${normalized.toUpperCase()}`, 2);
   },
   baseBuilder: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
@@ -1127,6 +1943,9 @@ global.visual = {
   htmOverlay: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
+      if ((Memory.settings.overlayMode || 'normal') === 'off') {
+        Memory.settings.overlayMode = 'normal';
+      }
       Memory.settings.showHtmOverlay = true;
       if (Memory.settings.enableScreepsProfiler !== true) {
         Memory.settings.enableScreepsProfiler = true;
@@ -1137,6 +1956,9 @@ global.visual = {
       statsConsole.log("HTM overlay: ON", 2);
     } else if (toggle === 0) {
       Memory.settings.showHtmOverlay = false;
+      if ((Memory.settings.overlayMode || 'normal') === 'debug') {
+        Memory.settings.overlayMode = 'normal';
+      }
       if (Memory.settings.profilerEnabledByOverlay) {
         Memory.settings.profilerEnabledByOverlay = false;
         Memory.settings.enableScreepsProfiler = false;
@@ -1249,6 +2071,211 @@ global.visual = {
       return;
     }
     statsConsole.log("Usage: visual.taskProfiling(1) to enable, visual.taskProfiling(0) to disable", 3);
+  },
+  memHack: function (toggle = 'status') {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1 || toggle === '1' || toggle === 'on') {
+      Memory.settings.enableMemHack = true;
+      statsConsole.log('MemHack: ON', 2);
+      return true;
+    }
+    if (toggle === 0 || toggle === '0' || toggle === 'off') {
+      Memory.settings.enableMemHack = false;
+      statsConsole.log('MemHack: OFF', 2);
+      return false;
+    }
+    if (toggle === 'status') {
+      const state = ensureMemHackState();
+      const payload = {
+        enabled: Boolean(Memory.settings.enableMemHack !== false),
+        mode: state.lastMode || 'unknown',
+        lastRawBytes: Number(state.lastRawBytes || 0),
+        hits: Number(state.hits || 0),
+        misses: Number(state.misses || 0),
+        lastAppliedTick: Number(state.lastAppliedTick || 0),
+        lastError: state.lastError || '',
+      };
+      statsConsole.log(
+        `MemHack status: enabled=${payload.enabled} mode=${payload.mode} bytes=${payload.lastRawBytes} hits=${payload.hits} misses=${payload.misses}`,
+        2,
+      );
+      return payload;
+    }
+    statsConsole.log("Usage: visual.memHack(1|0|'status')", 3);
+    return null;
+  },
+  memTrimNow: function (roomName = null) {
+    const roomNames = roomName
+      ? [String(roomName)]
+      : Object.keys(Memory.rooms || {});
+    const results = [];
+    for (const rn of roomNames) {
+      const summary = layoutPlanner._pruneTheoreticalMemory(rn, { reason: 'manual-trim' });
+      if (summary) results.push(summary);
+    }
+    const totals = results.reduce(
+      (acc, row) => {
+        acc.rooms += 1;
+        acc.removedCandidates += Number(row.removedCandidates || 0);
+        acc.removedCandidatePlans += Number(row.removedCandidatePlans || 0);
+        acc.removedPipelineResults += Number(row.removedPipelineResults || 0);
+        acc.removedPipelineRuns += Number(row.removedPipelineRuns || 0);
+        return acc;
+      },
+      { rooms: 0, removedCandidates: 0, removedCandidatePlans: 0, removedPipelineResults: 0, removedPipelineRuns: 0 },
+    );
+    const removedTotal =
+      totals.removedCandidates +
+      totals.removedCandidatePlans +
+      totals.removedPipelineResults +
+      totals.removedPipelineRuns;
+    if (!Memory.stats) Memory.stats = {};
+    Memory.stats.memTrimLast = Object.assign({ tick: Game.time, removedTotal }, totals);
+    statsConsole.log(`MemTrim: rooms=${totals.rooms} removed=${removedTotal}`, 2);
+    return { totals, results };
+  },
+  memoryFootprint: function (roomName = null) {
+    const rawBytes =
+      typeof RawMemory !== 'undefined' && typeof RawMemory.get === 'function'
+        ? Number((RawMemory.get() || '').length)
+        : 0;
+    const roomNames = roomName
+      ? [String(roomName)]
+      : Object.keys(Memory.rooms || {});
+    const rooms = [];
+    for (const rn of roomNames) {
+      const roomMem = Memory.rooms && Memory.rooms[rn] ? Memory.rooms[rn] : null;
+      const layout = roomMem && roomMem.layout ? roomMem.layout : null;
+      if (!layout) continue;
+      const theoretical = layout.theoretical || {};
+      const candidateCount = Array.isArray(theoretical.candidates) ? theoretical.candidates.length : 0;
+      const candidatePlans = layout.theoreticalCandidatePlans || {};
+      const candidatePlanCount = Object.keys(candidatePlans).length;
+      const pipelineRuns = layout.pipelineRuns || {};
+      const pipelineRunCount = Object.keys(pipelineRuns).length;
+      rooms.push({
+        room: rn,
+        candidateCount,
+        candidatePlanCount,
+        pipelineRunCount,
+        planningStatus:
+          layout.theoreticalPipeline && layout.theoreticalPipeline.status
+            ? layout.theoreticalPipeline.status
+            : null,
+      });
+    }
+    const payload = {
+      rawMemoryBytes: rawBytes,
+      roomCount: rooms.length,
+      rooms,
+    };
+    statsConsole.log(
+      `Memory footprint: bytes=${rawBytes} rooms=${rooms.length}`,
+      2,
+    );
+    return payload;
+  },
+  memorySweep: function (mode = 'ownedOnly') {
+    const normalized = String(mode || 'ownedOnly').toLowerCase();
+    if (!['ownedonly', 'hard', 'statsonly'].includes(normalized)) {
+      statsConsole.log("Usage: visual.memorySweep('ownedOnly'|'hard'|'statsOnly')", 3);
+      return null;
+    }
+    const summary = performMemorySweep(normalized);
+    const delta = Number(summary.beforeRawBytes || 0) - Number(summary.afterRawBytes || 0);
+    statsConsole.log(
+      `MemorySweep(${normalized}): roomsRemoved=${summary.removedRooms} logsTrim=${summary.trimmedLogs} taskLogsTrim=${summary.trimmedTaskLogs} bytesDelta=${delta}`,
+      2,
+    );
+    return summary;
+  },
+  idleGating: function (toggle) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.enableIdleGating = true;
+      statsConsole.log('Idle gating: ON', 2);
+      return;
+    }
+    if (toggle === 0) {
+      Memory.settings.enableIdleGating = false;
+      statsConsole.log('Idle gating: OFF', 2);
+      return;
+    }
+    statsConsole.log("Usage: visual.idleGating(1|0)", 3);
+  },
+  planningHeartbeat: function (toggle = 1, ticks = null) {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 1) {
+      Memory.settings.enablePlanningHeartbeat = true;
+      if (ticks !== null && Number.isFinite(Number(ticks))) {
+        Memory.settings.planningHeartbeatTicks = Math.max(10, Math.floor(Number(ticks)));
+      }
+      statsConsole.log(`Planning heartbeat: ON (${Memory.settings.planningHeartbeatTicks || 50} ticks)`, 2);
+      return;
+    }
+    if (toggle === 0) {
+      Memory.settings.enablePlanningHeartbeat = false;
+      statsConsole.log('Planning heartbeat: OFF', 2);
+      return;
+    }
+    statsConsole.log("Usage: visual.planningHeartbeat(1|0, ticks?)", 3);
+  },
+  cpuPolicy: function (policy = 'aggressive') {
+    if (!Memory.settings) Memory.settings = {};
+    const normalized = String(policy || '').toLowerCase();
+    if (!Memory.settings.cpu || typeof Memory.settings.cpu !== 'object') Memory.settings.cpu = {};
+    if (!Memory.settings.cpu.stopAt || typeof Memory.settings.cpu.stopAt !== 'object') Memory.settings.cpu.stopAt = {};
+    if (!Memory.settings.cpu.throttleAt || typeof Memory.settings.cpu.throttleAt !== 'object') Memory.settings.cpu.throttleAt = {};
+    if (normalized === 'aggressive') {
+      Memory.settings.cpu.stopAt = { critical: 500, realtime: 2000, background: 4000, burstOnly: 8000 };
+      Memory.settings.cpu.throttleAt = { critical: 1000, realtime: 4000, background: 7000, burstOnly: 9000 };
+      Memory.settings.cpu.emergencyBrakeRatio = 0.85;
+      Memory.settings.enableIdleGating = true;
+      Memory.settings.enablePlanningHeartbeat = true;
+      Memory.settings.planningHeartbeatTicks = 50;
+      Memory.settings.idleStatsIntervalTicks = 5;
+      Memory.settings.idleSnapshotIntervalTicks = 10;
+      Memory.settings.criticalCheckIntervalTicks = 10;
+      statsConsole.log('CPU policy set: AGGRESSIVE', 2);
+      return;
+    }
+    if (normalized === 'balanced') {
+      Memory.settings.cpu.stopAt = { critical: 500, realtime: 1500, background: 3000, burstOnly: 7000 };
+      Memory.settings.cpu.throttleAt = { critical: 1000, realtime: 3500, background: 6500, burstOnly: 8500 };
+      Memory.settings.cpu.emergencyBrakeRatio = 0.88;
+      Memory.settings.enableIdleGating = true;
+      Memory.settings.enablePlanningHeartbeat = true;
+      Memory.settings.planningHeartbeatTicks = 25;
+      Memory.settings.idleStatsIntervalTicks = 3;
+      Memory.settings.idleSnapshotIntervalTicks = 5;
+      Memory.settings.criticalCheckIntervalTicks = 7;
+      statsConsole.log('CPU policy set: BALANCED', 2);
+      return;
+    }
+    if (normalized === 'conservative') {
+      Memory.settings.cpu.stopAt = { critical: 300, realtime: 800, background: 1500, burstOnly: 5000 };
+      Memory.settings.cpu.throttleAt = { critical: 700, realtime: 2000, background: 4500, burstOnly: 7500 };
+      Memory.settings.cpu.emergencyBrakeRatio = 0.92;
+      Memory.settings.enableIdleGating = false;
+      Memory.settings.enablePlanningHeartbeat = true;
+      Memory.settings.planningHeartbeatTicks = 20;
+      Memory.settings.idleStatsIntervalTicks = 1;
+      Memory.settings.idleSnapshotIntervalTicks = 3;
+      Memory.settings.criticalCheckIntervalTicks = 5;
+      statsConsole.log('CPU policy set: CONSERVATIVE', 2);
+      return;
+    }
+    statsConsole.log("Usage: visual.cpuPolicy('aggressive'|'balanced'|'conservative')", 3);
+  },
+  runtimeExplain: function () {
+    const runtime = Memory.stats && Memory.stats.runtime ? Memory.stats.runtime : null;
+    if (!runtime) {
+      statsConsole.log('Runtime explain: no runtime stats available yet.', 3);
+      return null;
+    }
+    const line = `Runtime ${runtime.state || 'unknown'} (reason=${runtime.reason || 'n/a'}, forcePlanning=${runtime.forcePlanningTick ? 1 : 0}, nextHeartbeat=${runtime.nextPlanningHeartbeatTick || 0}, total=${Number(runtime.fullLoopCpu || 0).toFixed(3)}, internal=${Number((Memory.stats && Memory.stats.tickPipeline && Memory.stats.tickPipeline.byTick && Memory.stats.tickPipeline.byTick[String(Game.time)] && Memory.stats.tickPipeline.byTick[String(Game.time)].totalCpu) || 0).toFixed(3)})`;
+    statsConsole.log(line, 2);
+    return runtime;
   },
   profilingDump: function (tick) {
     const targetTick =
@@ -1522,12 +2549,17 @@ global.visual = {
       statsConsole.log('Run mode set to THEORETICAL (suspended + planning overlays).', 2);
       return;
     }
+    if (normalized === 'maintenance') {
+      applyRuntimeMode('maintenance');
+      statsConsole.log('Run mode set to MAINTENANCE (strict minimal + CPU telemetry).', 2);
+      return;
+    }
     if (normalized === 'live') {
       applyRuntimeMode('live');
       statsConsole.log('Run mode set to LIVE.', 2);
       return;
     }
-    statsConsole.log("Usage: visual.runMode('theoretical'|'live')", 3);
+    statsConsole.log("Usage: visual.runMode('theoretical'|'live'|'maintenance')", 3);
   },
   enterTheoretical: function () {
     applyRuntimeMode('theoretical', { suspend: true });
@@ -1536,6 +2568,10 @@ global.visual = {
   enterLive: function () {
     applyRuntimeMode('live');
     statsConsole.log('Run mode set to LIVE.', 2);
+  },
+  enterMaintenance: function () {
+    applyRuntimeMode('maintenance');
+    statsConsole.log('Run mode set to MAINTENANCE (strict minimal + CPU telemetry).', 2);
   },
   showIntents: function (roomName = null) {
     const ownedRooms = Object.values(Game.rooms || {}).filter(
@@ -1547,6 +2583,10 @@ global.visual = {
       return null;
     }
     const payload = intentPipeline.listRoomIntents(target);
+    payload.runtimeState = Memory.stats && Memory.stats.runtime ? (Memory.stats.runtime.state || null) : null;
+    payload.runtimeReason = Memory.stats && Memory.stats.runtime ? (Memory.stats.runtime.reason || null) : null;
+    payload.nextPlanningHeartbeatTick =
+      Memory.stats && Memory.stats.runtime ? Number(Memory.stats.runtime.nextPlanningHeartbeatTick || 0) : 0;
     statsConsole.log(`Intent queue ${target}: ${payload.queue.length} task(s)`, 2);
     return payload;
   },
@@ -1679,6 +2719,7 @@ scheduler.addTask("clearMemory", 100, () => {
 
 
 scheduler.addTask("updateHUD", 1, () => {
+  if (!visualizeDT) return;
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
 
@@ -1707,6 +2748,7 @@ scheduler.addTask({
 scheduler.addTask("buildInfrastructure", 0, () => {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) continue;
     buildingManager.buildInfrastructure(room);
   }
 }); // @codex-owner buildingManager @codex-trigger {"type":"interval","interval":0}
@@ -1714,6 +2756,7 @@ scheduler.addTask("buildInfrastructure", 0, () => {
 scheduler.addTask('maintainStructures', 5, () => {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) continue;
     maintenanceManager.run(room);
   }
 }); // @codex-owner maintenanceManager @codex-trigger {"type":"interval","interval":5}
@@ -1769,11 +2812,6 @@ scheduler.addTask('roleUpdateFallback', 50, () => {
     }
   }
 }); // @codex-owner main @codex-trigger {"type":"interval","interval":50}
-// Core HTM execution task
-scheduler.addTask("htmRun", 1, () => {
-  htm.run();
-}); // @codex-owner htm @codex-trigger {"type":"interval","interval":1}
-
 // Scheduled console drawing
 scheduler.addTask(
   "consoleDisplay",
@@ -1814,6 +2852,7 @@ scheduler.addTask('runTowers', 3, () => {
 scheduler.addTask('checkStorageAndSpawnBaseDistributor', 25, () => {
   for (const roomName in Game.rooms) {
     const room = Game.rooms[roomName];
+    if (!room || !room.controller || !room.controller.my) continue;
     spawnManager.checkStorageAndSpawnBaseDistributor(room);
   }
 }); // @codex-owner baseDistributor @codex-trigger {"type":"interval","interval":25}
@@ -1835,8 +2874,10 @@ scheduler.addTask(
   { minBucket: 0 },
 ); // @codex-owner scheduler @codex-trigger {"type":"interval","interval":50}
 
-function runMainLoop() {
-  const startCPU = Game.cpu.getUsed();
+function runMainLoop(loopStartCpu = 0) {
+  const tickCtx = tickPipeline.bootstrapTick();
+  tickCtx.preLoopCpu = Math.max(0, Number(tickCtx.tickStartUsed || 0) - Number(loopStartCpu || 0));
+  const startCPU = tickCtx.tickStartUsed;
   // Defensive runtime init: Memory can be wiped on private server crashes or manual hard resets
   // without forcing a global reset, so top-level module init may not run again in time.
   if (!Memory.settings) Memory.settings = {};
@@ -1848,8 +2889,20 @@ function runMainLoop() {
   if (Memory.settings.showHtmOverlay === undefined) Memory.settings.showHtmOverlay = true;
   if (Memory.settings.enableScreepsProfiler === undefined) Memory.settings.enableScreepsProfiler = false;
   if (Memory.settings.profilerEnabledByOverlay === undefined) Memory.settings.profilerEnabledByOverlay = false;
-  if (Memory.settings.enableTaskProfiling === undefined) Memory.settings.enableTaskProfiling = true;
+  if (Memory.settings.enableTaskProfiling === undefined) Memory.settings.enableTaskProfiling = false;
+  if (Memory.settings.enableLegacyHtmRun === undefined) Memory.settings.enableLegacyHtmRun = false;
+  if (Memory.settings.runtimeMode === undefined) Memory.settings.runtimeMode = 'live';
+  if (Memory.settings.overlayMode === undefined) Memory.settings.overlayMode = 'normal';
   if (Memory.settings.enableHudCalcCache === undefined) Memory.settings.enableHudCalcCache = true;
+  if (Memory.settings.enableMemHack === undefined) Memory.settings.enableMemHack = true;
+  if (Memory.settings.memHackDebug === undefined) Memory.settings.memHackDebug = false;
+  if (Memory.settings.enableIdleGating === undefined) Memory.settings.enableIdleGating = true;
+  if (Memory.settings.enablePlanningHeartbeat === undefined) Memory.settings.enablePlanningHeartbeat = true;
+  if (Memory.settings.planningHeartbeatTicks === undefined) Memory.settings.planningHeartbeatTicks = 50;
+  if (Memory.settings.idleStatsIntervalTicks === undefined) Memory.settings.idleStatsIntervalTicks = 5;
+  if (Memory.settings.idleSnapshotIntervalTicks === undefined) Memory.settings.idleSnapshotIntervalTicks = 10;
+  if (Memory.settings.criticalCheckIntervalTicks === undefined) Memory.settings.criticalCheckIntervalTicks = 10;
+  getCpuPolicySettings();
   if (Memory.settings.layoutPlanningTopCandidates === undefined) Memory.settings.layoutPlanningTopCandidates = 5;
   if (Memory.settings.layoutPlanningCandidatesPerTick === undefined) Memory.settings.layoutPlanningCandidatesPerTick = 1;
   if (Memory.settings.layoutPlanningMaxCandidatesPerTick === undefined) Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
@@ -1861,13 +2914,75 @@ function runMainLoop() {
   if (Memory.settings.layoutPlanningManualMode === undefined) Memory.settings.layoutPlanningManualMode = false;
   if (Memory.settings.layoutPlanningManualBypassOnce === undefined) Memory.settings.layoutPlanningManualBypassOnce = false;
   processProfilerControl();
+  if (String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase() === 'maintenance') {
+    Memory.settings.overlayMode = 'off';
+    Memory.settings.enableVisuals = false;
+    Memory.settings.alwaysShowHud = false;
+    Memory.settings.showSpawnQueueHud = false;
+    Memory.settings.showLayoutOverlay = false;
+    Memory.settings.showLayoutLegend = false;
+    Memory.settings.showHtmOverlay = false;
+    Memory.settings.enableTaskProfiling = false;
+  }
+  syncOverlayModeSettings();
 
-  if (Memory.settings && Memory.settings.alwaysShowHud) {
+  if (
+    Memory.settings &&
+    (Memory.settings.overlayMode || 'normal') === 'normal' &&
+    Memory.settings.alwaysShowHud
+  ) {
     Memory.settings.enableVisuals = true;
     Memory.settings.showSpawnQueueHud = true;
   }
 
-  memoryManager.observeEnergyReserveEvents();
+  recordTickPhase(tickCtx, 'bootstrap', () => {
+    memoryManager.observeEnergyReserveEvents();
+  });
+
+  if (String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase() === 'maintenance') {
+    const initCPUUsage = Game.cpu.getUsed() - startCPU;
+    const hygieneCpu = recordTickPhase(tickCtx, 'maintenance-hygiene', () => {
+      const hygieneStart = Game.cpu.getUsed();
+      if (Game.time % 50 === 0) {
+        htm.cleanupDeadCreeps();
+      }
+      if (Game.time % 250 === 0) {
+        memoryManager.purgeConsoleLogCounts();
+      }
+      if (Game.time % 200 === 0) {
+        const roomNames = Object.keys(Memory.rooms || {});
+        for (const roomName of roomNames) {
+          layoutPlanner._pruneTheoreticalMemory(roomName, { reason: 'maintenance-hygiene' });
+        }
+      }
+      if (Game.time % 100 === 0 && Memory.creeps) {
+        for (const name in Memory.creeps) {
+          if (!Game.creeps[name]) {
+            assimilation.assimilateCreep(name);
+          }
+        }
+      }
+      return Game.cpu.getUsed() - hygieneStart;
+    });
+    const totalCPUUsage = Game.cpu.getUsed() - startCPU;
+    myStats = [
+      ["Mode", 1],
+      ["Init", initCPUUsage],
+      ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
+      ["Hygiene", hygieneCpu],
+      ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
+      ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
+      ["MemTrim", Number((Memory.stats && Memory.stats.memTrimLast && Memory.stats.memTrimLast.removedTotal) || 0)],
+      ["Total", totalCPUUsage],
+      ["Bucket", Game.cpu.bucket || 0],
+    ];
+    statsConsole.run(myStats);
+    if (Game.cpu.bucket >= 1000 && Game.time % 5 === 0) {
+      drawAsciiConsole();
+    }
+    tickPipeline.commitTick(tickCtx);
+    return;
+  }
 
   if (Memory.settings.pauseBot && !(Memory.settings && Memory.settings.buildPreviewOnly)) {
     if (!Memory.stats) Memory.stats = {};
@@ -1882,29 +2997,103 @@ function runMainLoop() {
       Memory.settings.pauseNotice = Game.time;
     }
     statsConsole.run([], false);
+    tickPipeline.commitTick(tickCtx);
     return;
   }
   if (Memory.settings.pauseNotice !== undefined) {
     delete Memory.settings.pauseNotice;
   }
 
-  processPendingLayoutRecalculation();
+  const runtimeState = buildRuntimeState(tickCtx);
+  tickCtx.runtimeState = runtimeState.runtimeState;
+  tickCtx.runtimeReason = runtimeState.runtimeReason;
+  tickCtx.forcePlanningTick = runtimeState.forcePlanningTick;
+  tickCtx.nextPlanningHeartbeatTick = runtimeState.nextPlanningHeartbeatTick;
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.runtime = Memory.stats.runtime || {};
+  Memory.stats.runtime.state = runtimeState.runtimeState;
+  Memory.stats.runtime.reason = runtimeState.runtimeReason;
+  Memory.stats.runtime.tick = Game.time;
+  Memory.stats.runtime.forcePlanningTick = Boolean(runtimeState.forcePlanningTick);
+  Memory.stats.runtime.nextPlanningHeartbeatTick = Number(runtimeState.nextPlanningHeartbeatTick || 0);
+  const memHackState = ensureMemHackState();
+  Memory.stats.runtime.memoryBytes = Number(memHackState.lastRawBytes || 0);
+  Memory.stats.runtime.memHackEnabled = Boolean(Memory.settings && Memory.settings.enableMemHack !== false);
+  Memory.stats.runtime.memHackMode = memHackState.lastMode || 'unknown';
+
+  if (
+    String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase() === 'live' &&
+    runtimeState.runtimeState === 'idle' &&
+    runtimeState.forcePlanningTick !== true
+  ) {
+    const idleSnapshotInterval = Math.max(3, Math.floor(Number((Memory.settings && Memory.settings.idleSnapshotIntervalTicks) || 10)));
+    if (Game.time % idleSnapshotInterval === 0) {
+      recordTickPhase(tickCtx, 'snapshot', () => {
+        tickCtx.snapshot = tickPipeline.buildMinimalSnapshot();
+      }, { notes: 'idle-minimal' });
+    } else {
+      tickCtx.phases.snapshot = { cpu: 0, notes: 'skipped-idle-snapshot-interval' };
+    }
+    tickCtx.phases.planning = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-scheduler'] = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-htm'] = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-room-managers'] = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-creeps'] = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-movement'] = { cpu: 0, notes: 'skipped-idle' };
+    tickCtx.phases['execution-hud'] = { cpu: 0, notes: 'skipped-idle' };
+    const totalCPUUsage = Game.cpu.getUsed() - startCPU;
+    myStats = [
+      ["Mode", 1],
+      ["State", 1],
+      ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
+      ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
+      ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
+      ["MemTrim", Number((Memory.stats && Memory.stats.memTrimLast && Memory.stats.memTrimLast.removedTotal) || 0)],
+      ["Total", totalCPUUsage],
+      ["Bucket", Game.cpu.bucket || 0],
+    ];
+    const idleStatsInterval = Math.max(1, Math.floor(Number((Memory.settings && Memory.settings.idleStatsIntervalTicks) || 5)));
+    if (Game.time % idleStatsInterval === 0) {
+      statsConsole.run(myStats);
+    }
+    if (Game.cpu.bucket >= 1000 && Game.time % 5 === 0) {
+      drawAsciiConsole();
+    }
+    tickPipeline.commitTick(tickCtx);
+    return;
+  }
+
+  recordTickPhase(tickCtx, 'snapshot', () => {
+    const shouldRunFullSnapshot = runtimeState.forcePlanningTick === true || runtimeState.runtimeState !== 'idle';
+    tickCtx.snapshot = shouldRunFullSnapshot
+      ? tickPipeline.buildFullSnapshot()
+      : tickPipeline.buildMinimalSnapshot();
+    queueDomainEvents(tickCtx, {
+      includeIntentProducer: Boolean(runtimeState.forcePlanningTick),
+      forceProducer: Boolean(runtimeState.forcePlanningTick),
+    });
+  });
+
+  recordTickPhase(tickCtx, 'planning', () => {
+    if (runtimeState.runtimeState !== 'idle' || runtimeState.forcePlanningTick === true) {
+      runDomainPlanning(tickCtx);
+    }
+    processPendingLayoutRecalculation();
+  });
 
   if (Memory.settings && Memory.settings.buildPreviewOnly) {
-    const intentProduceStart = Game.cpu.getUsed();
-    for (const roomName in Game.rooms) {
-      const room = Game.rooms[roomName];
-      if (!room || !room.controller || !room.controller.my) continue;
-      intentPipeline.produceRoomIntents(room, { previewOnly: true });
-    }
-    const intentProduceCpu = Game.cpu.getUsed() - intentProduceStart;
-    logProfileEntry('Preview Pipeline::Collect Room Intents', intentProduceCpu, {
+    const planningCpu =
+      tickCtx.phases['planning'] && typeof tickCtx.phases['planning'].cpu === 'number'
+        ? tickCtx.phases['planning'].cpu
+        : 0;
+    logProfileEntry('Preview Pipeline::Domain Planning', planningCpu, {
       parent: 'Preview Pipeline',
       reason: 'preview',
     });
-    const htmStart = Game.cpu.getUsed();
-    htm.run();
-    const htmCpu = Game.cpu.getUsed() - htmStart;
+    const htmCpu = recordTickPhase(tickCtx, 'execution-htm', () => {
+      const result = executeHtmPhase(tickCtx, 'preview');
+      return Number(result && result.cpu ? result.cpu : 0);
+    });
     logProfileEntry('Preview Pipeline::Execute HTM Tasks', htmCpu, {
       parent: 'Preview Pipeline',
       reason: 'preview',
@@ -1928,7 +3117,7 @@ function runMainLoop() {
       reason: 'tick-total',
     });
     myStats = [
-      ["Intent Produce", intentProduceCpu],
+      ["Domain Planning", planningCpu],
       ["Intent HTM", htmCpu],
       ["Intent Scan", intentCpu.scan],
       ["Intent Eval", intentCpu.eval],
@@ -1936,47 +3125,56 @@ function runMainLoop() {
       ["Intent Sync", intentCpu.sync],
       ["Intent HUD", intentCpu.hud],
       ["Intent Other", intentCpu.other],
+      ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
+      ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
+      ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
+      ["MemTrim", Number((Memory.stats && Memory.stats.memTrimLast && Memory.stats.memTrimLast.removedTotal) || 0)],
       ["Preview Mode", totalCPUUsage],
       ["Total", totalCPUUsage],
     ];
     statsConsole.run(myStats);
+    tickPipeline.commitTick(tickCtx);
     return;
   }
 
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    if (!room || !room.controller || !room.controller.my) continue;
-    intentPipeline.produceRoomIntents(room, { previewOnly: false });
-    const hasSpawns =
-      typeof FIND_MY_SPAWNS !== 'undefined' && typeof room.find === 'function'
-        ? room.find(FIND_MY_SPAWNS).length > 0
-        : false;
-    if (!hasSpawns) continue;
-    if (!Memory.rooms) Memory.rooms = {};
-    if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
-    const scoutInit = Memory.rooms[roomName].scoutInit;
-    const needsInit =
-      !scoutInit ||
-      scoutInit.version !== hiveGaze.SCOUT_INIT_VERSION ||
-      !scoutInit.completed;
-    if (!needsInit) continue;
-    if (scoutInit && scoutInit.pending) continue;
-    const taskName = `initializeScoutMemory_${roomName}`;
-    scheduler.addTask(taskName, 0, () => hiveGaze.initializeScoutMemory(roomName), {
-      once: true,
-    });
-    Memory.rooms[roomName].scoutInit = {
-      version: hiveGaze.SCOUT_INIT_VERSION,
-      pending: true,
-      queuedAt: Game.time,
-    };
+  const cpuPolicy = getCpuPolicySettings();
+  const emergencyRatio = Math.max(0.5, Math.min(0.98, Number(cpuPolicy.emergencyBrakeRatio || 0.85)));
+  if (Game.cpu.getUsed() > Number(tickCtx.softBudget || Game.cpu.tickLimit) * emergencyRatio) {
+    tickCtx.phases['execution-scheduler'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    tickCtx.phases['execution-htm'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    tickCtx.phases['execution-room-managers'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    tickCtx.phases['execution-creeps'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    tickCtx.phases['execution-movement'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    tickCtx.phases['execution-hud'] = { cpu: 0, notes: 'skipped-emergency-brake' };
+    const totalCPUUsage = Game.cpu.getUsed() - startCPU;
+    myStats = [
+      ["Mode", 1],
+      ["Emergency", 1],
+      ["Total", totalCPUUsage],
+      ["Bucket", Game.cpu.bucket || 0],
+    ];
+    statsConsole.run(myStats);
+    tickPipeline.commitTick(tickCtx);
+    return;
   }
 
-  const schedulerStart = Game.cpu.getUsed();
-  scheduler.run();
-  logProfileEntry('Main Loop::Run Scheduler', Game.cpu.getUsed() - schedulerStart, {
+  const schedulerCpu = recordTickPhase(tickCtx, 'execution-scheduler', () => {
+    const schedulerStart = Game.cpu.getUsed();
+    scheduler.run();
+    return Game.cpu.getUsed() - schedulerStart;
+  });
+  logProfileEntry('Main Loop::Run Scheduler', schedulerCpu, {
     parent: 'Main Loop',
     reason: 'scheduler',
+  });
+
+  const htmExecutionCpu = recordTickPhase(tickCtx, 'execution-htm', () => {
+    const result = executeHtmPhase(tickCtx, 'live');
+    return Number(result && result.cpu ? result.cpu : 0);
+  });
+  logProfileEntry('Main Loop::Execute HTM Tasks', htmExecutionCpu, {
+    parent: 'Main Loop',
+    reason: 'htm-execution',
   });
 
   const initCPUUsage = Game.cpu.getUsed() - startCPU;
@@ -1991,13 +3189,15 @@ function runMainLoop() {
   let statsCPUUsage = 0;
 
   // Run room managers
-  const roomManagersStartCPU = Game.cpu.getUsed();
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    spawnManager.run(room);
-  }
-
-  const roomManagersCPUUsage = Game.cpu.getUsed() - roomManagersStartCPU;
+  const roomManagersCPUUsage = recordTickPhase(tickCtx, 'execution-room-managers', () => {
+    const roomManagersStartCPU = Game.cpu.getUsed();
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName];
+      if (!room || !room.controller || !room.controller.my) continue;
+      spawnManager.run(room);
+    }
+    return Game.cpu.getUsed() - roomManagersStartCPU;
+  });
   logProfileEntry('Main Loop::Room Managers', roomManagersCPUUsage, {
     parent: 'Main Loop',
     reason: 'room-managers',
@@ -2015,9 +3215,10 @@ function runMainLoop() {
     reservist: 0,
     other: 0,
   };
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    const creepStartCPU = Game.cpu.getUsed();
+  recordTickPhase(tickCtx, 'execution-creeps', () => {
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      const creepStartCPU = Game.cpu.getUsed();
 
     if (creep.memory && creep.memory.abortOnSpawn) {
       if (Memory.settings && Memory.settings.debugVisuals) {
@@ -2042,12 +3243,13 @@ function runMainLoop() {
     } else if (creep.memory.role === 'reservist') {
       roleReservist.run(creep);
     }
-    const creepCpu = Game.cpu.getUsed() - creepStartCPU;
-    const role = creep.memory && creep.memory.role ? creep.memory.role : 'other';
-    if (roleCpuTotals[role] === undefined) roleCpuTotals.other += creepCpu;
-    else roleCpuTotals[role] += creepCpu;
-    CreepsCPUUsage += creepCpu;
-  }
+      const creepCpu = Game.cpu.getUsed() - creepStartCPU;
+      const role = creep.memory && creep.memory.role ? creep.memory.role : 'other';
+      if (roleCpuTotals[role] === undefined) roleCpuTotals.other += creepCpu;
+      else roleCpuTotals[role] += creepCpu;
+      CreepsCPUUsage += creepCpu;
+    }
+  }, { count: Object.keys(Game.creeps || {}).length });
   logProfileEntry('Creep Roles::Total', CreepsCPUUsage, {
     parent: 'Creep Roles',
     reason: 'creep-roles',
@@ -2063,23 +3265,42 @@ function runMainLoop() {
   }
 
   // Ensure creeps vacate restricted spawn areas after running role logic
-  const movementStart = Game.cpu.getUsed();
-  for (const name in Game.creeps) {
-    const creep = Game.creeps[name];
-    movementUtils.avoidSpawnArea(creep);
-  }
-  logProfileEntry('Main Loop::Movement Safety', Game.cpu.getUsed() - movementStart, {
+  const movementCpu = recordTickPhase(tickCtx, 'execution-movement', () => {
+    const movementStart = Game.cpu.getUsed();
+    for (const name in Game.creeps) {
+      const creep = Game.creeps[name];
+      movementUtils.avoidSpawnArea(creep);
+    }
+    return Game.cpu.getUsed() - movementStart;
+  });
+  logProfileEntry('Main Loop::Movement Safety', movementCpu, {
     parent: 'Main Loop',
     reason: 'movement',
   });
 
   // Run late tick management
-  const hudStart = Game.cpu.getUsed();
-  for (const roomName in Game.rooms) {
-    const room = Game.rooms[roomName];
-    hudManager.createHUD(room);
+  let hudPassCpu = 0;
+  const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+  const shouldRunHudPass =
+    overlayMode !== 'off' &&
+    (
+      overlayMode === 'debug' ||
+      Boolean(Memory.settings && Memory.settings.enableVisuals) ||
+      Boolean(Memory.settings && Memory.settings.showHtmOverlay)
+    );
+  if (shouldRunHudPass && !tickPipeline.hardStopReached(tickCtx, 2)) {
+    hudPassCpu = recordTickPhase(tickCtx, 'execution-hud', () => {
+      const hudStart = Game.cpu.getUsed();
+      for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        hudManager.createHUD(room);
+      }
+      return Game.cpu.getUsed() - hudStart;
+    });
+  } else {
+    tickCtx.phases['execution-hud'] = { cpu: 0, notes: 'skipped-hard-stop' };
   }
-  logProfileEntry('Main Loop::HUD Pass', Game.cpu.getUsed() - hudStart, {
+  logProfileEntry('Main Loop::HUD Pass', hudPassCpu, {
     parent: 'Main Loop',
     reason: 'hud-pass',
   });
@@ -2103,6 +3324,7 @@ function runMainLoop() {
   });
 
   myStats = [
+    ["HTM", htmExecutionCpu],
     ["Creep Managers", CreepManagersCPUUsage],
     ["Towers", towersCPUUsage],
     ["Links", linksCPUUsage],
@@ -2110,6 +3332,10 @@ function runMainLoop() {
     ["Creeps", CreepsCPUUsage],
     ["Init", initCPUUsage],
     ["Stats", statsCPUUsage],
+    ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
+    ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
+    ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
+    ["MemTrim", Number((Memory.stats && Memory.stats.memTrimLast && Memory.stats.memTrimLast.removedTotal) || 0)],
     ["Total", totalCPUUsage],
   ];
 
@@ -2128,16 +3354,26 @@ function runMainLoop() {
   }
 
   // drawing handled by scheduler
+  tickPipeline.commitTick(tickCtx);
 }
 
 module.exports.loop = function () {
-  processProfilerResetPending();
-  const profilerShouldRun = Boolean(Memory && Memory.settings && Memory.settings.enableScreepsProfiler);
-  if (profilerShouldRun) {
-    if (ensureScreepsProfilerEnabled() && screepsProfiler) {
-      registerLoadedModulesForProfiler();
-      return screepsProfiler.wrap(runMainLoop);
+  const loopStartCpu = typeof Game !== 'undefined' && Game.cpu && typeof Game.cpu.getUsed === 'function'
+    ? Game.cpu.getUsed()
+    : 0;
+  primeMemHackForTick();
+  try {
+    processProfilerResetPending();
+    const profilerShouldRun = Boolean(Memory && Memory.settings && Memory.settings.enableScreepsProfiler);
+    if (profilerShouldRun) {
+      if (ensureScreepsProfilerEnabled() && screepsProfiler) {
+        registerLoadedModulesForProfiler();
+        return screepsProfiler.wrap(() => runMainLoop(loopStartCpu));
+      }
     }
+    return runMainLoop(loopStartCpu);
+  } finally {
+    finalizeMemHackForTick();
+    recordLoopEnvelope(loopStartCpu);
   }
-  return runMainLoop();
 };

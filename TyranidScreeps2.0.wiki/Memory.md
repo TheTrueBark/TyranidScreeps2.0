@@ -220,6 +220,17 @@ the dynamic result. The console displays the manual limit alongside each role.
 Memory.rooms['W1N1'].manualSpawnLimits = { builders: 'auto', miners: 2 };
 ```
 
+## Theoretical Layout Retention
+
+The theoretical planner now prunes memory aggressively after completed/stale runs:
+
+- Keeps only top candidate rows (plus explicitly selected overlay candidate when needed).
+- Keeps only compact candidate plan fields for retained entries.
+- Keeps only one compact latest `pipelineRuns` entry per room.
+- Stores last prune summary under `Memory.rooms[room].layout.memTrimLast`.
+
+This reduces persistent memory bloat and helps lower idle CPU from memory parse/serialize overhead.
+
 Each hauler route stores rolling averages under `Memory.demand.routes`:
 
 ```javascript

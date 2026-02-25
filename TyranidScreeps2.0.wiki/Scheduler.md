@@ -31,7 +31,7 @@ const scheduler = require('scheduler');
 
 scheduler.addTask('logCpu', 5, cpuLogger, { highPriority: true });
 scheduler.addTask('newRoom', 0, analyseRoom, { event: 'roomSeen' });
-scheduler.addTask('htmRun', 1, () => htm.run());
+// HTM runs in main pipeline phase D via htm.runScheduled(...)
 ```
 
 ## Execution Cycle
@@ -46,6 +46,25 @@ Use `removeTask(name)` to cancel a task entirely or `updateTask(name, interval)`
 
 Calling `scheduler.listTasks()` returns a summary of upcoming executions which can be printed periodically via `scheduler.logTaskList()`.
 `debug.showSchedule()` prints the same information on demand along with memory schema status.
+
+## Runtime CPU Policy (Main + HTM Gating)
+
+The runtime now applies policy gates before expensive scheduler/HTM execution:
+
+- Live idle fast-path can skip scheduler/planning/HTM execution when no work is detected.
+- HTM execution is pipeline-filtered by bucket thresholds:
+  - `critical` always preferred
+  - `realtime` gated by `cpu.stopAt.realtime`
+  - `background` gated by `cpu.stopAt.background`
+  - `burstOnly` gated by `cpu.stopAt.burstOnly`
+- Emergency brake (`cpu.emergencyBrakeRatio`) can stop non-critical execution when tick CPU is near budget.
+
+Policy controls:
+
+- `visual.idleGating(1|0)`
+- `visual.planningHeartbeat(1|0, ticks?)`
+- `visual.cpuPolicy('aggressive'|'balanced'|'conservative')`
+- `visual.runtimeExplain()`
 
 ### Role Evaluation Events
 
@@ -70,7 +89,6 @@ The main loop registers several core jobs which drive the colony:
 | `energyDemand`       | 1000 ticks     | `demand`           | Updates delivery stats. |
 | `roleUpdateEvent`    | event `roleUpdate` | `main`        | Triggers role evaluation on spawn/death. |
 | `roleUpdateFallback` | 50 ticks       | `main`             | Periodic role evaluation when bucket high. |
-| `htmRun`             | 1 tick         | `htm`              | Processes HTM task queues. |
 | `consoleDisplay`     | 5 ticks        | `console.console`  | Prints stats and logs to console. |
 | `purgeLogs`          | 250 ticks      | `memoryManager`    | Clears aggregated log counts. |
 | `predictMinerLifecycles` | 25 ticks | `lifecyclePredictor` | Queues miner replacements before death. |
@@ -97,6 +115,5 @@ documentation can be automatically generated.
 Example entry:
 
 ```javascript
-scheduler.addTask('htmRun', 1, () => htm.run()); // @codex-owner htm @codex-trigger {"type":"interval","interval":1}
+scheduler.addTask('consoleDisplay', 5, drawAsciiConsole, { minBucket: 1000 }); // @codex-owner console.console @codex-trigger {"type":"interval","interval":5}
 ```
-

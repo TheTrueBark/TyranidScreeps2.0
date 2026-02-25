@@ -63,8 +63,8 @@ Theoretical HUD/overlay drawing is called every tick in preview mode.
 
 `statsConsole.run()` now includes intent-pipeline CPU rows:
 
-- `Intent Produce` - CPU used to detect/queue explicit room intents
-- `Intent HTM` - CPU used by `htm.run()` in preview mode
+- `Domain Planning` - CPU used by Phase C planning (event snapshot -> domain queue -> intents)
+- `Intent HTM` - CPU used by HTM Phase D execution (`htm.runScheduled()`)
 - `Preview HUD` - CPU used to render theoretical HUD + overlays each tick
 - `Intent Scan` - summed `INTENT_SCAN_ROOM` handler CPU for current tick
 - `Intent Eval` - summed `INTENT_EVALUATE_ROOM_VALUE` handler CPU
@@ -75,6 +75,32 @@ Theoretical HUD/overlay drawing is called every tick in preview mode.
 
 The per-intent sums are aggregated from `Memory.stats.taskLogs` entries written
 by HTM (`tick == Game.time`).
+
+## Tick Pipeline (A-E)
+
+Main loop execution is fixed into deterministic phases:
+
+- `A Bootstrap`: compute soft budget (`softBudget`) and bucket mode (`LOW_BUCKET|NORMAL|BURST`).
+- `B Snapshot`: build a read-only room/creep snapshot and collect validation events.
+- `C Planning`: domain queue planning (`critical|realtime|background|burstOnly`) with budget gates.
+- `D Execution`: run scheduler + HTM execution with hard-stop headroom.
+- `E Commit`: persist consolidated phase stats to `Memory.stats.tickPipeline`.
+
+HTM execution is no longer scheduled as a standalone interval task (`htmRun`).
+It is executed explicitly inside Phase D, making queue/budget behavior reproducible per tick.
+
+### Runtime CPU Policy (Idle Gating + Throttling)
+
+Live runtime now supports aggressive idle gating and bucket-aware throttling:
+
+- `enableIdleGating` (default `true`): if no active work is detected, the tick takes an idle fast-path.
+- `enablePlanningHeartbeat` (default `true`) + `planningHeartbeatTicks` (default `50`): optional lightweight planning safety pulse.
+- CPU policy thresholds:
+  - `cpu.stopAt`: hard gate per pipeline (`critical`, `realtime`, `background`, `burstOnly`)
+  - `cpu.throttleAt`: soft throttle thresholds
+  - `cpu.emergencyBrakeRatio` (default `0.85` of `Game.cpu.tickLimit`)
+
+Idle fast-path in live mode runs only minimal maintenance + telemetry + commit, and skips full snapshot/planning/scheduler/HTM role execution unless wake-up conditions are present.
 
 ### HTM Overlay (Topbound)
 
@@ -109,13 +135,41 @@ Registration failures are captured in `Memory.stats.profilerRegistry` and do not
 
 Toggle in console:
 
+- `visual.runMode('live'|'theoretical'|'maintenance')` - switch runtime pipeline mode
+- `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
+- `visual.idleGating(1|0)` - enable/disable live idle fast-path
+- `visual.planningHeartbeat(1|0, ticks?)` - enable/disable planning heartbeat and optionally set cadence
+- `visual.cpuPolicy('aggressive'|'balanced'|'conservative')` - apply predefined stop/throttle thresholds
+- `visual.runtimeExplain()` - print why current tick is running idle or active path
+- `visual.memHack(1|0|'status')` - toggle or inspect Memory parse-cache optimization
+- `visual.memTrimNow(room?)` - prune theoretical layout memory (top candidates + latest run only)
+- `visual.memoryFootprint(room?)` - inspect memory-heavy layout branches and raw bytes
 - `visual.htmOverlay(1)` - show HTM profiler overlay and queue `Game.profiler.background(...)`
 - `visual.htmOverlay(0)` - hide HTM profiler overlay and stop overlay-owned profiling session
-- `visual.taskProfiling(1)` - enable scheduler/HTM profiling writes (default ON)
+- `visual.overlayMode('off'|'normal'|'debug')` - one-command overlay profile:
+  - `off`: no HUD/layout/HTM overlay rendering and no `INTENT_RENDER_HUD` / `INTENT_SYNC_OVERLAY` queueing
+  - `normal`: regular HUD behavior
+  - `debug`: only HTM/debug overlays
+- `visual.taskProfiling(1)` - enable scheduler/HTM profiling writes (default OFF)
 - `visual.taskProfiling(0)` - disable scheduler/HTM profiling writes
 - `visual.profilingDump(tick?)` - print raw `Game.profiler.output(...)` snapshot to console
 - `visual.profilingExplain(tick?)` - print top raw profiler functions from `Memory.profiler.map`
 - `visual.htmLastLog(count?, tick?)` - print latest raw HTM profiling entries (`HTM::...`) for debugging
+
+Maintenance mode (`visual.runMode('maintenance')`) runs strict minimal runtime only:
+- no scheduler/live/planner/HTM execution
+- no creep role loops
+- no HUD/layout rendering
+- CPU telemetry remains visible via `statsConsole` and ASCII console every 5 ticks
+
+Memory optimization defaults:
+- `Memory.settings.enableMemHack` is enabled by default.
+- theoretical planner memory is pruned to top candidates and a compact latest run summary.
+
+Theoretical planning phase-4 recovery:
+- if a run is `running` with no active candidate and incomplete results for over 50 ticks,
+  the run is marked `stale` and one phase-4 auto-retry intent is re-queued.
+- Recovery metadata is tracked in `Memory.rooms[room].intentState.recovery`.
 
 ## Screeps Profiler Integration
 

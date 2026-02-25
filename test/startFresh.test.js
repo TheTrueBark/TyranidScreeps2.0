@@ -51,6 +51,8 @@ describe('startFresh command', function() {
   it('enables theoretical building preview mode when requested', function() {
     startFresh({ theoreticalBuildingMode: true });
     expect(Memory.settings).to.include({
+      runtimeMode: 'theoretical',
+      overlayMode: 'normal',
       enableVisuals: true,
       buildPreviewOnly: true,
       enableBaseBuilderPlanning: true,
@@ -67,7 +69,43 @@ describe('startFresh command', function() {
       layoutPlanningReplanInterval: 1000,
       layoutRecalculateRequested: 'all',
       layoutRecalculateMode: 'theoretical',
+      enableMemHack: true,
+      memHackDebug: false,
       pauseBot: false,
     });
+  });
+
+  it('enables strict maintenance mode when requested', function() {
+    startFresh({ maintenanceMode: true });
+    expect(Memory.settings).to.include({
+      runtimeMode: 'maintenance',
+      pauseBot: false,
+      buildPreviewOnly: false,
+      layoutPlanningMode: 'standard',
+      enableBaseBuilderPlanning: false,
+      overlayMode: 'off',
+      enableVisuals: false,
+      alwaysShowHud: false,
+      showSpawnQueueHud: false,
+      showLayoutOverlay: false,
+      showLayoutLegend: false,
+      showHtmOverlay: false,
+      enableTaskProfiling: false,
+      enableScreepsProfiler: false,
+      enableMemHack: true,
+      memHackDebug: false,
+      profilerEnabledByOverlay: false,
+      profilerResetPending: true,
+    });
+    expect(Memory.settings).to.not.have.property('layoutRecalculateRequested');
+    expect(Memory.settings).to.not.have.property('layoutRecalculateMode');
+  });
+
+  it('prefers maintenance mode when both maintenance and theoretical are requested', function() {
+    startFresh({ maintenanceMode: true, theoreticalBuildingMode: true });
+    expect(Memory.settings.runtimeMode).to.equal('maintenance');
+    expect(Memory.settings.layoutPlanningMode).to.equal('standard');
+    expect(Memory.settings.buildPreviewOnly).to.equal(false);
+    expect(Memory.settings.overlayMode).to.equal('off');
   });
 });
