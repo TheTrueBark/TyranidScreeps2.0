@@ -26,6 +26,15 @@ const htm = {
     }
   },
 
+  _humanizeTaskName(name) {
+    return String(name || 'Task')
+      .replace(/^INTENT_/, '')
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\w/, (match) => match.toUpperCase());
+  },
+
   /**
    * Check if a given container already has a task with the name.
    * @param {string} level - Level of the task container.
@@ -386,8 +395,10 @@ const htm = {
       }
     }
 
-    // Sort by priority (lower value = higher priority)
-    container.tasks.sort((a, b) => a.priority - b.priority);
+    // Sort by priority (lower value = higher priority) only when needed.
+    if (container.tasks.length > 1) {
+      container.tasks.sort((a, b) => a.priority - b.priority);
+    }
 
     // Execute tasks that are not claimed
     for (const task of container.tasks) {
@@ -399,7 +410,13 @@ const htm = {
       const start = Game.cpu.getUsed();
       if (typeof handler === 'function') {
         try {
-          handler(task.data);
+          const handlerResult = handler(task.data, task) || null;
+          if (handlerResult && typeof handlerResult.deferTicks === 'number' && handlerResult.deferTicks > 0) {
+            task.claimedUntil = Game.time + Math.max(1, Math.floor(handlerResult.deferTicks));
+          }
+          if (handlerResult && handlerResult.complete === true) {
+            task.amount = 0;
+          }
           logger.log('HTM', `Executed ${level} task ${task.name} (${id})`, 2);
           this._logExecution(task, level, id, Game.cpu.getUsed() - start, 'ok');
         } catch (err) {
@@ -426,16 +443,50 @@ const htm = {
   _logExecution(task, level, id, cpu, result, reason = '') {
     if (!Memory.stats) Memory.stats = {};
     if (!Memory.stats.taskLogs) Memory.stats.taskLogs = [];
-    Memory.stats.taskLogs.push({
+    const humanTaskName = this._humanizeTaskName(task && task.name);
+    const profileName = `HTM::HTM Tasks (Middle)::${humanTaskName}`;
+    this._appendTaskLog({
       tick: Game.time,
       level,
       id,
-      name: task.name,
+      name: profileName,
+      rawTaskName: task && task.name ? String(task.name) : '',
       result,
-      cpu: Math.round(cpu * 100) / 100,
+      cpu: Number(cpu.toFixed(4)),
       reason,
     });
-    const limit = 20;
+  },
+
+  logSubtaskExecution(name, cpu, context = {}) {
+    if (!Memory.stats) Memory.stats = {};
+    if (!Memory.stats.taskLogs) Memory.stats.taskLogs = [];
+    this._appendTaskLog({
+      tick: Game.time,
+      level: context.level || 'subtask',
+      id: context.id || context.roomName || 'n/a',
+      name: String(name || 'HTM_SUBTASK_UNKNOWN'),
+      result: context.result || 'subtask',
+      cpu: Number(Number(cpu || 0).toFixed(4)),
+      reason: context.reason || '',
+      parent: context.parent || '',
+    });
+  },
+
+  _appendTaskLog(entry) {
+    Memory.stats.taskLogs.push(entry);
+    if (!Memory.stats.taskAverages) Memory.stats.taskAverages = {};
+    const key = String(entry && entry.name ? entry.name : 'unknown');
+    if (!Memory.stats.taskAverages[key]) {
+      Memory.stats.taskAverages[key] = { totalCpu: 0, calls: 0, avgCpu: 0, lastCpu: 0, lastTick: 0 };
+    }
+    const avg = Memory.stats.taskAverages[key];
+    const cpu = Number(entry && entry.cpu ? entry.cpu : 0);
+    avg.totalCpu += cpu;
+    avg.calls += 1;
+    avg.avgCpu = avg.calls > 0 ? avg.totalCpu / avg.calls : 0;
+    avg.lastCpu = cpu;
+    avg.lastTick = Game.time;
+    const limit = 200;
     if (Memory.stats.taskLogs.length > limit) Memory.stats.taskLogs.shift();
   },
 

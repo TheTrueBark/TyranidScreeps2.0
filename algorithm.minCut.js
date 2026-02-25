@@ -5,7 +5,7 @@
  * @codex-owner layoutPlanner
  */
 
-const INF = 1_000_000_000;
+const INF = 1000000000;
 
 function parseKey(id) {
   const [x, y] = String(id).split(':').map(Number);
@@ -100,26 +100,36 @@ function residualReachable(graph, source) {
 }
 
 function connectedComponents(points) {
-  const byKey = new Map(points.map((p) => [`${p.x}:${p.y}`, p]));
-  const seen = new Set();
+  const pointById = new Array(2500);
+  for (const point of points) {
+    if (!point || !inBounds(point.x, point.y)) continue;
+    pointById[idx(point.x, point.y)] = point;
+  }
+  const seen = new Uint8Array(2500);
   const components = [];
 
   for (const p of points) {
-    const key = `${p.x}:${p.y}`;
-    if (seen.has(key)) continue;
+    if (!p || !inBounds(p.x, p.y)) continue;
+    const startId = idx(p.x, p.y);
+    if (!pointById[startId] || seen[startId] === 1) continue;
     const comp = [];
-    const q = [p];
-    seen.add(key);
+    const q = [startId];
+    seen[startId] = 1;
     for (let i = 0; i < q.length; i++) {
-      const cur = q[i];
+      const curId = q[i];
+      const cur = pointById[curId];
+      if (!cur) continue;
       comp.push(cur);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           if (dx === 0 && dy === 0) continue;
-          const nk = `${cur.x + dx}:${cur.y + dy}`;
-          if (!byKey.has(nk) || seen.has(nk)) continue;
-          seen.add(nk);
-          q.push(byKey.get(nk));
+          const nx = cur.x + dx;
+          const ny = cur.y + dy;
+          if (!inBounds(nx, ny)) continue;
+          const neighborId = idx(nx, ny);
+          if (!pointById[neighborId] || seen[neighborId] === 1) continue;
+          seen[neighborId] = 1;
+          q.push(neighborId);
         }
       }
     }
@@ -132,12 +142,27 @@ function connectBarrier(line, walkable, terrain) {
   if (!Array.isArray(line) || line.length <= 1) {
     return { line: Array.isArray(line) ? line : [], bridged: 0, components: line.length ? 1 : 0 };
   }
+  const maxConnectCandidates = 220;
+  if (line.length > maxConnectCandidates) {
+    // Bridging is optional smoothing; skip it for very large cuts to avoid CPU timeouts.
+    return { line, bridged: 0, components: connectedComponents(line).length, skipped: 'candidate-cap' };
+  }
+  const hasCpu =
+    typeof Game !== 'undefined' &&
+    Game &&
+    Game.cpu &&
+    typeof Game.cpu.getUsed === 'function';
+  const startCpu = hasCpu ? Game.cpu.getUsed() : 0;
+  const connectCpuBudget = 8;
 
   const byKey = new Set(line.map((p) => `${p.x}:${p.y}`));
   let components = connectedComponents(line);
   let bridged = 0;
 
   while (components.length > 1 && bridged < 32) {
+    if (hasCpu && Game.cpu.getUsed() - startCpu >= connectCpuBudget) {
+      return { line, bridged, components: components.length, skipped: 'cpu-budget' };
+    }
     const a = components[0];
     const b = components[1];
     let bestA = a[0];
@@ -300,6 +325,7 @@ function computeRampartCut(ctx, options = {}) {
         components: connected.components,
         bridgedTiles: connected.bridged,
         connected: connected.components <= 1,
+        skipped: connected.skipped || null,
       },
       bbox: { minX: coreMinX, minY: coreMinY, maxX: coreMaxX, maxY: coreMaxY },
     },

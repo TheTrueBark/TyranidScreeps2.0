@@ -71,6 +71,40 @@ taskRegistry.register('PLAN_LAYOUT_CANDIDATE', {
   trigger: { type: 'condition', conditionFn: 'theoreticalPlanning' },
 });
 
+taskRegistry.register('INTENT_SCAN_ROOM', {
+  owner: 'intentPipeline',
+  priority: 1,
+  ttl: 200,
+  trigger: { type: 'event', eventName: 'roomOwnershipEstablished' },
+});
+
+taskRegistry.register('INTENT_EVALUATE_ROOM_VALUE', {
+  owner: 'intentPipeline',
+  priority: 1,
+  ttl: 200,
+});
+
+for (let i = 1; i <= 10; i++) {
+  taskRegistry.register(`INTENT_PLAN_PHASE_${i}`, {
+    owner: 'intentPipeline',
+    priority: 1,
+    ttl: 400,
+    trigger: { type: 'condition', conditionFn: `intentPhase${i}` },
+  });
+}
+
+taskRegistry.register('INTENT_SYNC_OVERLAY', {
+  owner: 'intentPipeline',
+  priority: 1,
+  ttl: 100,
+});
+
+taskRegistry.register('INTENT_RENDER_HUD', {
+  owner: 'intentPipeline',
+  priority: 1,
+  ttl: 100,
+});
+
 taskRegistry.register('repairEmergency', {
   owner: 'buildingManager',
   priority: 1,

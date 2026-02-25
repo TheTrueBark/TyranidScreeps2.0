@@ -85,6 +85,9 @@
 ## ⚙️ Production & Unit Control
 
 ### 🧠 Hierarchical Task Management (HTM) (Prio 5)
+- [x] Intent-only meta pipeline for planning/evaluation (`INTENT_*` HTM colony tasks) with phase follow-up chaining and no periodic layout fallback loops.
+- [x] Intent diagnostics + control commands (`visual.showIntents`, `visual.retryIntent`, `visual.cancelIntentRun`).
+- [x] HTM overlay telemetry with parent/subtask CPU breakdown (topbound room HUD, absolute CPU precision).
 - [ ] **Hive-level tasks**: expansion, attack, reservation
 - [ ] **Cluster-level**: coordinate HQ and remotes
 - [ ] **Colony-level**: energy balance, building, defense

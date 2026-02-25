@@ -40,12 +40,10 @@ describe('layoutVisualizer.drawLayout', function() {
     layoutPlanner.plan('W1N1');
   });
 
-  it('draws planned dots, labels, and reserved boxes', function() {
+  it('draws planned labels', function() {
     visualizer.drawLayout('W1N1');
     const types = drawn.map(d => d.type);
-    expect(types).to.include('circle');
     expect(types).to.include('text');
-    expect(types).to.include('rect');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === '2')).to.be.true;
   });
 
@@ -54,6 +52,12 @@ describe('layoutVisualizer.drawLayout', function() {
     Memory.settings.layoutOverlayView = 'plan';
     const layout = Memory.rooms.W1N1.layout;
     layout.mode = 'theoretical';
+    layout.theoreticalPipeline = {
+      status: 'running',
+      bestCandidateIndex: undefined,
+      results: {},
+      candidateCount: 0,
+    };
     layout.theoretical = {
       controllerPos: { x: 20, y: 20 },
       spawnCandidate: { x: 24, y: 24, score: 100, floodScore: 50, mincutScore: 10 },
@@ -114,5 +118,48 @@ describe('layoutVisualizer.drawLayout', function() {
     expect(
       drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('Eval C2 weighted:')),
     ).to.be.true;
+  });
+
+  it('renders checklist stage detail lines under stage status', function() {
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.settings.layoutOverlayView = 'plan';
+    const layout = Memory.rooms.W1N1.layout;
+    layout.mode = 'theoretical';
+    layout.theoretical = {
+      checklist: {
+        stages: [
+          {
+            number: 2,
+            label: 'Candidate Filter',
+            status: 'done',
+            progress: '✔',
+            detail: 'Only Controller Seed (fallback)',
+          },
+        ],
+        candidateStates: [],
+      },
+      candidates: [],
+      sourceContainers: [],
+      upgraderSlots: [],
+    };
+    visualizer.drawLayout('W1N1');
+    expect(
+      drawn.some(
+        d => d.type === 'text' && String(d.args[0]) === 'Only Controller Seed (fallback)',
+      ),
+    ).to.be.true;
+  });
+
+  it('renders spawn variant labels (S2) from matrix tags', function() {
+    Memory.settings.showLayoutOverlayLabels = true;
+    const matrix = Memory.rooms.W1N1.layout.matrix;
+    matrix['15'] = matrix['15'] || {};
+    matrix['15']['15'] = {
+      structureType: STRUCTURE_SPAWN,
+      rcl: 7,
+      tag: 'spawn.2',
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S2')).to.be.true;
   });
 });

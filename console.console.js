@@ -1,5 +1,12 @@
 const _ = require('lodash');
 
+function stripMarkup(value) {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 var statsConsole = {
   run: function (data, logCpu = true, opts = {}) {
     if (Memory.stats === undefined) {
@@ -48,15 +55,6 @@ var statsConsole = {
         height: height,
       },
     );
-    let style = {
-      lineHeight: "1",
-    };
-    let styleStr = _.reduce(
-      style,
-      (l, v, k) => `${l}${_.kebabCase(k)}: ${v};`,
-      "",
-    );
-    output = `<span style="${styleStr}">${output}</span>`;
     return output;
   },
 
@@ -479,15 +477,6 @@ var statsConsole = {
         }
       }
     }
-    let style = {
-      lineHeight: "1",
-    };
-    let styleStr = _.reduce(
-      style,
-      (l, v, k) => `${l}${_.kebabCase(k)}: ${v};`,
-      "",
-    );
-    output = `<span style="${styleStr}">${output}</span>`;
     return output;
   },
 
@@ -506,14 +495,15 @@ var statsConsole = {
     if (!Memory.stats.logCounts) Memory.stats.logCounts = {};
     if (!Memory.stats.logs) Memory.stats.logs = [];
 
-    const count = (Memory.stats.logCounts[message] || 0) + 1;
-    Memory.stats.logCounts[message] = count;
+    const cleanMessage = stripMarkup(message);
+    const count = (Memory.stats.logCounts[cleanMessage] || 0) + 1;
+    Memory.stats.logCounts[cleanMessage] = count;
 
     // Increase severity when a message is repeated many times
     const escalatedSeverity = Math.min(5, severity + Math.floor(count / 10));
 
     // Update existing entry or create a new one
-    const existing = Memory.stats.logs.find((l) => l.message === message);
+    const existing = Memory.stats.logs.find((l) => l.message === cleanMessage);
     if (existing) {
       existing.severity = escalatedSeverity;
       existing.time = Game.time;
@@ -521,7 +511,7 @@ var statsConsole = {
       existing.duration = duration;
     } else {
       Memory.stats.logs.push({
-        message: message,
+        message: cleanMessage,
         severity: escalatedSeverity,
         time: Game.time,
         duration: duration,
@@ -579,29 +569,7 @@ var statsConsole = {
     const contentWidth = Math.max(1, boxWidth - borderWidth);
     for (let i = 0; i < boxHeight; i++) {
       let severity = filteredLogs[i].severity;
-      let message = `${filteredLogs[i].time}: ${filteredLogs[i].message}`;
-
-      let htmlFontStart =
-        '<log severity="' +
-        severity +
-        "\"><span style='color: " +
-        colors[severity] +
-        "' severity='" +
-        severity +
-        "'><log severity=\"" +
-        severity +
-        '">';
-      let htmlStart =
-        '<log severity="' +
-        severity +
-        "\"><span style='color: " +
-        colors[severity] +
-        "' severity='" +
-        severity +
-        "'><log severity=\"" +
-        severity +
-        '">';
-      let htmlEnd = "</span></log>";
+      let message = `${filteredLogs[i].time}: ${stripMarkup(filteredLogs[i].message)}`;
 
       if (severity > 5) {
         severity = 5;
@@ -609,11 +577,12 @@ var statsConsole = {
         severity = 0;
       } else if (!Number.isInteger(severity)) {
         severity = 3;
-      } else {
-        htmlStart = htmlFontStart;
       }
+      const safeMessage = String(message)
+        .replace(/\r?\n/g, ' ')
+        .replace(/\t/g, ' ');
 
-      let remaining = message;
+      let remaining = safeMessage;
       let isFirstChunk = true;
       while (remaining.length > 0 || isFirstChunk) {
         const chunk = remaining.substring(0, contentWidth);
@@ -621,9 +590,7 @@ var statsConsole = {
         outputLog =
           outputLog +
           vbar +
-          htmlStart +
           visibleChunk +
-          htmlEnd +
           safeRepeat(spacing, boxWidth - visibleChunk.length) +
           vbar +
           "\n";
@@ -645,15 +612,6 @@ var statsConsole = {
       safeRepeat(hBar, boxWidth - tick.length) +
       rightBottomCorner +
       "\n";
-    let style = {
-      lineHeight: "1",
-    };
-    let styleStr = _.reduce(
-      style,
-      (l, v, k) => `${l}${_.kebabCase(k)}: ${v};`,
-      "",
-    );
-    outputLog = `<span style="${styleStr}">${outputLog}</span>`;
     return outputLog;
   },
 };

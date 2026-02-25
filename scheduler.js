@@ -11,6 +11,7 @@
  * Represents a single scheduled task.
  */
 const statsConsole = require('console.console');
+const htm = require('./manager.htm');
 
 const ONCE = 'ONCE';
 
@@ -48,6 +49,27 @@ class Scheduler {
     this.eventTasks = {};
     /** @type {Array<{eventName: string, data: any}>} events queued this tick */
     this.triggeredEvents = [];
+  }
+
+  _formatTaskLabel(name) {
+    return String(name || 'task')
+      .replace(/[_\s]+/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .trim()
+      .replace(/^\w/, (match) => match.toUpperCase());
+  }
+
+  _logTaskCpu(task, cpu, phase = 'interval') {
+    if (!task || !cpu || cpu <= 0) return;
+    if (!Memory || !Memory.settings || Memory.settings.enableTaskProfiling === false) return;
+    const label = this._formatTaskLabel(task.name);
+    htm.logSubtaskExecution(`HTM::Scheduler::${label}::Calcs`, cpu, {
+      level: 'scheduler',
+      id: phase,
+      result: 'ok',
+      reason: phase,
+      parent: 'HTM',
+    });
   }
 
   /** Reset all scheduler state (mainly for tests) */
@@ -117,7 +139,9 @@ class Scheduler {
     ) {
       const task = this.highPriorityTasks.shift();
       if (Game.cpu.bucket >= task.minBucket && (!task.once || !task.executed)) {
+        const start = Game.cpu.getUsed();
         task.taskFunction();
+        this._logTaskCpu(task, Game.cpu.getUsed() - start, 'high');
         task.executed = true;
         if (!task.once) {
           task.nextRun = Game.time + Math.max(1, task.interval);
@@ -139,7 +163,9 @@ class Scheduler {
     while (this.tasks.length && Game.time >= this.tasks[0].nextRun) {
       const task = this.tasks.shift();
       if (Game.cpu.bucket >= task.minBucket && (!task.once || !task.executed)) {
+        const start = Game.cpu.getUsed();
         task.taskFunction();
+        this._logTaskCpu(task, Game.cpu.getUsed() - start, 'interval');
         task.executed = true;
         if (!task.once) {
           task.nextRun = Game.time + Math.max(1, task.interval);
@@ -166,7 +192,9 @@ class Scheduler {
         for (let i = list.length - 1; i >= 0; i--) {
           const task = list[i];
           if (Game.cpu.bucket >= task.minBucket) {
+            const start = Game.cpu.getUsed();
             task.taskFunction(data);
+            this._logTaskCpu(task, Game.cpu.getUsed() - start, `event:${eventName}`);
           }
           if (task.once) list.splice(i, 1);
         }

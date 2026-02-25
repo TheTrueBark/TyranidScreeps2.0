@@ -163,6 +163,28 @@ describe('layoutPlanner.plan', function() {
     expect(after.theoretical.checklist.debug.phaseWindow.to).to.equal(9);
   });
 
+  it('adds explanatory checklist details for candidate filtering decisions', function() {
+    const checklist = layoutPlanner._buildTheoreticalChecklist(
+      'W1N1',
+      {
+        candidateCount: 1,
+        results: {},
+        candidateSet: {
+          totalCandidates: 0,
+          scannedCandidates: 0,
+          filteredCandidates: 1,
+          fallbackUsed: true,
+        },
+      },
+      [{ index: 0, anchor: { x: 25, y: 25 } }],
+    );
+    expect(checklist).to.exist;
+    expect(checklist.stages).to.be.an('array').that.is.not.empty;
+    const stage2 = checklist.stages.find((stage) => stage.number === 2);
+    expect(stage2).to.exist;
+    expect(stage2.detail).to.equal('Only Controller Seed (fallback)');
+  });
+
 
 
   it('supports manual phase initialization mode for independent phase range recomputation', function() {

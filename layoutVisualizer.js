@@ -1,4 +1,5 @@
 const statsConsole = require('console.console');
+const htm = require('./manager.htm');
 const TYPES = {
   EXTENSION: typeof STRUCTURE_EXTENSION !== 'undefined' ? STRUCTURE_EXTENSION : 'extension',
   STORAGE: typeof STRUCTURE_STORAGE !== 'undefined' ? STRUCTURE_STORAGE : 'storage',
@@ -29,7 +30,7 @@ function getGlyph(type) {
     [TYPES.STORAGE]: 'S',
     [TYPES.TOWER]: 'T',
     [TYPES.LINK]: 'K',
-    [TYPES.SPAWN]: 'P',
+    [TYPES.SPAWN]: 'S',
     [TYPES.ROAD]: 'R',
     [TYPES.CONTAINER]: 'C',
     [TYPES.TERMINAL]: 'M',
@@ -45,6 +46,18 @@ function getGlyph(type) {
   return map[type] || '?';
 }
 
+function getLabelForCell(cell = {}) {
+  if (!cell || !cell.structureType) return '?';
+  const type = cell.structureType;
+  if (type === TYPES.SPAWN) {
+    const tag = String(cell.tag || '');
+    const match = tag.match(/^spawn\.(\d+)$/i);
+    if (match && match[1]) return `S${match[1]}`;
+    return 'S';
+  }
+  return getGlyph(type);
+}
+
 function getColor(type) {
   const map = {
     [TYPES.EXTENSION]: '#f6c945',
@@ -53,7 +66,7 @@ function getColor(type) {
     [TYPES.LINK]: '#8b6cff',
     [TYPES.SPAWN]: '#7bd389',
     [TYPES.ROAD]: '#9e9e9e',
-    [TYPES.CONTAINER]: '#c58f58',
+    [TYPES.CONTAINER]: '#ffd166',
     [TYPES.TERMINAL]: '#40c4ff',
     [TYPES.LAB]: '#e573ff',
     [TYPES.FACTORY]: '#ffca28',
@@ -101,6 +114,215 @@ function stageIndicator(stage = {}) {
   return stage.progress || 'X';
 }
 
+function getRoadGlyph(connections = {}) {
+  const l = Boolean(connections.left);
+  const r = Boolean(connections.right);
+  const u = Boolean(connections.up);
+  const d = Boolean(connections.down);
+  if (l && r && u && d) return '┼';
+  if (l && r && u) return '┴';
+  if (l && r && d) return '┬';
+  if (l && u && d) return '┤';
+  if (r && u && d) return '├';
+  if (l && r) return '─';
+  if (u && d) return '│';
+  if (r && d) return '┌';
+  if (l && d) return '┐';
+  if (r && u) return '└';
+  if (l && u) return '┘';
+  if (l || r) return '─';
+  if (u || d) return '│';
+  return '·';
+}
+
+function recordRenderSubtask(roomName, label, cpu) {
+  if (!roomName || !cpu || cpu <= 0) return;
+  htm.logSubtaskExecution(`HTM::${label}::Rendering`, cpu, {
+    roomName,
+    parent: 'HTM',
+    reason: 'layoutVisualizer',
+  });
+}
+
+const visualCalcCache = {
+  theoreticalByRoom: {},
+};
+
+function getTheoreticalOverlayState(roomName, layout, settings) {
+  const theoretical = layout.theoretical || {};
+  const theoreticalPipeline = layout.theoreticalPipeline || null;
+  const candidateViewPref =
+    settings && typeof settings.layoutCandidateOverlayIndex === 'number'
+      ? settings.layoutCandidateOverlayIndex
+      : -1;
+  const pipelineResults = theoreticalPipeline && theoreticalPipeline.results ? theoreticalPipeline.results : null;
+  const pipelineDoneCount = pipelineResults ? Object.keys(pipelineResults).length : 0;
+  const pipelineCandidateCount =
+    theoreticalPipeline && typeof theoreticalPipeline.candidateCount === 'number'
+      ? theoreticalPipeline.candidateCount
+      : 0;
+  const hasTheoreticalCandidates =
+    Array.isArray(theoretical.candidates) && theoretical.candidates.length > 0;
+  const fp = [
+    settings && settings.layoutOverlayView ? String(settings.layoutOverlayView) : 'plan',
+    candidateViewPref,
+    hasTheoreticalCandidates ? theoretical.candidates.length : 0,
+    typeof theoretical.selectedCandidateIndex === 'number' ? theoretical.selectedCandidateIndex : -1,
+    typeof theoretical.selectedWeightedScore === 'number'
+      ? theoretical.selectedWeightedScore.toFixed(3)
+      : 'n',
+    typeof theoretical.currentlyViewingCandidate === 'number'
+      ? theoretical.currentlyViewingCandidate
+      : -1,
+    theoreticalPipeline && theoreticalPipeline.status ? String(theoreticalPipeline.status) : '',
+    theoreticalPipeline && typeof theoreticalPipeline.updatedAt === 'number'
+      ? theoreticalPipeline.updatedAt
+      : 0,
+    theoreticalPipeline && typeof theoreticalPipeline.bestCandidateIndex === 'number'
+      ? theoreticalPipeline.bestCandidateIndex
+      : -1,
+    theoreticalPipeline && typeof theoreticalPipeline.activeCandidateIndex === 'number'
+      ? theoreticalPipeline.activeCandidateIndex
+      : -1,
+    pipelineCandidateCount,
+    pipelineDoneCount,
+    theoreticalPipeline &&
+    theoreticalPipeline.candidateSet &&
+    theoreticalPipeline.candidateSet.fallbackUsed
+      ? 'fallback'
+      : 'normal',
+    theoretical && theoretical.checklist && Array.isArray(theoretical.checklist.stages)
+      ? theoretical.checklist.stages.length
+      : 0,
+  ].join('|');
+  const cached = visualCalcCache.theoreticalByRoom[roomName];
+  if (cached && cached.fp === fp && cached.state) return cached.state;
+
+  const pipelineCandidates =
+    !hasTheoreticalCandidates &&
+    theoreticalPipeline &&
+    Array.isArray(theoreticalPipeline.candidates)
+      ? theoreticalPipeline.candidates.map((candidate) => ({
+          index: candidate.index,
+          anchor: candidate.anchor,
+          initialScore: candidate.initialScore,
+          weightedScore:
+            pipelineResults && pipelineResults[candidate.index]
+              ? pipelineResults[candidate.index].weightedScore
+              : null,
+          weightedContributions:
+            pipelineResults && pipelineResults[candidate.index]
+              ? pipelineResults[candidate.index].weightedContributions
+              : null,
+        }))
+      : [];
+  const effectiveTheoretical = hasTheoreticalCandidates
+    ? theoretical
+    : Object.assign({}, theoretical, { candidates: pipelineCandidates });
+  const candidateRows = Array.isArray(effectiveTheoretical.candidates)
+    ? effectiveTheoretical.candidates
+    : [];
+  const activeCandidateIndex = resolveCandidateIndex(effectiveTheoretical, candidateViewPref);
+  const activeCandidate =
+    activeCandidateIndex !== null
+      ? candidateRows.find((c) => c.index === activeCandidateIndex) || null
+      : null;
+  const sortedCandidatesByScore = candidateRows
+    .slice()
+    .sort(
+      (a, b) =>
+        (b && typeof b.weightedScore === 'number' ? b.weightedScore : -1) -
+        (a && typeof a.weightedScore === 'number' ? a.weightedScore : -1),
+    );
+  const sortedChecklistCandidates = candidateRows
+    .slice()
+    .filter((row) => row && row.anchor)
+    .sort((a, b) => a.index - b.index);
+
+  const pipelineComplete =
+    pipelineDoneCount >= pipelineCandidateCount && pipelineCandidateCount > 0;
+  const pipelineFilterDetail =
+    theoreticalPipeline &&
+    theoreticalPipeline.candidateSet &&
+    theoreticalPipeline.candidateSet.fallbackUsed
+      ? 'Only Controller Seed (fallback)'
+      : pipelineCandidateCount > 0
+      ? `${pipelineCandidateCount} seeds queued`
+      : 'Candidate scan pending';
+
+  const checklist =
+    theoretical && theoretical.checklist
+      ? theoretical.checklist
+      : theoreticalPipeline
+      ? {
+          stages: [
+            { number: 1, label: 'Distance Transform', status: 'done', progress: '✔', detail: 'Distance map cached' },
+            { number: 2, label: 'Candidate Filter', status: 'done', progress: '✔', detail: pipelineFilterDetail },
+            { number: 3, label: 'Candidate Pre-Scoring', status: 'done', progress: '✔', detail: pipelineCandidateCount > 0 ? `Top ${pipelineCandidateCount} seeds scored` : 'No seeds scored yet' },
+            { number: 4, label: 'Core + Stations', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 5, label: 'Flood Fill + Extensions', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 6, label: 'Labs + Ramparts + Towers', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 7, label: 'Road Networks', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 8, label: 'End Evaluation (Weighted)', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Weighted scores finalized' : `Scoring ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            {
+              number: 9,
+              label: 'Winner Selection',
+              status: typeof theoreticalPipeline.bestCandidateIndex === 'number' ? 'done' : 'pending',
+              progress: typeof theoreticalPipeline.bestCandidateIndex === 'number' ? '✔' : 'X',
+              detail:
+                typeof theoreticalPipeline.bestCandidateIndex === 'number'
+                  ? `Winner: C${theoreticalPipeline.bestCandidateIndex + 1}`
+                  : 'No winner selected',
+            },
+            {
+              number: 10,
+              label: 'Persist + Overlay',
+              status: theoreticalPipeline.status === 'completed' ? 'done' : 'pending',
+              progress: theoreticalPipeline.status === 'completed' ? '✔' : 'X',
+              detail:
+                theoreticalPipeline.status === 'completed'
+                  ? 'Plan persisted and rendered'
+                  : 'Waiting for winner',
+            },
+          ],
+          candidateStates: candidateRows.map((candidate) => ({
+            index: candidate.index,
+            complete:
+              typeof candidate.weightedScore === 'number' &&
+              Number.isFinite(candidate.weightedScore),
+            active:
+              theoreticalPipeline &&
+              theoreticalPipeline.activeCandidateIndex === candidate.index,
+          })),
+        }
+      : null;
+
+  const bestIndex =
+    typeof theoretical.selectedCandidateIndex === 'number'
+      ? theoretical.selectedCandidateIndex
+      : theoreticalPipeline &&
+        typeof theoreticalPipeline.bestCandidateIndex === 'number'
+      ? theoreticalPipeline.bestCandidateIndex
+      : -1;
+  const hasFinalSpawnSelection = bestIndex >= 0;
+  const state = {
+    theoretical,
+    theoreticalPipeline,
+    candidateRows,
+    activeCandidateIndex,
+    activeCandidate,
+    sortedCandidatesByScore,
+    sortedChecklistCandidates,
+    checklist,
+    pipelineDoneCount,
+    pipelineCandidateCount,
+    hasFinalSpawnSelection,
+    bestIndex,
+  };
+  visualCalcCache.theoreticalByRoom[roomName] = { fp, state };
+  return state;
+}
+
 const layoutVisualizer = {
   drawLayout(roomName) {
     if (!Memory.settings || Memory.settings.showLayoutOverlay === false) return;
@@ -114,40 +336,14 @@ const layoutVisualizer = {
       const isTheoretical = room.memory.layout.mode === 'theoretical' || layoutMode === 'theoretical';
 
       const matrix = room.memory.layout.matrix || {};
-      const theoretical = room.memory.layout.theoretical || {};
-      const theoreticalPipeline = room.memory.layout.theoreticalPipeline || null;
-      const pipelineCandidates =
-        theoreticalPipeline && Array.isArray(theoreticalPipeline.candidates)
-          ? theoreticalPipeline.candidates.map((candidate) => ({
-              index: candidate.index,
-              anchor: candidate.anchor,
-              initialScore: candidate.initialScore,
-              weightedScore:
-                theoreticalPipeline.results && theoreticalPipeline.results[candidate.index]
-                  ? theoreticalPipeline.results[candidate.index].weightedScore
-                  : null,
-              weightedContributions:
-                theoreticalPipeline.results && theoreticalPipeline.results[candidate.index]
-                  ? theoreticalPipeline.results[candidate.index].weightedContributions
-                  : null,
-            }))
-          : [];
-      const candidateViewPref =
-        Memory.settings && typeof Memory.settings.layoutCandidateOverlayIndex === 'number'
-          ? Memory.settings.layoutCandidateOverlayIndex
-          : -1;
-      const effectiveTheoretical =
-        Array.isArray(theoretical.candidates) && theoretical.candidates.length > 0
-          ? theoretical
-          : Object.assign({}, theoretical, { candidates: pipelineCandidates });
-      const activeCandidateIndex = resolveCandidateIndex(effectiveTheoretical, candidateViewPref);
-      const candidateRows = Array.isArray(effectiveTheoretical.candidates)
-        ? effectiveTheoretical.candidates
-        : [];
-      const activeCandidate =
-        activeCandidateIndex !== null
-          ? candidateRows.find((c) => c.index === activeCandidateIndex) || null
-          : null;
+      const showRoadRclLabels = Boolean(Memory.settings && Memory.settings.showRoadRclLabels);
+      const overlayState = getTheoreticalOverlayState(roomName, room.memory.layout || {}, Memory.settings || {});
+      const theoretical = overlayState.theoretical;
+      const theoreticalPipeline = overlayState.theoreticalPipeline;
+      const candidateRows = overlayState.candidateRows;
+      const activeCandidateIndex = overlayState.activeCandidateIndex;
+      const activeCandidate = overlayState.activeCandidate;
+      const hasFinalSpawnSelection = overlayState.hasFinalSpawnSelection;
 
       if (isTheoretical && overlayView !== 'plan') {
         const map =
@@ -199,64 +395,112 @@ const layoutVisualizer = {
               });
             }
           }
-          vis.circle(sx, sy, {
-            radius: 0.45,
-            fill: '#55ffaa',
-            opacity: 0.35,
-            stroke: '#55ffaa',
-            strokeWidth: 0.05,
+          vis.text('SP', sx, sy + 0.1, {
+            color: '#55ffaa',
+            font: 0.44,
+            align: 'center',
           });
         }
       }
 
+      const roadTiles = [];
+      const roadSet = {};
       for (const x in matrix) {
-      for (const y in matrix[x]) {
-        const cell = matrix[x][y];
-        const px = parseInt(x, 10);
-        const py = parseInt(y, 10);
-        const color = getColor(cell.structureType);
-        vis.circle(px, py, {
-          radius: 0.17,
-          fill: color,
-          opacity: 0.85,
-          stroke: '#111111',
-          strokeWidth: 0.03,
-        });
-        if (Memory.settings.showLayoutOverlayLabels) {
-          vis.text(getGlyph(cell.structureType), px + 0.18, py - 0.15, {
+        for (const y in matrix[x]) {
+          const cell = matrix[x][y];
+          const px = parseInt(x, 10);
+          const py = parseInt(y, 10);
+          if (cell.structureType === TYPES.ROAD) {
+            roadTiles.push({ x: px, y: py, rcl: cell.rcl || null });
+            roadSet[`${px}:${py}`] = true;
+            continue;
+          }
+          const color = getColor(cell.structureType);
+          vis.text(getLabelForCell(cell), px, py + 0.1, {
             color,
-            font: 0.45,
-            align: 'left',
+            font: 0.52,
+            align: 'center',
           });
+          if (cell.rcl) {
+            vis.text(String(cell.rcl), px + 0.31, py + 0.32, {
+              color: '#a9a9a9',
+              font: 0.33,
+              align: 'left',
+            });
+          }
         }
-        if (cell.rcl) {
-          vis.text(String(cell.rcl), px + 0.28, py + 0.28, {
-            color: '#888888',
-            font: 0.38,
+      }
+      for (const tile of roadTiles) {
+        const tx = tile.x;
+        const ty = tile.y;
+        const hasLeft = Boolean(roadSet[`${tx - 1}:${ty}`]);
+        const hasRight = Boolean(roadSet[`${tx + 1}:${ty}`]);
+        const hasUp = Boolean(roadSet[`${tx}:${ty - 1}`]);
+        const hasDown = Boolean(roadSet[`${tx}:${ty + 1}`]);
+        const roadColor = getColor(TYPES.ROAD);
+        if (typeof vis.line === 'function') {
+          if (hasLeft) {
+            vis.line(tx, ty, tx - 0.5, ty, {
+              color: roadColor,
+              width: 0.16,
+              opacity: 1,
+            });
+          }
+          if (hasRight) {
+            vis.line(tx, ty, tx + 0.5, ty, {
+              color: roadColor,
+              width: 0.16,
+              opacity: 1,
+            });
+          }
+          if (hasUp) {
+            vis.line(tx, ty, tx, ty - 0.5, {
+              color: roadColor,
+              width: 0.16,
+              opacity: 1,
+            });
+          }
+          if (hasDown) {
+            vis.line(tx, ty, tx, ty + 0.5, {
+              color: roadColor,
+              width: 0.16,
+              opacity: 1,
+            });
+          }
+          if (!hasLeft && !hasRight && !hasUp && !hasDown) {
+            vis.text('·', tx, ty + 0.08, {
+              color: roadColor,
+              font: 0.52,
+              align: 'center',
+            });
+          }
+        } else {
+          vis.text(
+            getRoadGlyph({ left: hasLeft, right: hasRight, up: hasUp, down: hasDown }),
+            tx,
+            ty + 0.08,
+            {
+              color: roadColor,
+              font: 0.54,
+              align: 'center',
+            },
+          );
+        }
+        if (showRoadRclLabels && tile.rcl) {
+          vis.text(String(tile.rcl), tx + 0.31, ty + 0.32, {
+            color: '#a9a9a9',
+            font: 0.33,
             align: 'left',
           });
         }
       }
-    }
-
-      const reserved = room.memory.layout.reserved || {};
-      for (const x in reserved) {
-      for (const y in reserved[x]) {
-        vis.rect(parseInt(x) - 0.5, parseInt(y) - 0.5, 1, 1, {
-          fill: 'red',
-          opacity: 0.1,
-          stroke: 'red',
-        });
-      }
-    }
 
       if (isTheoretical) {
         if (theoretical.controllerPos) {
-          vis.circle(theoretical.controllerPos.x, theoretical.controllerPos.y, {
-            radius: 0.45,
-            fill: 'transparent',
-            stroke: '#66ddff',
-            strokeWidth: 0.12,
+          vis.text('CTRL', theoretical.controllerPos.x, theoretical.controllerPos.y + 0.1, {
+            color: '#66ddff',
+            font: 0.36,
+            align: 'center',
           });
         }
         if (Array.isArray(theoretical.upgraderSlots)) {
@@ -270,32 +514,26 @@ const layoutVisualizer = {
           }
         }
         if (theoretical.controllerContainer) {
-          vis.circle(theoretical.controllerContainer.x, theoretical.controllerContainer.y, {
-            radius: 0.28,
-            fill: '#ffd166',
-            opacity: 0.75,
-            stroke: '#111111',
-            strokeWidth: 0.04,
+          vis.text('C', theoretical.controllerContainer.x, theoretical.controllerContainer.y + 0.1, {
+            color: getColor(TYPES.CONTAINER),
+            font: 0.52,
+            align: 'center',
           });
         }
         if (Array.isArray(theoretical.sourceContainers)) {
           for (const src of theoretical.sourceContainers) {
-            vis.circle(src.x, src.y, {
-              radius: 0.24,
-              fill: '#ffaf6b',
-              opacity: 0.8,
-              stroke: '#111111',
-              strokeWidth: 0.03,
+            vis.text('C', src.x, src.y + 0.1, {
+              color: getColor(TYPES.CONTAINER),
+              font: 0.52,
+              align: 'center',
             });
           }
         }
-        if (theoretical.spawnCandidate) {
-          vis.circle(theoretical.spawnCandidate.x, theoretical.spawnCandidate.y, {
-            radius: 0.35,
-            fill: '#7bd389',
-            opacity: 0.5,
-            stroke: '#7bd389',
-            strokeWidth: 0.07,
+        if (theoretical.spawnCandidate && !hasFinalSpawnSelection) {
+          vis.text('S', theoretical.spawnCandidate.x, theoretical.spawnCandidate.y + 0.1, {
+            color: getColor(TYPES.SPAWN),
+            font: 0.52,
+            align: 'center',
           });
           vis.text(
             'TH-SP',
@@ -310,29 +548,21 @@ const layoutVisualizer = {
         }
 
         if (candidateRows.length > 0) {
-          for (const candidate of candidateRows) {
-            if (!candidate || !candidate.anchor) continue;
-            const isSelected = candidate.index === theoretical.selectedCandidateIndex;
-            const isActive = candidate.index === activeCandidateIndex;
-            const stroke = isActive ? '#ffd166' : isSelected ? '#7bd389' : '#99c2ff';
-            const fill = isActive ? '#ffd166' : isSelected ? '#7bd389' : '#4da6ff';
-            vis.circle(candidate.anchor.x, candidate.anchor.y, {
-              radius: isActive ? 0.42 : 0.32,
-              fill,
-              opacity: isActive ? 0.45 : 0.3,
-              stroke,
-              strokeWidth: 0.07,
-            });
-            vis.text(
-              `C${candidate.index + 1}`,
-              candidate.anchor.x + 0.5,
-              candidate.anchor.y - 0.45,
-              {
-                color: stroke,
-                font: 0.45,
-                align: 'left',
-              },
-            );
+          if (!hasFinalSpawnSelection) {
+            for (const candidate of candidateRows) {
+              if (!candidate || !candidate.anchor) continue;
+              const isActive = candidate.index === activeCandidateIndex;
+              vis.text(
+                `C${candidate.index + 1}`,
+                candidate.anchor.x + 0.48,
+                candidate.anchor.y - 0.4,
+                {
+                  color: isActive ? '#ffd166' : '#99c2ff',
+                  font: 0.45,
+                  align: 'left',
+                },
+              );
+            }
           }
 
           if (overlayView === 'candidates' || overlayView === 'evaluation') {
@@ -344,14 +574,7 @@ const layoutVisualizer = {
               align: 'left',
             });
             listY += 0.8;
-            const sortedRows = candidateRows
-              .slice()
-              .sort(
-                (a, b) =>
-                  (b && typeof b.weightedScore === 'number' ? b.weightedScore : -1) -
-                  (a && typeof a.weightedScore === 'number' ? a.weightedScore : -1),
-              );
-            for (const row of sortedRows.slice(0, 5)) {
+            for (const row of overlayState.sortedCandidatesByScore.slice(0, 5)) {
               if (!row || !row.anchor) continue;
               const selectedMark = row.index === theoretical.selectedCandidateIndex ? '*' : ' ';
               const activeMark = row.index === activeCandidateIndex ? '>' : ' ';
@@ -408,108 +631,9 @@ const layoutVisualizer = {
           }
         }
 
-        const checklist =
-          theoretical && theoretical.checklist
-            ? theoretical.checklist
-            : theoreticalPipeline
-            ? {
-                stages: [
-                  { number: 1, label: 'Distance Transform', status: 'done', progress: '✔' },
-                  {
-                    number: 2,
-                    label: 'Candidate Filter',
-                    status: 'done',
-                    progress: '✔',
-                  },
-                  {
-                    number: 3,
-                    label: 'Candidate Pre-Scoring',
-                    status: 'done',
-                    progress: '✔',
-                  },
-                  {
-                    number: 4,
-                    label: 'Core + Stations',
-                    status:
-                      Object.keys(theoreticalPipeline.results || {}).length >=
-                      (theoreticalPipeline.candidateCount || 0)
-                        ? 'done'
-                        : 'in_progress',
-                    progress: `${Object.keys(theoreticalPipeline.results || {}).length}/${theoreticalPipeline.candidateCount || 0}`,
-                  },
-                  {
-                    number: 5,
-                    label: 'Flood Fill + Extensions',
-                    status:
-                      Object.keys(theoreticalPipeline.results || {}).length >=
-                      (theoreticalPipeline.candidateCount || 0)
-                        ? 'done'
-                        : 'in_progress',
-                    progress: `${Object.keys(theoreticalPipeline.results || {}).length}/${theoreticalPipeline.candidateCount || 0}`,
-                  },
-                  {
-                    number: 6,
-                    label: 'Labs + Ramparts + Towers',
-                    status:
-                      Object.keys(theoreticalPipeline.results || {}).length >=
-                      (theoreticalPipeline.candidateCount || 0)
-                        ? 'done'
-                        : 'in_progress',
-                    progress: `${Object.keys(theoreticalPipeline.results || {}).length}/${theoreticalPipeline.candidateCount || 0}`,
-                  },
-                  {
-                    number: 7,
-                    label: 'Road Networks',
-                    status:
-                      Object.keys(theoreticalPipeline.results || {}).length >=
-                      (theoreticalPipeline.candidateCount || 0)
-                        ? 'done'
-                        : 'in_progress',
-                    progress: `${Object.keys(theoreticalPipeline.results || {}).length}/${theoreticalPipeline.candidateCount || 0}`,
-                  },
-                  {
-                    number: 8,
-                    label: 'End Evaluation (Weighted)',
-                    status:
-                      Object.keys(theoreticalPipeline.results || {}).length >=
-                      (theoreticalPipeline.candidateCount || 0)
-                        ? 'done'
-                        : 'in_progress',
-                    progress: `${Object.keys(theoreticalPipeline.results || {}).length}/${theoreticalPipeline.candidateCount || 0}`,
-                  },
-                  {
-                    number: 9,
-                    label: 'Winner Selection',
-                    status:
-                      typeof theoreticalPipeline.bestCandidateIndex === 'number'
-                        ? 'done'
-                        : 'pending',
-                    progress:
-                      typeof theoreticalPipeline.bestCandidateIndex === 'number'
-                        ? '✔'
-                        : 'X',
-                  },
-                  {
-                    number: 10,
-                    label: 'Persist + Overlay',
-                    status:
-                      theoreticalPipeline.status === 'completed' ? 'done' : 'pending',
-                    progress:
-                      theoreticalPipeline.status === 'completed' ? '✔' : 'X',
-                  },
-                ],
-                candidateStates: candidateRows.map((candidate) => ({
-                  index: candidate.index,
-                  complete:
-                    typeof candidate.weightedScore === 'number' &&
-                    Number.isFinite(candidate.weightedScore),
-                  active:
-                    theoreticalPipeline &&
-                    theoreticalPipeline.activeCandidateIndex === candidate.index,
-                })),
-              }
-            : null;
+        const checklist = overlayState.checklist;
 
+        const checklistStart = Game.cpu.getUsed();
         if (checklist && Array.isArray(checklist.stages)) {
           const cx = 47;
           let cy = 2.2;
@@ -549,12 +673,18 @@ const layoutVisualizer = {
               },
             );
             cy += 0.58;
+            if (stage.detail) {
+              vis.text(String(stage.detail), cx, cy, {
+                color: '#9fb5d6',
+                font: 0.36,
+                align: 'right',
+              });
+              cy += 0.48;
+            }
           }
 
-          const candidateStates = Array.isArray(checklist.candidateStates)
-            ? checklist.candidateStates
-            : [];
-          if (candidateStates.length) {
+          const checklistCandidates = Array.isArray(candidateRows) ? candidateRows : [];
+          if (checklistCandidates.length) {
             cy += 0.2;
             vis.text('Candidates', cx, cy, {
               color: '#d9e8ff',
@@ -562,25 +692,28 @@ const layoutVisualizer = {
               align: 'right',
             });
             cy += 0.58;
-            for (const state of candidateStates.slice(0, 8)) {
-              const isActive = state.active || state.index === activeCandidateIndex;
-              const mark = state.complete ? '✔' : isActive ? '...' : 'X';
-              vis.text(`C${state.index + 1}: ${mark}`, cx, cy, {
-                color: isActive ? '#ffd166' : state.complete ? '#7bd389' : '#ff8a80',
+            const bestIndex = overlayState.bestIndex;
+            for (const row of overlayState.sortedChecklistCandidates.slice(0, 8)) {
+              const isBest = row.index === bestIndex;
+              const isActive = row.index === activeCandidateIndex;
+              vis.text(`C${row.index + 1} ${row.anchor.x}/${row.anchor.y}${isBest ? ' ✔' : ''}`, cx, cy, {
+                color: isBest ? '#7bd389' : isActive ? '#ffd166' : '#d9e8ff',
                 font: 0.42,
                 align: 'right',
               });
               cy += 0.52;
             }
           }
+          recordRenderSubtask(roomName, 'Planning Checklist (Top Right)', Game.cpu.getUsed() - checklistStart);
         }
       }
 
       if (Memory.settings.showLayoutLegend !== false) {
+      const legendStart = Game.cpu.getUsed();
       const legend = isTheoretical
         ? [
-            [TYPES.SPAWN, 'Theoretical Spawn'],
-            [TYPES.CONTAINER, 'Controller/Source Container'],
+            [TYPES.SPAWN, 'Theoretical Spawn (S/S2/S3)'],
+            [TYPES.CONTAINER, 'Container (C)'],
             [TYPES.ROAD, 'Logistics Road'],
             [TYPES.EXTENSION, 'Planned Extension'],
             [TYPES.TOWER, 'Planned Tower'],
@@ -596,9 +729,9 @@ const layoutVisualizer = {
             [TYPES.RAMPART, 'Planned Rampart'],
           ]
         : [
-            [TYPES.SPAWN, 'Spawn'],
+            [TYPES.SPAWN, 'Spawn (S/S2/S3)'],
             [TYPES.EXTENSION, 'Extension'],
-            [TYPES.CONTAINER, 'Container'],
+            [TYPES.CONTAINER, 'Container (C)'],
             [TYPES.ROAD, 'Road'],
             [TYPES.TOWER, 'Tower'],
             [TYPES.STORAGE, 'Storage'],
@@ -630,12 +763,11 @@ const layoutVisualizer = {
         const [type, label] = legend[i];
         const y = baseY + i * rowStep;
         const color = getColor(type);
-        vis.circle(baseX, y, {
-          radius: 0.17,
-          fill: color,
-          opacity: 0.9,
-          stroke: '#111111',
-          strokeWidth: 0.03,
+        const glyph = type === TYPES.ROAD ? '─' : getGlyph(type);
+        vis.text(glyph, baseX, y + 0.08, {
+          color,
+          font: 0.52,
+          align: 'center',
         });
         vis.text(label, baseX + 0.5, y + 0.1, {
           color: '#dddddd',
@@ -657,6 +789,7 @@ const layoutVisualizer = {
           align: 'left',
         });
       }
+      recordRenderSubtask(roomName, 'Planning Legend (Bottom Left)', Game.cpu.getUsed() - legendStart);
       }
       statsConsole.run([["layoutVisualizer", Game.cpu.getUsed() - start]]);
     } catch (err) {

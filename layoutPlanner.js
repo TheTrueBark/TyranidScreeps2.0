@@ -542,18 +542,33 @@ const layoutPlanner = {
     if (!room || !room.controller || !room.controller.my) return;
     if (isTheoreticalMode()) {
       const mem = Memory.rooms[roomName];
+      const pipelineStatus =
+        mem && mem.layout && mem.layout.theoreticalPipeline
+          ? mem.layout.theoreticalPipeline.status
+          : null;
       const pipelineActive =
         mem &&
         mem.layout &&
         mem.layout.theoreticalPipeline &&
-        mem.layout.theoreticalPipeline.status !== 'completed';
+        mem.layout.theoreticalPipeline.status !== 'completed' &&
+        mem.layout.theoreticalPipeline.status !== 'paused_phase_9' &&
+        mem.layout.theoreticalPipeline.status !== 'paused_phase_8';
+      const explicitRecalcRequested =
+        Memory.settings &&
+        Memory.settings.layoutRecalculateRequested &&
+        (Memory.settings.layoutRecalculateRequested === 'all' ||
+          Memory.settings.layoutRecalculateRequested === roomName);
       if (
         !mem ||
         !mem.layout ||
         mem.layout.planVersion !== 2 ||
         mem.layout.mode !== 'theoretical' ||
         pipelineActive ||
-        mem.layout.rebuildLayout
+        mem.layout.rebuildLayout ||
+        mem.layout.manualPhaseRequest ||
+        explicitRecalcRequested ||
+        (!mem.layout.theoretical &&
+          (pipelineStatus === 'paused_phase_9' || pipelineStatus === 'paused_phase_8'))
       ) {
         this.buildTheoreticalLayout(roomName);
       }
@@ -1111,6 +1126,14 @@ const layoutPlanner = {
       typeof pipeline.candidateSet.filteredCandidates === 'number'
         ? pipeline.candidateSet.filteredCandidates
         : total;
+    const scannedCandidates =
+      pipeline &&
+      pipeline.candidateSet &&
+      typeof pipeline.candidateSet.scannedCandidates === 'number'
+        ? pipeline.candidateSet.scannedCandidates
+        : 0;
+    const fallbackUsed =
+      pipeline && pipeline.candidateSet ? Boolean(pipeline.candidateSet.fallbackUsed) : false;
     const progress = total > 0 ? `${done}/${total}` : 'X';
     const persisted = options.persisted === true || finalized;
     const candidateStates = (candidateRows || []).map((candidate) => {
@@ -1129,61 +1152,88 @@ const layoutPlanner = {
 
     const phaseWindow = readPhaseWindow();
     const recalcScope = readRecalcScope();
+    const filterDetail = fallbackUsed
+      ? 'Only Controller Seed (fallback)'
+      : !scanned
+      ? 'Candidate scan pending'
+      : filtered <= 1
+      ? 'Single viable seed after filter'
+      : `${filtered}/${Math.max(scannedCandidates, filtered)} seeds kept`;
     const stages = [
-      { number: 1, label: 'Distance Transform', status: dtReady ? 'done' : 'pending', progress: dtReady ? '✔' : 'X' },
+      {
+        number: 1,
+        label: 'Distance Transform',
+        status: dtReady ? 'done' : 'pending',
+        progress: dtReady ? '✔' : 'X',
+        detail: dtReady ? 'Distance map cached' : 'Distance map missing',
+      },
       {
         number: 2,
         label: 'Candidate Filter',
         status: scanned ? 'done' : 'pending',
         progress: scanned ? `✔ ${filtered}` : 'X',
+        detail: filterDetail,
       },
       {
         number: 3,
         label: 'Candidate Pre-Scoring',
         status: total > 0 ? 'done' : 'pending',
         progress: total > 0 ? `✔ ${total}` : 'X',
+        detail: total > 0 ? `Top ${total} seeds scored` : 'No seeds scored yet',
       },
       {
         number: 4,
         label: 'Core + Stations',
         status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        detail:
+          total > 0 ? (done >= total ? 'Complete for all candidates' : `Working ${progress}`) : 'Awaiting candidates',
       },
       {
         number: 5,
         label: 'Flood Fill + Extensions',
         status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        detail:
+          total > 0 ? (done >= total ? 'Complete for all candidates' : `Working ${progress}`) : 'Awaiting candidates',
       },
       {
         number: 6,
         label: 'Labs + Ramparts + Towers',
         status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        detail:
+          total > 0 ? (done >= total ? 'Complete for all candidates' : `Working ${progress}`) : 'Awaiting candidates',
       },
       {
         number: 7,
         label: 'Road Networks',
         status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        detail:
+          total > 0 ? (done >= total ? 'Complete for all candidates' : `Working ${progress}`) : 'Awaiting candidates',
       },
       {
         number: 8,
         label: 'End Evaluation (Weighted)',
         status: done >= total && total > 0 ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: total > 0 ? (done >= total ? '✔' : progress) : 'X',
+        detail:
+          total > 0 ? (done >= total ? 'Weighted scores finalized' : `Scoring ${progress}`) : 'Awaiting candidates',
       },
       {
         number: 9,
         label: 'Winner Selection',
         status: hasWinner ? 'done' : done > 0 ? 'in_progress' : 'pending',
         progress: hasWinner ? '✔' : done > 0 ? `${done}/${Math.max(total, 1)}` : 'X',
+        detail: hasWinner ? `Winner: C${pipeline.bestCandidateIndex + 1}` : 'No winner selected',
       },
       {
         number: 10,
         label: 'Persist + Overlay',
         status: persisted ? 'done' : hasWinner ? 'in_progress' : 'pending',
         progress: persisted ? '✔' : hasWinner ? '9/10' : 'X',
+        detail: persisted ? 'Plan persisted and rendered' : hasWinner ? 'Persist queued' : 'Waiting for winner',
       },
     ].map((stage) =>
       Object.assign({}, stage, {
