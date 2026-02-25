@@ -337,6 +337,13 @@ const layoutVisualizer = {
 
       const matrix = room.memory.layout.matrix || {};
       const showRoadRclLabels = Boolean(Memory.settings && Memory.settings.showRoadRclLabels);
+      const planningHudYOffsetRaw =
+        Memory.settings && typeof Memory.settings.layoutPlanningHudYOffset === 'number'
+          ? Number(Memory.settings.layoutPlanningHudYOffset)
+          : 3.2;
+      const planningHudYOffset = Number.isFinite(planningHudYOffsetRaw)
+        ? Math.max(0, Math.min(20, planningHudYOffsetRaw))
+        : 3.2;
       const overlayState = getTheoreticalOverlayState(roomName, room.memory.layout || {}, Memory.settings || {});
       const theoretical = overlayState.theoretical;
       const theoreticalPipeline = overlayState.theoreticalPipeline;
@@ -437,37 +444,69 @@ const layoutVisualizer = {
         const hasRight = Boolean(roadSet[`${tx + 1}:${ty}`]);
         const hasUp = Boolean(roadSet[`${tx}:${ty - 1}`]);
         const hasDown = Boolean(roadSet[`${tx}:${ty + 1}`]);
+        const hasUpLeft = Boolean(roadSet[`${tx - 1}:${ty - 1}`]);
+        const hasUpRight = Boolean(roadSet[`${tx + 1}:${ty - 1}`]);
+        const hasDownLeft = Boolean(roadSet[`${tx - 1}:${ty + 1}`]);
+        const hasDownRight = Boolean(roadSet[`${tx + 1}:${ty + 1}`]);
         const roadColor = getColor(TYPES.ROAD);
         if (typeof vis.line === 'function') {
           if (hasLeft) {
-            vis.line(tx, ty, tx - 0.5, ty, {
+            vis.line(tx, ty, tx - 1, ty, {
               color: roadColor,
-              width: 0.16,
+              width: 0.12,
               opacity: 1,
             });
           }
           if (hasRight) {
-            vis.line(tx, ty, tx + 0.5, ty, {
+            vis.line(tx, ty, tx + 1, ty, {
               color: roadColor,
-              width: 0.16,
+              width: 0.12,
               opacity: 1,
             });
           }
           if (hasUp) {
-            vis.line(tx, ty, tx, ty - 0.5, {
+            vis.line(tx, ty, tx, ty - 1, {
               color: roadColor,
-              width: 0.16,
+              width: 0.12,
               opacity: 1,
             });
           }
           if (hasDown) {
-            vis.line(tx, ty, tx, ty + 0.5, {
+            vis.line(tx, ty, tx, ty + 1, {
               color: roadColor,
-              width: 0.16,
+              width: 0.12,
               opacity: 1,
             });
           }
-          if (!hasLeft && !hasRight && !hasUp && !hasDown) {
+          if (hasUpLeft) {
+            vis.line(tx, ty, tx - 1, ty - 1, {
+              color: roadColor,
+              width: 0.1,
+              opacity: 1,
+            });
+          }
+          if (hasUpRight) {
+            vis.line(tx, ty, tx + 1, ty - 1, {
+              color: roadColor,
+              width: 0.1,
+              opacity: 1,
+            });
+          }
+          if (hasDownLeft) {
+            vis.line(tx, ty, tx - 1, ty + 1, {
+              color: roadColor,
+              width: 0.1,
+              opacity: 1,
+            });
+          }
+          if (hasDownRight) {
+            vis.line(tx, ty, tx + 1, ty + 1, {
+              color: roadColor,
+              width: 0.1,
+              opacity: 1,
+            });
+          }
+          if (!hasLeft && !hasRight && !hasUp && !hasDown && !hasUpLeft && !hasUpRight && !hasDownLeft && !hasDownRight) {
             vis.text('·', tx, ty + 0.08, {
               color: roadColor,
               font: 0.52,
@@ -565,37 +604,13 @@ const layoutVisualizer = {
             }
           }
 
-          if (overlayView === 'candidates' || overlayView === 'evaluation') {
-            const listX = 2;
-            let listY = 3.8;
-            vis.text('Candidates', listX, listY, {
-              color: '#ffffff',
-              font: 0.58,
-              align: 'left',
-            });
-            listY += 0.8;
-            for (const row of overlayState.sortedCandidatesByScore.slice(0, 5)) {
-              if (!row || !row.anchor) continue;
-              const selectedMark = row.index === theoretical.selectedCandidateIndex ? '*' : ' ';
-              const activeMark = row.index === activeCandidateIndex ? '>' : ' ';
-              vis.text(
-                `${activeMark}${selectedMark} C${row.index + 1} pre:${fmt(row.initialScore, 1)} final:${fmt(row.weightedScore, 3)}`,
-                listX,
-                listY,
-                {
-                  color: row.index === activeCandidateIndex ? '#ffd166' : '#d9e8ff',
-                  font: 0.47,
-                  align: 'left',
-                },
-              );
-              listY += 0.62;
-            }
-          }
+          // Candidate list is now rendered in the room planning HUD (manager.hud)
+          // to keep planning checklist + room header in a single place.
         }
 
         if (overlayView === 'evaluation' && activeCandidate) {
           const panelX = 2;
-          let panelY = 9.2;
+          let panelY = 9.2 + planningHudYOffset;
           vis.text(
             `Eval C${activeCandidate.index + 1} weighted:${fmt(activeCandidate.weightedScore, 3)}`,
             panelX,
@@ -636,7 +651,7 @@ const layoutVisualizer = {
         const checklistStart = Game.cpu.getUsed();
         if (checklist && Array.isArray(checklist.stages)) {
           const cx = 47;
-          let cy = 2.2;
+          let cy = 2.2 + planningHudYOffset;
           vis.text('Planning Checklist', cx, cy, {
             color: '#ffffff',
             font: 0.5,

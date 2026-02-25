@@ -2399,6 +2399,26 @@ global.visual = {
       2,
     );
   },
+  layoutHudOffset: function (value = null) {
+    if (!Memory.settings) Memory.settings = {};
+    if (value === null || value === undefined || value === 'status') {
+      const current =
+        typeof Memory.settings.layoutPlanningHudYOffset === 'number'
+          ? Number(Memory.settings.layoutPlanningHudYOffset)
+          : 3.2;
+      statsConsole.log(`Layout planning HUD Y offset: ${current.toFixed(1)}`, 2);
+      return current;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      statsConsole.log("Usage: visual.layoutHudOffset(<number>|'status')", 3);
+      return null;
+    }
+    const clamped = Math.max(0, Math.min(20, parsed));
+    Memory.settings.layoutPlanningHudYOffset = clamped;
+    statsConsole.log(`Layout planning HUD Y offset set to ${clamped.toFixed(1)}`, 2);
+    return clamped;
+  },
   layoutBatching: function (mode = 'dynamic', perTick = null, maxPerTick = null) {
     if (!Memory.settings) Memory.settings = {};
     const normalized = String(mode || '').toLowerCase();

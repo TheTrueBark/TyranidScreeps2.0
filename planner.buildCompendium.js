@@ -326,8 +326,7 @@ function createTerrainAccessor(roomName) {
   return (x, y) => terrainClassFromMask(terrain.get(x, y));
 }
 
-function estimateRampartEnvelope(ctx, margin = 3) {
-  const points = [...ctx.structuresByPos.keys()].map(parseKey);
+function estimateRampartEnvelopeFromPoints(points, margin = 3) {
   if (!points.length) return [];
   let minX = 49;
   let maxX = 0;
@@ -355,6 +354,11 @@ function estimateRampartEnvelope(ctx, margin = 3) {
   return ring;
 }
 
+function estimateRampartEnvelope(ctx, margin = 3) {
+  const points = [...ctx.structuresByPos.keys()].map(parseKey);
+  return estimateRampartEnvelopeFromPoints(points, margin);
+}
+
 function isCoreDefenseStructure(placement, storagePos) {
   if (!placement) return false;
   if (placement.type === STRUCTURES.ROAD || placement.type === STRUCTURES.RAMPART) return false;
@@ -364,6 +368,59 @@ function isCoreDefenseStructure(placement, storagePos) {
   if (tag === 'controller.container' || tag === 'controller.link') return false;
   if (storagePos && chebyshev(placement, storagePos) > 14) return false;
   return true;
+}
+
+function buildDefenseCutContext(ctx, storagePos) {
+  const defenseMap = new Map();
+  for (const placement of ctx.placements || []) {
+    if (!isCoreDefenseStructure(placement, storagePos)) continue;
+    defenseMap.set(key(placement.x, placement.y), placement.type);
+  }
+  return {
+    structuresByPos: defenseMap,
+    matrices: ctx.matrices,
+  };
+}
+
+function pickBestRampartCut(ctx, storagePos) {
+  const defenseCtx = buildDefenseCutContext(ctx, storagePos);
+  const defensePoints = [...defenseCtx.structuresByPos.keys()].map(parseKey);
+  if (!defensePoints.length) {
+    return {
+      line: [],
+      standoff: 0,
+      margin: 3,
+      minCutMeta: { method: 'flow-mincut', reason: 'no-defense-points' },
+    };
+  }
+  const targetStandoff = 2;
+  let best = null;
+  for (let margin = 2; margin <= 6; margin++) {
+    const cut = minCutAlgorithm.computeRampartCut(defenseCtx, { margin });
+    const line = cut.line && cut.line.length
+      ? cut.line
+      : estimateRampartEnvelopeFromPoints(defensePoints, margin);
+    const standoff = computeMinRampartStandoff(ctx.placements, line, storagePos);
+    const underPenalty = standoff < targetStandoff ? (targetStandoff - standoff) * 2000 : 0;
+    const overPenalty = standoff > targetStandoff ? (standoff - targetStandoff) * 120 : 0;
+    const sizePenalty = line.length * 1.2;
+    const score = underPenalty + overPenalty + sizePenalty;
+    if (!best || score < best.score) {
+      best = {
+        score,
+        line,
+        standoff,
+        margin,
+        minCutMeta: cut.meta || { method: 'flow-mincut', margin },
+      };
+    }
+  }
+  return best || {
+    line: [],
+    standoff: 0,
+    margin: 3,
+    minCutMeta: { method: 'flow-mincut', reason: 'no-solution' },
+  };
 }
 
 function computeMinRampartStandoff(placements, rampartLine, storagePos) {
@@ -1003,19 +1060,11 @@ function buildPlanForAnchor(room, input) {
   }
 
   // Rampart line proxy + ramparts over critical structures + controller ring.
-  let rampartMargin = 4;
-  let minCutResult = minCutAlgorithm.computeRampartCut(ctx, { margin: rampartMargin });
-  let rampartLine = minCutResult.line.length ? minCutResult.line : estimateRampartEnvelope(ctx, rampartMargin);
-  let rampartStandoff = computeMinRampartStandoff(ctx.placements, rampartLine, storage);
-  while (rampartStandoff > 0 && rampartStandoff < 3 && rampartMargin < 8) {
-    rampartMargin += 1;
-    minCutResult = minCutAlgorithm.computeRampartCut(ctx, { margin: rampartMargin });
-    rampartLine = minCutResult.line.length ? minCutResult.line : estimateRampartEnvelope(ctx, rampartMargin);
-    rampartStandoff = computeMinRampartStandoff(ctx.placements, rampartLine, storage);
-  }
-  ctx.meta.rampartMargin = rampartMargin;
-  ctx.meta.rampartStandoff = rampartStandoff;
-  ctx.meta.minCut = minCutResult.meta || { method: 'proxy-mincut', margin: rampartMargin };
+  const rampartCut = pickBestRampartCut(ctx, storage);
+  const rampartLine = rampartCut.line || [];
+  ctx.meta.rampartMargin = rampartCut.margin;
+  ctx.meta.rampartStandoff = rampartCut.standoff;
+  ctx.meta.minCut = rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin };
   for (const rp of rampartLine) {
     addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', {
       allowOnBlocked: true,
@@ -1320,7 +1369,7 @@ function buildPlanForAnchor(room, input) {
     }
   }
 
-  if (typeof ctx.meta.rampartStandoff === 'number' && ctx.meta.rampartStandoff > 0 && ctx.meta.rampartStandoff < 3) {
+  if (typeof ctx.meta.rampartStandoff === 'number' && ctx.meta.rampartStandoff > 0 && ctx.meta.rampartStandoff < 2) {
     ctx.meta.validation.push(`rampart-standoff-fail:${ctx.meta.rampartStandoff}`);
   }
 

@@ -114,7 +114,7 @@ describe('layoutVisualizer.drawLayout', function() {
       sourceContainers: [],
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.false;
     expect(
       drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('Eval C2 weighted:')),
     ).to.be.true;

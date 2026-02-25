@@ -55,6 +55,9 @@ Use these commands to tune idle CPU behavior while keeping HUD semantics predict
   - prunes theoretical planner memory for one room or all rooms.
 - `visual.memoryFootprint(room?)`:
   - shows raw memory bytes plus per-room candidate/pipeline counts.
+- `visual.layoutHudOffset(value|'status')`:
+  - moves the planning HUD block (Checklist/Candidates/Eval) vertically.
+  - default offset is `3.2` (down from top edge).
 
 ## Theoretical Recovery
 

@@ -52,8 +52,8 @@ visual.layoutInitializePhase('W1N1', 4, 1)
 Dann 5–20 Ticks laufen lassen.
 
 **Soll prüfen:**
-- `Memory.rooms.W1N1.layout.theoreticalPipeline.status` ist `paused_phase_9` oder `completed`.
-- `Memory.rooms.W1N1.layout.theoretical.selectedCandidateIndex` ist gesetzt.
+- `Memory.rooms['W1N1'].layout.theoreticalPipeline.status` ist `paused_phase_9` oder `completed`.
+- `Memory.rooms['W1N1'].layout.theoretical.selectedCandidateIndex` ist gesetzt.
 - Keine Exceptions im Log.
 - Bei `overlayMode('off')` entstehen keine Render-Intents (`INTENT_RENDER_HUD` / `INTENT_SYNC_OVERLAY`).
 
@@ -79,8 +79,8 @@ visual.layoutCandidate('selected')
 
 ### B) Memory-Metadaten checken
 ```js
-const p = Memory.rooms.W1N1.layout.theoreticalPipeline;
-const t = Memory.rooms.W1N1.layout.theoretical;
+const p = Memory.rooms['W1N1'].layout.theoreticalPipeline;
+const t = Memory.rooms['W1N1'].layout.theoretical;
 ({
   pipelineStatus: p && p.status,
   selected: t && t.selectedCandidateIndex,
@@ -116,17 +116,17 @@ visual.layoutView('floodDepth')
 
 ### A) Validation-Objekt
 ```js
-Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation
+Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 ```
 
 ### B) Recovery-Objekt
 ```js
-Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validationRecovery
+Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validationRecovery
 ```
 
 ### C) Profiling
 ```js
-Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation && Memory.rooms.W1N1.basePlan.validation.checkedAt
+Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation && Memory.rooms['W1N1'].basePlan.validation.checkedAt
 ```
 > Detail: `durationMs` kommt aus dem Validator-Result und sollte bei Re-Runs beobachtbar bleiben.
 
@@ -144,7 +144,7 @@ Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation && Memory.ro
 
 ### B) BuildQueue-Konsum
 ```js
-Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.rooms.W1N1.basePlan.buildQueue.slice(0,5)
+Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue && Memory.rooms['W1N1'].basePlan.buildQueue.slice(0,5)
 ```
 
 **Soll:**
@@ -162,10 +162,10 @@ Wenn Probleme auftreten, direkt sichern:
   room: 'W1N1',
   manualMode: Memory.settings.layoutPlanningManualMode,
   overlay: Memory.settings.layoutOverlayView,
-  pipeline: Memory.rooms.W1N1.layout && Memory.rooms.W1N1.layout.theoreticalPipeline,
-  theoretical: Memory.rooms.W1N1.layout && Memory.rooms.W1N1.layout.theoretical,
-  basePlanValidation: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation,
-  basePlanRecovery: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validationRecovery,
+  pipeline: Memory.rooms['W1N1'].layout && Memory.rooms['W1N1'].layout.theoreticalPipeline,
+  theoretical: Memory.rooms['W1N1'].layout && Memory.rooms['W1N1'].layout.theoretical,
+  basePlanValidation: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation,
+  basePlanRecovery: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validationRecovery,
 })
 ```
 
@@ -198,15 +198,15 @@ visual.layoutInitializePhase('W1N1', 4, 1)
 2. **BasePlan vorhanden + Validation ok/warn:**
 ```js
 ({
-  hasBasePlan: !!(Memory.rooms.W1N1.basePlan),
-  validation: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation
+  hasBasePlan: !!(Memory.rooms['W1N1'].basePlan),
+  validation: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 })
 ```
 **Erwartung:** `hasBasePlan === true`, Validation-Objekt vorhanden.
 
 3. **BuildQueue nicht leer + Next Build sichtbar:**
 ```js
-Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue && Memory.rooms.W1N1.basePlan.buildQueue.slice(0,3)
+Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue && Memory.rooms['W1N1'].basePlan.buildQueue.slice(0,3)
 ```
 **Erwartung:** Erste Einträge plausibel (spawn/roads/extensions je nach RCL).
 
@@ -232,12 +232,12 @@ Für deinen Zukunftsplan (Spawn steht anfangs "falsch", später Ziel-Layout):
 ```js
 ({
   tick: Game.time,
-  rcl: Game.rooms.W1N1 && Game.rooms.W1N1.controller && Game.rooms.W1N1.controller.level,
-  spawns: (Game.rooms.W1N1 && Game.rooms.W1N1.find(FIND_MY_SPAWNS) || []).map(s => ({ id: s.id, x: s.pos.x, y: s.pos.y })),
-  nextBuilds: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.buildQueue
-    ? Memory.rooms.W1N1.basePlan.buildQueue.filter(i => !i.built).slice(0,8)
+  rcl: Game.rooms['W1N1'] && Game.rooms['W1N1'].controller && Game.rooms['W1N1'].controller.level,
+  spawns: (Game.rooms['W1N1'] && Game.rooms['W1N1'].find(FIND_MY_SPAWNS) || []).map(s => ({ id: s.id, x: s.pos.x, y: s.pos.y })),
+  nextBuilds: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue
+    ? Memory.rooms['W1N1'].basePlan.buildQueue.filter(i => !i.built).slice(0,8)
     : [],
-  validation: Memory.rooms.W1N1.basePlan && Memory.rooms.W1N1.basePlan.validation
+  validation: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 })
 ```
 

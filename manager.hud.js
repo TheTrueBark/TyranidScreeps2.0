@@ -365,6 +365,29 @@ const buildTheoreticalStatusRows = (room) => {
       font: 0.48,
     });
   }
+  const candidateRows = Array.isArray(theoretical.candidates) ? theoretical.candidates : [];
+  if (candidateRows.length > 0) {
+    const bestIndex =
+      typeof theoretical.selectedCandidateIndex === 'number'
+        ? theoretical.selectedCandidateIndex
+        : typeof pipeline.bestCandidateIndex === 'number'
+        ? pipeline.bestCandidateIndex
+        : -1;
+    rows.push({ text: 'Candidates:', color: '#d9e8ff', font: 0.46 });
+    const sorted = candidateRows
+      .slice()
+      .filter((row) => row && row.anchor && typeof row.index === 'number')
+      .sort((a, b) => a.index - b.index)
+      .slice(0, 8);
+    for (const row of sorted) {
+      const isBest = row.index === bestIndex;
+      rows.push({
+        text: `C${row.index + 1} ${row.anchor.x}/${row.anchor.y}${isBest ? ' ✔' : ''}`,
+        color: isBest ? '#7bd389' : '#d9e8ff',
+        font: 0.42,
+      });
+    }
+  }
   if (Memory.settings && Memory.settings.enableTaskProfiling) {
     const taskLogs = Memory.stats && Array.isArray(Memory.stats.taskLogs) ? Memory.stats.taskLogs : [];
     const recentIntents = taskLogs
