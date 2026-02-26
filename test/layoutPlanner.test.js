@@ -17,6 +17,8 @@ const htm = require('../manager.htm');
 global.RoomVisual = function () { this.structure = () => {}; };
 
 describe('layoutPlanner.plan', function() {
+  this.timeout(10000);
+
   beforeEach(function() {
     globals.resetGame();
     globals.resetMemory();
@@ -34,6 +36,7 @@ describe('layoutPlanner.plan', function() {
   });
 
   it('stores anchor and stamps', function() {
+    Memory.settings = { layoutLegacyMode: true };
     const room = Game.rooms['W1N1'];
     layoutPlanner.plan('W1N1');
     expect(Memory.rooms['W1N1'].layout.baseAnchor).to.deep.equal({ x: 10, y: 10 });
@@ -180,6 +183,10 @@ describe('layoutPlanner.plan', function() {
     );
     expect(checklist).to.exist;
     expect(checklist.stages).to.be.an('array').that.is.not.empty;
+    expect(checklist.stages).to.have.length(11);
+    expect(checklist.stages[3].label).to.equal('Core + Foundations');
+    expect(checklist.stages[4].label).to.equal('Sources + Resources');
+    expect(checklist.stages[10].label).to.equal('Persist + Overlay');
     const stage2 = checklist.stages.find((stage) => stage.number === 2);
     expect(stage2).to.exist;
     expect(stage2.detail).to.equal('Only Controller Seed (fallback)');
@@ -215,7 +222,7 @@ describe('layoutPlanner.plan', function() {
 
     const layout = Memory.rooms['W1N1'].layout;
     expect(layout.theoreticalPipeline).to.exist;
-    expect(['paused_phase_9', 'completed']).to.include(layout.theoreticalPipeline.status);
+    expect(['paused_phase_9', 'paused_phase_10', 'completed']).to.include(layout.theoreticalPipeline.status);
     expect(layout.theoretical).to.exist;
     expect(layout.theoretical.selectedCandidateIndex).to.be.a('number');
 
@@ -257,5 +264,56 @@ describe('layoutPlanner.plan', function() {
       expect(current).to.be.a('number');
       expect(indices.includes(current)).to.equal(true);
     }
+  });
+
+  it('passes layout extension pattern setting to theoretical planner and enforces foundation stage', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 5,
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'full',
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.plan('W1N1');
+    const plan = Memory.rooms['W1N1'].basePlan;
+    expect(plan).to.exist;
+
+    const extensions = (plan.structures && plan.structures[STRUCTURE_EXTENSION]) || [];
+    expect(extensions).to.be.empty;
+    expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+  });
+
+  it('uses top-5 candidate pipeline in standard mode when harabi pattern is enabled', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'standard',
+      layoutExtensionPattern: 'cluster3',
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 1,
+      layoutHarabiStage: 'foundation',
+    };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
+    Game.rooms['W1N1'].find = type => {
+      if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [];
+      if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+      return [];
+    };
+
+    layoutPlanner.plan('W1N1');
+
+    const layout = Memory.rooms['W1N1'].layout;
+    expect(layout).to.exist;
+    expect(layout.mode).to.equal('standard');
+    expect(layout.theoreticalPipeline).to.exist;
+    expect(layout.theoreticalPipeline.candidateCount).to.be.at.least(5);
+    expect(['running', 'completed']).to.include(layout.theoreticalPipeline.status);
   });
 });

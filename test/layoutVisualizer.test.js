@@ -7,6 +7,9 @@ global.STRUCTURE_TOWER = 'tower';
 global.STRUCTURE_STORAGE = 'storage';
 global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
+global.TERRAIN_MASK_WALL = 1;
+global.TERRAIN_MASK_SWAMP = 2;
+global.FIND_STRUCTURES = 107;
 const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
@@ -24,7 +27,8 @@ describe('layoutVisualizer.drawLayout', function() {
     global.RoomVisual.prototype.text = function(...args) { drawn.push({ type: 'text', args }); };
     global.RoomVisual.prototype.rect = function(...args) { drawn.push({ type: 'rect', args }); };
     global.RoomVisual.prototype.circle = function(...args) { drawn.push({ type: 'circle', args }); };
-    Memory.settings = { showLayoutOverlay: true };
+    global.RoomVisual.prototype.line = function(...args) { drawn.push({ type: 'line', args }); };
+    Memory.settings = { showLayoutOverlay: true, layoutLegacyMode: true };
     Memory.rooms = { W1N1: {} };
     const spawn = { pos: { x: 5, y: 5, roomName: 'W1N1' } };
     Game.rooms['W1N1'] = {
@@ -159,7 +163,88 @@ describe('layoutVisualizer.drawLayout', function() {
       rcl: 7,
       tag: 'spawn.2',
     };
+    matrix['16'] = matrix['16'] || {};
+    matrix['16']['15'] = {
+      structureType: STRUCTURE_SPAWN,
+      rcl: 8,
+      tag: 'spawn.3',
+    };
+    matrix['17'] = matrix['17'] || {};
+    matrix['17']['15'] = {
+      structureType:
+        typeof STRUCTURE_POWER_SPAWN !== 'undefined' ? STRUCTURE_POWER_SPAWN : 'powerSpawn',
+      rcl: 8,
+      tag: 'core.powerSpawn',
+    };
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S2')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S3')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'PS')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Power Spawn (PS)')).to.be.true;
+  });
+
+  it('renders road+rampart overlap from base plan structures', function() {
+    const matrix = Memory.rooms.W1N1.layout.matrix;
+    matrix['20'] = matrix['20'] || {};
+    matrix['20']['20'] = {
+      structureType: STRUCTURE_ROAD,
+      rcl: 2,
+      tag: 'road.rampart',
+    };
+    Memory.rooms.W1N1.basePlan = {
+      structures: {
+        [STRUCTURE_ROAD]: [{ x: 20, y: 20, rcl: 2 }],
+        [STRUCTURE_RAMPART]: [{ x: 20, y: 20, rcl: 2 }],
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 20 && d.args[1] === 20)).to.be.true;
+    const hasRoadLine = drawn.some(
+      d =>
+        d.type === 'line' &&
+        ((d.args[0] === 20 && d.args[1] === 20) || (d.args[2] === 20 && d.args[3] === 20)),
+    );
+    const hasRoadDotGlyph = drawn.some(
+      d => d.type === 'text' && d.args[0] === '·' && d.args[1] === 20 && d.args[2] === 20.08,
+    );
+    expect(hasRoadLine || hasRoadDotGlyph).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Road + Rampart Overlap')).to.be.true;
+  });
+
+  it('renders valid structure debug dots when planner debug positions exist', function() {
+    Memory.rooms.W1N1.basePlan = Memory.rooms.W1N1.basePlan || {};
+    Memory.rooms.W1N1.basePlan.plannerDebug = {
+      validStructurePositions: {
+        structureClear: 2,
+        canPlace: 2,
+        positions: [{ x: 13, y: 13 }, { x: 14, y: 14 }],
+        truncated: false,
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(
+      drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('ValidStruct 2')),
+    ).to.be.true;
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 13 && d.args[1] === 13)).to.be.true;
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 14 && d.args[1] === 14)).to.be.true;
+  });
+
+  it('renders valid structure debug dots from active theoretical candidate plan fallback', function() {
+    delete Memory.rooms.W1N1.basePlan;
+    Memory.rooms.W1N1.layout.theoretical = {};
+    Memory.rooms.W1N1.layout.currentDisplayCandidateIndex = 0;
+    Memory.rooms.W1N1.layout.theoreticalCandidatePlans = {
+      0: {
+        validStructurePositions: {
+          structureClear: 2,
+          canPlace: 2,
+          positions: [{ x: 18, y: 18 }, { x: 19, y: 19 }],
+          truncated: false,
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 18 && d.args[1] === 18)).to.be.true;
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 19 && d.args[1] === 19)).to.be.true;
   });
 });

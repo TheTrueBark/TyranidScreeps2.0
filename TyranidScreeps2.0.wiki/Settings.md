@@ -302,6 +302,8 @@ debug.setSpawnLimit('W1N1', 'hauler', 'auto')
 startFresh()
 startFresh(true)
 startFresh({ theoreticalBuildingMode: true })
+startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })
+layoutPlanDump('W1N1')
 ```
 
 ## `startFresh` Detailed Behavior
@@ -316,6 +318,13 @@ can rebuild state from scratch.
 theoretical planning mode (`buildPreviewOnly`, layout overlay, legend, labels,
 theoretical planner mode + default plan view). It also schedules a full
 layout recalculation for all owned rooms on the next tick.
+
+`startFresh({ ..., layoutPlanDumpDebug: true })` enables opt-in planner dump output support.
+After a plan is generated, run `layoutPlanDump('W1N1')` to print:
+
+- big/small road stamp counts and slot coverage (`capacitySlots/requiredSlots`)
+- planned structure totals by type
+- full `buildQueue` entries (type, rcl, priority, position, tag) for troubleshooting
 
 To keep visual debugging usable after a wipe, these settings are preserved and restored:
 

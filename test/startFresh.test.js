@@ -67,6 +67,7 @@ describe('startFresh command', function() {
       layoutPlanningMaxCandidatesPerTick: 25,
       layoutPlanningDynamicBatching: true,
       layoutPlanningReplanInterval: 1000,
+      layoutExtensionPattern: 'parity',
       layoutRecalculateRequested: 'all',
       layoutRecalculateMode: 'theoretical',
       enableMemHack: true,
@@ -107,5 +108,32 @@ describe('startFresh command', function() {
     expect(Memory.settings.layoutPlanningMode).to.equal('standard');
     expect(Memory.settings.buildPreviewOnly).to.equal(false);
     expect(Memory.settings.overlayMode).to.equal('off');
+  });
+
+  it('enables theoretical mode with cluster3 extension pattern when requested', function() {
+    startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' });
+    expect(Memory.settings.runtimeMode).to.equal('theoretical');
+    expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
+    expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
+    expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+  });
+
+  it('keeps harabi stage on foundation in theoretical mode', function() {
+    startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', harabiStage: 'full' });
+    expect(Memory.settings.runtimeMode).to.equal('theoretical');
+    expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
+    expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
+    expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+  });
+
+  it('supports opt-in layout plan dump debug mode in theoretical mode', function() {
+    startFresh({
+      theoreticalBuildingMode: true,
+      extensionPattern: 'cluster3',
+      harabiStage: 'full',
+      layoutPlanDumpDebug: true,
+    });
+    expect(Memory.settings.runtimeMode).to.equal('theoretical');
+    expect(Memory.settings.layoutPlanDumpDebug).to.equal(true);
   });
 });

@@ -42,6 +42,28 @@ describe('baseplanner phase 2 algorithm primitives', function () {
     expect(checkerboard.sameParity({ x: 10, y: 10 }, { x: 12, y: 12 })).to.equal(true);
   });
 
+  it('checkerboard helper supports Harabi diagonal 2x2 road pattern', function () {
+    const checkerboard = require('../algorithm.checkerboard');
+    const anchor = { x: 25, y: 25 };
+    const preferredParity = checkerboard.parityAt(anchor.x, anchor.y);
+
+    expect(
+      checkerboard.classifyTileByPattern(25, 25, anchor, { pattern: 'cluster3', preferredParity }),
+    ).to.equal('structure');
+    expect(
+      checkerboard.classifyTileByPattern(25, 23, anchor, { pattern: 'cluster3', preferredParity }),
+    ).to.equal('road');
+    expect(
+      checkerboard.classifyTileByPattern(27, 25, anchor, { pattern: 'cluster3', preferredParity }),
+    ).to.equal('road');
+    expect(
+      checkerboard.classifyTileByPattern(27, 27, anchor, { pattern: 'cluster3', preferredParity }),
+    ).to.equal('structure');
+    expect(
+      checkerboard.classifyTileByPattern(26, 24, anchor, { pattern: 'cluster3', preferredParity }),
+    ).to.equal('road');
+  });
+
   it('min-cut flow computes rampart candidates around structure envelope', function () {
     const { computeRampartCut } = require('../algorithm.minCut');
     const ctx = {

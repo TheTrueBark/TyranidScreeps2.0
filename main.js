@@ -27,6 +27,7 @@ const logger = require("./logger");
 const introspect = require('./debug.introspection');
 const savestate = require('./debug.savestate');
 const incidentDebug = require('./debug.incident');
+const layoutDumpDebug = require('./debug.layoutDump');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const intentPipeline = require('./manager.intentPipeline');
@@ -2708,6 +2709,9 @@ global.debug = {
 
 const startFresh = require('./startFresh');
 global.startFresh = startFresh;
+global.layoutPlanDump = function(roomName = null, options = {}) {
+  return layoutDumpDebug.dump(roomName, options);
+};
 intentPipeline.registerHandlers();
 
 

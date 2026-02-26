@@ -57,6 +57,7 @@ const DEFAULT_FINAL_WEIGHTS = {
   sourceDist: 0.07,
   controllerDist: 0.15,
   compactness: 0.04,
+  openAreaEff: 0.04,
   labQuality: 0.04,
   hubQuality: 0.04,
   rangedBuffer: 0.06,
@@ -148,6 +149,33 @@ function createPlanContext(room, matrices) {
       validation: [],
       defenseScore: 0,
       spawnExits: [],
+      stampStats: {
+        bigPlaced: 0,
+        smallPlaced: 0,
+        capacitySlots: 0,
+        requiredSlots: 0,
+        smallFallbackReasons: {},
+        bigCenters: [],
+        smallCenters: [],
+      },
+      sourceLogistics: {},
+      foundationDebug: {},
+      sourceResourceDebug: {},
+      logisticsRoutes: {},
+      validStructurePositions: {
+        totalCandidates: 0,
+        patternStructure: 0,
+        walkable: 0,
+        staticClear: 0,
+        reservedClear: 0,
+        structureClear: 0,
+        roadClear: 0,
+        adjacentRoad: 0,
+        labReserveClear: 0,
+        canPlace: 0,
+        positions: [],
+        truncated: false,
+      },
     },
   };
 }
@@ -190,6 +218,7 @@ function addPlacement(ctx, type, x, y, rcl, tag = null, options = {}) {
   if (!canPlaceStructure(ctx, type, x, y, options)) return false;
   const k = key(x, y);
   if (type !== STRUCTURES.ROAD && ctx.blocked.has(k)) return false;
+  if (type === STRUCTURES.ROAD && ctx.roads.has(k)) return false;
   if (type === STRUCTURES.ROAD && ctx.structuresByPos.has(k)) return false;
   ctx.placements.push({ type, x, y, rcl, tag });
   if (type === STRUCTURES.ROAD) {
@@ -241,6 +270,199 @@ function assignExtensionRcl(index) {
   if (index < 40) return 6;
   if (index < 50) return 7;
   return 8;
+}
+
+function resolveLayoutPattern(options = {}) {
+  const raw = options.layoutPattern || options.extensionPattern || 'parity';
+  const normalized = String(raw).toLowerCase();
+  if (normalized === 'cluster3' || normalized === 'harabi' || normalized === 'diag2') {
+    return 'cluster3';
+  }
+  return 'parity';
+}
+
+function resolveHarabiStage(options = {}) {
+  const raw = options.harabiStage || options.layoutHarabiStage || 'foundation';
+  const normalized = String(raw || 'foundation').toLowerCase();
+  return normalized === 'full' ? 'full' : 'foundation';
+}
+
+function isHarabiPattern(pattern) {
+  const normalized = String(pattern || 'parity').toLowerCase();
+  return normalized === 'cluster3' || normalized === 'harabi' || normalized === 'diag2';
+}
+
+const HARABI_ROAD_STAMP_5 = {
+  roads: [
+    { x: 0, y: -2 },
+    { x: -1, y: -1 },
+    { x: 1, y: -1 },
+    { x: -2, y: 0 },
+    { x: 2, y: 0 },
+    { x: -1, y: 1 },
+    { x: 1, y: 1 },
+    { x: 0, y: 2 },
+  ],
+  slots: (() => {
+    const roadKeys = new Set([
+      '0:-2',
+      '-1:-1',
+      '1:-1',
+      '-2:0',
+      '2:0',
+      '-1:1',
+      '1:1',
+      '0:2',
+    ]);
+    const slots = [];
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (roadKeys.has(`${dx}:${dy}`)) continue;
+        slots.push({ x: dx, y: dy });
+      }
+    }
+    return slots;
+  })(),
+};
+
+function applyRoadStamp(ctx, center, roadOffsets, tag = 'road.stamp') {
+  for (const o of roadOffsets) {
+    const x = center.x + o.x;
+    const y = center.y + o.y;
+    if (!inBounds(x, y)) continue;
+    addPlacement(ctx, STRUCTURES.ROAD, x, y, 1, tag);
+  }
+}
+
+function projectStampSlots(center, slotOffsets) {
+  const slots = [];
+  for (const o of slotOffsets) {
+    slots.push({ x: center.x + o.x, y: center.y + o.y, dx: o.x, dy: o.y });
+  }
+  return slots;
+}
+
+function getHarabiCoreStamp(anchor) {
+  // Anchor is the candidate spawn position for the middle spawn in the top row.
+  // Template source (absolute 1..5 coords) provided by user:
+  // spawn: (2,2),(3,2),(4,2) / terminal: (2,3) / link: (4,3)
+  // storage: (2,4) / powerSpawn: (4,4)
+  // roads: (3,3),(3,4),(2,5),(1,4),(1,3),(1,2),(2,1),(3,1),(4,1),(5,2),(5,3),(5,4),(4,5)
+  const center = { x: anchor.x, y: anchor.y + 1 };
+  return {
+    center,
+    roads: [
+      { x: -1, y: -2 }, { x: 0, y: -2 }, { x: 1, y: -2 },
+      { x: -2, y: -1 }, { x: 2, y: -1 },
+      { x: -2, y: 0 }, { x: 0, y: 0 }, { x: 2, y: 0 },
+      { x: -2, y: 1 }, { x: 0, y: 1 }, { x: 2, y: 1 },
+      { x: -1, y: 2 }, { x: 1, y: 2 },
+    ],
+    slots: {
+      spawn1: { x: 0, y: -1 }, // candidate anchor (required first spawn)
+      spawn2: { x: -1, y: -1 },
+      spawn3: { x: 1, y: -1 },
+      terminal: { x: -1, y: 0 },
+      link: { x: 1, y: 0 },
+      storage: { x: -1, y: 1 },
+      powerSpawn: { x: 1, y: 1 },
+    },
+  };
+}
+
+function addPatternRoadHalo(ctx, tiles, storage, pattern, preferredParity) {
+  if (!Array.isArray(tiles) || tiles.length === 0) return;
+  for (const tile of tiles) {
+    if (!tile) continue;
+    for (const n of neighbors8(tile.x, tile.y)) {
+      if (!inBounds(n.x, n.y)) continue;
+      if (
+        checkerboard.classifyTileByPattern(n.x, n.y, storage, {
+          pattern,
+          preferredParity,
+        }) !== 'road'
+      ) {
+        continue;
+      }
+      // Keep halo roads distinct from the actual stamp roads for diagnostics.
+      addPlacement(ctx, STRUCTURES.ROAD, n.x, n.y, 1, 'road.stampHalo');
+    }
+  }
+}
+
+function collectValidStructurePositions(
+  ctx,
+  sortedFlood,
+  storage,
+  layoutPattern,
+  preferredParity,
+  options = {},
+) {
+  const depthLimit = Number.isFinite(options.depthLimit) ? Number(options.depthLimit) : 12;
+  const labReserveKeys = options.labReserveKeys instanceof Set ? options.labReserveKeys : new Set();
+  const centerOverrideKeys = options.centerOverrideKeys instanceof Set ? options.centerOverrideKeys : new Set();
+  const maxPositions = Number.isFinite(options.maxPositions) ? Math.max(1, Number(options.maxPositions)) : 300;
+  const result = {
+    totalCandidates: 0,
+    patternStructure: 0,
+    walkable: 0,
+    staticClear: 0,
+    reservedClear: 0,
+    structureClear: 0,
+    roadClear: 0,
+    adjacentRoad: 0,
+    labReserveClear: 0,
+    canPlace: 0,
+    positions: [],
+    truncated: false,
+  };
+  if (!Array.isArray(sortedFlood) || !storage) return result;
+
+  for (const node of sortedFlood) {
+    if (!node || node.d > depthLimit) continue;
+    result.totalCandidates += 1;
+    const k = key(node.x, node.y);
+    const patternType = checkerboard.classifyTileByPattern(node.x, node.y, storage, {
+      pattern: layoutPattern,
+      preferredParity,
+    });
+    if (patternType === 'structure' || centerOverrideKeys.has(k)) {
+      result.patternStructure += 1;
+    }
+    if (ctx.matrices.walkableMatrix[idx(node.x, node.y)] !== 1) continue;
+    result.walkable += 1;
+    if (ctx.matrices.staticBlocked[idx(node.x, node.y)] === 1) continue;
+    result.staticClear += 1;
+    if (ctx.reserved.has(k)) continue;
+    result.reservedClear += 1;
+    if (ctx.structuresByPos.has(k)) continue;
+    result.structureClear += 1;
+    if (ctx.roads.has(k)) continue;
+    result.roadClear += 1;
+    const hasAdjacentRoad = neighbors8(node.x, node.y).some((n) => ctx.roads.has(key(n.x, n.y)));
+    if (!hasAdjacentRoad) continue;
+    result.adjacentRoad += 1;
+    if (result.positions.length < maxPositions) {
+      result.positions.push({ x: node.x, y: node.y });
+    } else {
+      result.truncated = true;
+    }
+    if (labReserveKeys.has(k)) continue;
+    result.labReserveClear += 1;
+    if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, node.x, node.y)) continue;
+    result.canPlace += 1;
+  }
+  return result;
+}
+
+function buildFullRoomNodes() {
+  const nodes = [];
+  for (let y = 0; y <= 49; y++) {
+    for (let x = 0; x <= 49; x++) {
+      nodes.push({ x, y, d: 0 });
+    }
+  }
+  return nodes;
 }
 
 function pathRoads(ctx, from, to, options = {}) {
@@ -393,9 +615,9 @@ function pickBestRampartCut(ctx, storagePos) {
       minCutMeta: { method: 'flow-mincut', reason: 'no-defense-points' },
     };
   }
-  const targetStandoff = 2;
+  const targetStandoff = 3;
   let best = null;
-  for (let margin = 2; margin <= 6; margin++) {
+  for (let margin = 3; margin <= 8; margin++) {
     const cut = minCutAlgorithm.computeRampartCut(defenseCtx, { margin });
     const line = cut.line && cut.line.length
       ? cut.line
@@ -696,6 +918,42 @@ function scoreCandidate(candidate, inputs) {
   };
 }
 
+function hasHarabiCoreStampFit(anchor, matrices) {
+  if (!anchor || !matrices) return false;
+  const stamp = getHarabiCoreStamp(anchor);
+  if (!stamp || !stamp.center || !stamp.slots) return false;
+
+  const structureSlots = [
+    stamp.slots.spawn1,
+    stamp.slots.spawn2,
+    stamp.slots.spawn3,
+    stamp.slots.storage,
+    stamp.slots.terminal,
+    stamp.slots.link,
+    stamp.slots.powerSpawn,
+  ];
+  for (const rel of structureSlots) {
+    const x = stamp.center.x + rel.x;
+    const y = stamp.center.y + rel.y;
+    if (!inBounds(x, y)) return false;
+    const id = idx(x, y);
+    if (matrices.walkableMatrix[id] !== 1) return false;
+    if (matrices.staticBlocked && matrices.staticBlocked[id] === 1) return false;
+    if (matrices.exitProximity && matrices.exitProximity[id] === 1) return false;
+  }
+
+  for (const rel of stamp.roads || []) {
+    const x = stamp.center.x + rel.x;
+    const y = stamp.center.y + rel.y;
+    if (!inBounds(x, y)) return false;
+    const id = idx(x, y);
+    if (matrices.walkableMatrix[id] !== 1) return false;
+    if (matrices.staticBlocked && matrices.staticBlocked[id] === 1) return false;
+  }
+
+  return true;
+}
+
 function buildCandidateSet(roomName, options = {}) {
   const room = Game.rooms[roomName];
   if (!room || !room.controller || !room.controller.my) {
@@ -721,6 +979,7 @@ function buildCandidateSet(roomName, options = {}) {
   const controllerPos = { x: room.controller.pos.x, y: room.controller.pos.y };
   const pathCost = makePathCostHelper(roomName);
   const topN = Math.max(1, options.topN || 5);
+  const useHarabi = isHarabiPattern(resolveLayoutPattern(options));
 
   const dtThreshold = options.dtThreshold || detectCandidateDtThreshold(dt);
   const minExitDistance = options.minExitDistance || 5;
@@ -745,6 +1004,7 @@ function buildCandidateSet(roomName, options = {}) {
       if ((dt[id] || 0) < dtThreshold) continue;
       if (Math.max(0, matrices.exitDistance[id]) < minExitDistance) continue;
       const c = { x, y };
+      if (useHarabi && !hasHarabiCoreStampFit(c, matrices)) continue;
       allCandidates.push(c);
       if (matrices.terrainMatrix[id] !== 1) {
         nonSwampCandidates.push(c);
@@ -839,11 +1099,55 @@ function buildCandidateSet(roomName, options = {}) {
 }
 
 function buildPlanForAnchor(room, input) {
-  const { anchor, matrices, dt, sources, mineral, controllerPos, candidateMeta = null } = input;
+  const {
+    anchor,
+    matrices,
+    dt,
+    sources,
+    mineral,
+    controllerPos,
+    candidateMeta = null,
+    layoutPattern = 'parity',
+    harabiStage = 'foundation',
+  } = input;
   const ctx = createPlanContext(room, matrices);
+  const useHarabi = isHarabiPattern(layoutPattern);
+  const foundationOnly = useHarabi && String(harabiStage || 'foundation') !== 'full';
+  const coreStamp = useHarabi ? getHarabiCoreStamp(anchor) : null;
+  const coreSlotAbs = (slotKey) => {
+    if (!coreStamp || !coreStamp.slots[slotKey]) return null;
+    return {
+      x: coreStamp.center.x + coreStamp.slots[slotKey].x,
+      y: coreStamp.center.y + coreStamp.slots[slotKey].y,
+    };
+  };
+  const coreStructureSlotKeys = new Set();
+  if (coreStamp && coreStamp.slots) {
+    for (const rel of Object.values(coreStamp.slots)) {
+      if (!rel) continue;
+      coreStructureSlotKeys.add(key(coreStamp.center.x + rel.x, coreStamp.center.y + rel.y));
+    }
+  }
+  if (coreStamp) {
+    applyRoadStamp(ctx, coreStamp.center, coreStamp.roads, 'road.coreStamp');
+    // Keep core stamp roads immutable; non-road placements must not consume them.
+    for (const rel of coreStamp.roads || []) {
+      const rx = coreStamp.center.x + rel.x;
+      const ry = coreStamp.center.y + rel.y;
+      if (!inBounds(rx, ry)) continue;
+      ctx.reserved.add(key(rx, ry));
+    }
+  }
 
   // Storage near anchor (range 1), needs high access.
   const storageCandidates = [];
+  const preferredStorage = coreSlotAbs('storage');
+  if (
+    preferredStorage &&
+    canPlaceStructure(ctx, STRUCTURES.STORAGE, preferredStorage.x, preferredStorage.y)
+  ) {
+    storageCandidates.push(preferredStorage);
+  }
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const x = anchor.x + dx;
@@ -852,18 +1156,37 @@ function buildPlanForAnchor(room, input) {
       storageCandidates.push({ x, y });
     }
   }
-  const storage =
-    findBestByCandidates(storageCandidates, (p) => {
-      const n = countWalkableNeighbors(ctx, p.x, p.y);
-      const dtv = dt[idx(p.x, p.y)] || 0;
-      const plainBonus = matrices.terrainMatrix[idx(p.x, p.y)] === 0 ? 1 : 0;
-      if (n < 3 || dtv < 2) return -99999;
-      return -chebyshev(p, anchor) + 3 * n + 2 * dtv + plainBonus;
-    }) || anchor;
+  let storage = null;
+  if (
+    useHarabi &&
+    preferredStorage &&
+    canPlaceStructure(ctx, STRUCTURES.STORAGE, preferredStorage.x, preferredStorage.y)
+  ) {
+    storage = preferredStorage;
+  } else {
+    storage =
+      findBestByCandidates(storageCandidates, (p) => {
+        const n = countWalkableNeighbors(ctx, p.x, p.y);
+        const dtv = dt[idx(p.x, p.y)] || 0;
+        const plainBonus = matrices.terrainMatrix[idx(p.x, p.y)] === 0 ? 1 : 0;
+        if (n < 3 || dtv < 2) return -99999;
+        return -chebyshev(p, anchor) + 3 * n + 2 * dtv + plainBonus;
+      }) || anchor;
+  }
   addPlacement(ctx, STRUCTURES.STORAGE, storage.x, storage.y, 4, 'core.storage');
+  if (useHarabi && preferredStorage && (storage.x !== preferredStorage.x || storage.y !== preferredStorage.y)) {
+    ctx.meta.validation.push('core-stamp-storage-fallback');
+  }
 
   // Spawn #1 near anchor/storage, needs 2 exits.
   const spawn1Candidates = [];
+  const preferredSpawn1 = coreSlotAbs('spawn1');
+  if (
+    preferredSpawn1 &&
+    canPlaceStructure(ctx, STRUCTURES.SPAWN, preferredSpawn1.x, preferredSpawn1.y)
+  ) {
+    spawn1Candidates.push(preferredSpawn1);
+  }
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
       const x = anchor.x + dx;
@@ -872,13 +1195,25 @@ function buildPlanForAnchor(room, input) {
       spawn1Candidates.push({ x, y });
     }
   }
-  const spawn1 = findBestByCandidates(spawn1Candidates, (p) => {
-    const n = countWalkableNeighbors(ctx, p.x, p.y);
-    const plainBonus = matrices.terrainMatrix[idx(p.x, p.y)] === 0 ? 1 : 0;
-    if (n < 2) return -99999;
-    return -chebyshev(p, anchor) + 2 * n + plainBonus;
-  });
+  let spawn1 = null;
+  if (
+    useHarabi &&
+    preferredSpawn1 &&
+    canPlaceStructure(ctx, STRUCTURES.SPAWN, preferredSpawn1.x, preferredSpawn1.y)
+  ) {
+    spawn1 = preferredSpawn1;
+  } else {
+    spawn1 = findBestByCandidates(spawn1Candidates, (p) => {
+      const n = countWalkableNeighbors(ctx, p.x, p.y);
+      const plainBonus = matrices.terrainMatrix[idx(p.x, p.y)] === 0 ? 1 : 0;
+      if (n < 2) return -99999;
+      return -chebyshev(p, anchor) + 2 * n + plainBonus;
+    });
+  }
   if (spawn1) addPlacement(ctx, STRUCTURES.SPAWN, spawn1.x, spawn1.y, 1, 'spawn.1');
+  if (useHarabi && preferredSpawn1 && (!spawn1 || spawn1.x !== preferredSpawn1.x || spawn1.y !== preferredSpawn1.y)) {
+    ctx.meta.validation.push('core-stamp-spawn1-fallback');
+  }
   if (spawn1 && sources.length > 0) {
     const nearestSource = sources
       .map((s) => ({ s, d: chebyshev(spawn1, s.pos) }))
@@ -886,6 +1221,7 @@ function buildPlanForAnchor(room, input) {
     const exitCandidates = neighbors8(spawn1.x, spawn1.y)
       .filter((p) => isTileWalkableForPlacement(ctx, p.x, p.y))
       .filter((p) => !ctx.structuresByPos.has(key(p.x, p.y)))
+      .filter((p) => !coreStructureSlotKeys.has(key(p.x, p.y)))
       .sort((a, b) => chebyshev(a, nearestSource.pos) - chebyshev(b, nearestSource.pos));
     if (exitCandidates[0]) {
       reserveTile(ctx, exitCandidates[0].x, exitCandidates[0].y, 'spawn.1.exit');
@@ -894,7 +1230,9 @@ function buildPlanForAnchor(room, input) {
 
   // Source containers + links.
   const sourceContainers = [];
+  const sourceRoadAnchors = [];
   for (const src of sources) {
+    if (!src || !src.id || !src.pos) continue;
     const around = neighbors8(src.pos.x, src.pos.y).filter((p) =>
       canPlaceStructure(ctx, STRUCTURES.CONTAINER, p.x, p.y),
     );
@@ -905,12 +1243,31 @@ function buildPlanForAnchor(room, input) {
     if (!cont) continue;
     addPlacement(ctx, STRUCTURES.CONTAINER, cont.x, cont.y, 1, `source.container.${src.id}`);
     sourceContainers.push({ source: src, pos: cont });
+    ctx.meta.sourceLogistics[src.id] = {
+      containerPos: { x: cont.x, y: cont.y },
+      roadAnchored: false,
+      linkPlaced: false,
+      linkFallbackUsed: false,
+    };
+
+    // Reserve at least one adjacent road anchor tile before link placement.
+    const anchorCandidates = neighbors8(cont.x, cont.y)
+      .filter((p) => inBounds(p.x, p.y))
+      .filter((p) => !ctx.structuresByPos.has(key(p.x, p.y)))
+      .filter((p) => ctx.matrices.walkableMatrix[idx(p.x, p.y)] === 1)
+      .sort((a, b) => manhattan(a, storage) - manhattan(b, storage));
+    const roadAnchor = anchorCandidates.length > 0 ? anchorCandidates[0] : null;
+    if (roadAnchor) {
+      sourceRoadAnchors.push({ sourceId: src.id, x: roadAnchor.x, y: roadAnchor.y });
+      reserveTile(ctx, roadAnchor.x, roadAnchor.y, `source.roadAnchor.${src.id}`);
+    }
 
     const linkCandidates = [];
     for (let dx = -2; dx <= 2; dx++) {
       for (let dy = -2; dy <= 2; dy++) {
         const p = { x: src.pos.x + dx, y: src.pos.y + dy };
         if (chebyshev(p, src.pos) > 2) continue;
+        if (roadAnchor && p.x === roadAnchor.x && p.y === roadAnchor.y) continue;
         if (!canPlaceStructure(ctx, STRUCTURES.LINK, p.x, p.y)) continue;
         linkCandidates.push(p);
       }
@@ -923,7 +1280,9 @@ function buildPlanForAnchor(room, input) {
         : nearContainer.length > 0
         ? nearContainer
         : linkCandidates;
-    const slink = findBestByCandidates(workingLinkCandidates, (p) => {
+    const primaryLinkCandidates = workingLinkCandidates.filter((p) => chebyshev(p, cont) <= 1);
+    const candidatePool = primaryLinkCandidates.length > 0 ? primaryLinkCandidates : workingLinkCandidates;
+    const slink = findBestByCandidates(candidatePool, (p) => {
       const sourcePenalty = chebyshev(p, src.pos) === 1 ? 0 : 1;
       const containerPenalty = Math.max(0, chebyshev(p, cont) - 1) * 1.4;
       return -manhattan(storage, p) - sourcePenalty - containerPenalty;
@@ -937,12 +1296,16 @@ function buildPlanForAnchor(room, input) {
         sourceContainers.length === 1 ? 5 : 7,
         `source.link.${src.id}`,
       );
+      if (ctx.meta.sourceLogistics[src.id]) {
+        ctx.meta.sourceLogistics[src.id].linkPlaced = true;
+        ctx.meta.sourceLogistics[src.id].linkFallbackUsed = candidatePool !== primaryLinkCandidates;
+      }
     }
   }
 
   // Upgrader area + controller container/link.
-  const upgraderSlots = buildUpgraderArea(ctx, controllerPos, storage);
-  if (upgraderSlots) {
+  const upgraderSlots = foundationOnly ? null : buildUpgraderArea(ctx, controllerPos, storage);
+  if (upgraderSlots && !foundationOnly && !useHarabi) {
     const ctrlContainerCandidates = neighbors8(controllerPos.x, controllerPos.y)
       .filter((p) => canPlaceStructure(ctx, STRUCTURES.CONTAINER, p.x, p.y))
       .filter((p) => upgraderSlots.some((s) => chebyshev(s, p) <= 1));
@@ -972,182 +1335,566 @@ function buildPlanForAnchor(room, input) {
     if (ctrlLink) addPlacement(ctx, STRUCTURES.LINK, ctrlLink.x, ctrlLink.y, 6, 'controller.link');
   }
 
+  if (useHarabi) {
+    const centers = [];
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const c = { x: controllerPos.x + dx, y: controllerPos.y + dy };
+        if (!inBounds(c.x, c.y)) continue;
+        if (chebyshev(c, controllerPos) > 2) continue;
+        if (coreStructureSlotKeys.has(key(c.x, c.y))) continue;
+        const ring = neighbors8(c.x, c.y);
+        if (!ring.every((p) => chebyshev(p, controllerPos) <= 3 && inBounds(p.x, p.y))) continue;
+        if (ring.some((p) => coreStructureSlotKeys.has(key(p.x, p.y)))) continue;
+        centers.push(c);
+      }
+    }
+    const stampCenter = findBestByCandidates(centers, (c) => {
+      if (!canPlaceStructure(ctx, STRUCTURES.LINK, c.x, c.y)) return -99999;
+      const open = neighbors8(c.x, c.y).reduce(
+        (sum, p) => sum + (canPlaceStructure(ctx, STRUCTURES.ROAD, p.x, p.y) ? 1 : 0),
+        0,
+      );
+      return 20 * open - manhattan(c, storage);
+    });
+    if (stampCenter) {
+      addPlacement(ctx, STRUCTURES.LINK, stampCenter.x, stampCenter.y, 6, 'controller.link');
+      for (const p of neighbors8(stampCenter.x, stampCenter.y)) {
+        if (chebyshev(p, controllerPos) > 3) continue;
+        addPlacement(ctx, STRUCTURES.ROAD, p.x, p.y, 2, 'road.controllerStamp');
+      }
+      ctx.meta.upgraderSlots = neighbors8(stampCenter.x, stampCenter.y)
+        .filter((p) => chebyshev(p, controllerPos) <= 3)
+        .map((p) => ({ x: p.x, y: p.y }));
+    }
+  }
+
   // Terminal (range 1 to storage) and sink link (range 1 storage).
   const aroundStorage = neighbors8(storage.x, storage.y).filter((p) =>
     canPlaceStructure(ctx, STRUCTURES.TERMINAL, p.x, p.y),
   );
-  const terminal = findBestByCandidates(aroundStorage, (p) => {
-    const n = countWalkableNeighbors(ctx, p.x, p.y);
-    return n;
-  });
+  const preferredTerminal = coreSlotAbs('terminal');
+  if (
+    preferredTerminal &&
+    canPlaceStructure(ctx, STRUCTURES.TERMINAL, preferredTerminal.x, preferredTerminal.y)
+  ) {
+    aroundStorage.unshift(preferredTerminal);
+  }
+  let terminal = null;
+  if (
+    useHarabi &&
+    preferredTerminal &&
+    canPlaceStructure(ctx, STRUCTURES.TERMINAL, preferredTerminal.x, preferredTerminal.y)
+  ) {
+    terminal = preferredTerminal;
+  } else {
+    terminal = findBestByCandidates(aroundStorage, (p) => {
+      const n = countWalkableNeighbors(ctx, p.x, p.y);
+      return n;
+    });
+  }
   if (terminal) addPlacement(ctx, STRUCTURES.TERMINAL, terminal.x, terminal.y, 6, 'core.terminal');
+  if (
+    useHarabi &&
+    preferredTerminal &&
+    (!terminal || terminal.x !== preferredTerminal.x || terminal.y !== preferredTerminal.y)
+  ) {
+    ctx.meta.validation.push('core-stamp-terminal-fallback');
+  }
 
   const sinkCandidates = neighbors8(storage.x, storage.y).filter((p) =>
     canPlaceStructure(ctx, STRUCTURES.LINK, p.x, p.y),
   );
-  const sinkLink = findBestByCandidates(sinkCandidates, (p) => {
-    if (terminal && p.x === terminal.x && p.y === terminal.y) return -99999;
-    return countWalkableNeighbors(ctx, p.x, p.y);
-  });
+  const preferredSinkLink = coreSlotAbs('link');
+  if (
+    preferredSinkLink &&
+    canPlaceStructure(ctx, STRUCTURES.LINK, preferredSinkLink.x, preferredSinkLink.y)
+  ) {
+    sinkCandidates.unshift(preferredSinkLink);
+  }
+  let sinkLink = null;
+  if (
+    useHarabi &&
+    preferredSinkLink &&
+    canPlaceStructure(ctx, STRUCTURES.LINK, preferredSinkLink.x, preferredSinkLink.y)
+  ) {
+    sinkLink = preferredSinkLink;
+  } else {
+    sinkLink = findBestByCandidates(sinkCandidates, (p) => {
+      if (terminal && p.x === terminal.x && p.y === terminal.y) return -99999;
+      return countWalkableNeighbors(ctx, p.x, p.y);
+    });
+  }
   if (sinkLink) addPlacement(ctx, STRUCTURES.LINK, sinkLink.x, sinkLink.y, 5, 'link.sink');
+  if (
+    useHarabi &&
+    preferredSinkLink &&
+    (!sinkLink || sinkLink.x !== preferredSinkLink.x || sinkLink.y !== preferredSinkLink.y)
+  ) {
+    ctx.meta.validation.push('core-stamp-link-fallback');
+  }
+
+  // Core stamp occupants that should always be planned in Harabi mode.
+  if (useHarabi) {
+    const requiredCore = [
+      { slot: 'spawn2', type: STRUCTURES.SPAWN, rcl: 7, tag: 'spawn.2' },
+      { slot: 'spawn3', type: STRUCTURES.SPAWN, rcl: 8, tag: 'spawn.3' },
+      { slot: 'powerSpawn', type: STRUCTURES.POWER_SPAWN, rcl: 8, tag: 'core.powerSpawn' },
+    ];
+    for (const cfg of requiredCore) {
+      const pos = coreSlotAbs(cfg.slot);
+      if (!pos) continue;
+      if (canPlaceStructure(ctx, cfg.type, pos.x, pos.y)) {
+        addPlacement(ctx, cfg.type, pos.x, pos.y, cfg.rcl, cfg.tag);
+      } else {
+        ctx.meta.validation.push(`core-stamp-${cfg.slot}-missing`);
+      }
+    }
+  }
 
   // Extension field: checkerboard from storage flood, <= 10 BFS.
   const parity = checkerboard.parityAt(storage.x, storage.y);
   const floodFromStorage = floodFillAlgorithm.floodFill(walkableWithPlan(ctx), storage, { maxDepth: 12 });
+  const extensionDepthLimit = isHarabiPattern(layoutPattern) ? 12 : 10;
+  const labReserveKeys = new Set();
+  if (!foundationOnly) {
+    const terminalRef = terminal || storage;
+    const reserveCandidates = floodFromStorage
+      .filter((n) => n.d <= 9)
+      .filter((n) => chebyshev(n, terminalRef) <= 6)
+      .filter((n) =>
+        checkerboard.classifyTileByPattern(n.x, n.y, storage, {
+          pattern: layoutPattern,
+          preferredParity: parity,
+        }) === 'structure',
+      )
+      .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+      .sort((a, b) => {
+        const aScore =
+          (dt[idx(a.x, a.y)] || 0) +
+          countWalkableNeighbors(ctx, a.x, a.y) -
+          chebyshev(a, terminalRef) * 0.4;
+        const bScore =
+          (dt[idx(b.x, b.y)] || 0) +
+          countWalkableNeighbors(ctx, b.x, b.y) -
+          chebyshev(b, terminalRef) * 0.4;
+        return bScore - aScore;
+      })
+      .slice(0, 14);
+    for (const candidate of reserveCandidates) {
+      labReserveKeys.add(key(candidate.x, candidate.y));
+    }
+  }
   let extIdx = 0;
-  for (const node of floodFromStorage.sort((a, b) => a.d - b.d)) {
-    if (extIdx >= 60) break;
-    if (node.d > 10) continue;
-    if (checkerboard.classifyTile(node.x, node.y, parity) !== 'structure') continue;
-    if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, node.x, node.y)) continue;
-    addPlacement(
-      ctx,
-      STRUCTURES.EXTENSION,
-      node.x,
-      node.y,
-      assignExtensionRcl(extIdx),
-      `extension.${extIdx + 1}`,
-    );
+  const sortedFlood = floodFromStorage.sort((a, b) => a.d - b.d);
+  const placeExtensionTile = (x, y) => {
+    if (extIdx >= 60) return false;
+    if (labReserveKeys.has(key(x, y))) return false;
+    if (
+      checkerboard.classifyTileByPattern(x, y, storage, {
+        pattern: layoutPattern,
+        preferredParity: parity,
+      }) !== 'structure'
+    ) {
+      return false;
+    }
+    if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, x, y)) return false;
+    if (
+      !addPlacement(
+        ctx,
+        STRUCTURES.EXTENSION,
+        x,
+        y,
+        assignExtensionRcl(extIdx),
+        `extension.${extIdx + 1}`,
+      )
+    ) {
+      return false;
+    }
     extIdx += 1;
+    return true;
+  };
+
+  const addRoadHalo = (x, y) => {
+    for (const n of neighbors8(x, y)) {
+      if (!inBounds(n.x, n.y)) continue;
+      if (checkerboard.classifyTileByPattern(n.x, n.y, storage, {
+        pattern: layoutPattern,
+        preferredParity: parity,
+      }) !== 'road') {
+        continue;
+      }
+      // Keep halo roads distinct from the actual stamp roads for diagnostics.
+      addPlacement(ctx, STRUCTURES.ROAD, n.x, n.y, 1, 'road.stampHalo');
+    }
+  };
+
+  if (isHarabiPattern(layoutPattern)) {
+    const stampCenters = [];
+    const capacitySlotKeys = new Set();
+    const stampDepthLimit = foundationOnly ? 11 : extensionDepthLimit;
+    const fallbackStructureCaps = {
+      [STRUCTURES.EXTENSION]: 60,
+      [STRUCTURES.TOWER]: 6,
+      [STRUCTURES.LAB]: 10,
+      [STRUCTURES.FACTORY]: 1,
+      [STRUCTURES.OBSERVER]: 1,
+      [STRUCTURES.NUKER]: 1,
+      [STRUCTURES.SPAWN]: 3,
+      [STRUCTURES.STORAGE]: 1,
+      [STRUCTURES.TERMINAL]: 1,
+      [STRUCTURES.POWER_SPAWN]: 1,
+    };
+    const structureLimitAtRcl8 = (type) => {
+      if (
+        typeof CONTROLLER_STRUCTURES !== 'undefined' &&
+        CONTROLLER_STRUCTURES &&
+        CONTROLLER_STRUCTURES[type] &&
+        typeof CONTROLLER_STRUCTURES[type][8] === 'number'
+      ) {
+        return CONTROLLER_STRUCTURES[type][8];
+      }
+      return fallbackStructureCaps[type] || 0;
+    };
+    // Demand only slots for structures that must fit in general stamp fields.
+    // Excludes containers and non-core links (both intentionally dynamic).
+    const requiredStampSlots = foundationOnly
+      ? 0
+      : [
+          STRUCTURES.EXTENSION,
+          STRUCTURES.TOWER,
+          STRUCTURES.LAB,
+          STRUCTURES.FACTORY,
+          STRUCTURES.OBSERVER,
+          STRUCTURES.NUKER,
+          STRUCTURES.SPAWN,
+          STRUCTURES.STORAGE,
+          STRUCTURES.TERMINAL,
+          STRUCTURES.POWER_SPAWN,
+        ].reduce((sum, type) => sum + structureLimitAtRcl8(type), 0) - 7;
+    const targetBigCoverage = foundationOnly
+      ? 12
+      : Math.max(1, Math.ceil(requiredStampSlots / Math.max(1, HARABI_ROAD_STAMP_5.slots.length)));
+    const maxRoadStamps = foundationOnly ? 18 : 40;
+    const minCenterSpacing = foundationOnly ? 4 : 2;
+    const hasNearbyCenter = (node) => stampCenters.some((c) => chebyshev(c, node) < minCenterSpacing);
+    const coreReference = coreStamp && coreStamp.center ? coreStamp.center : storage;
+    const coreDistance = (node) => chebyshev(node, coreReference);
+    const angleAroundCore = (node) => {
+      const raw = Math.atan2(node.y - coreReference.y, node.x - coreReference.x);
+      return raw >= 0 ? raw : raw + 2 * Math.PI;
+    };
+    const sortedRoadNodes = sortedFlood
+      .filter((node) => node.d <= stampDepthLimit)
+      .filter((node) =>
+        checkerboard.classifyTileByPattern(node.x, node.y, storage, {
+          pattern: layoutPattern,
+          preferredParity: parity,
+        }) === 'road',
+      );
+    const roadNodesNearToFar = sortedRoadNodes
+      .slice()
+      .sort(
+        (a, b) =>
+          coreDistance(a) - coreDistance(b) ||
+          a.d - b.d ||
+          angleAroundCore(a) - angleAroundCore(b),
+      );
+    const bigEvalCache = new Map();
+    const evalKeyFor = (node) => `${node.x}:${node.y}`;
+
+    const evaluateStamp = (candidateNode, stamp) => {
+      const roadTiles = stamp.roads
+        .map((o) => ({ x: candidateNode.x + o.x, y: candidateNode.y + o.y }))
+        .filter((p) => inBounds(p.x, p.y));
+      const existingRoadCount = roadTiles.filter((p) => ctx.roads.has(key(p.x, p.y))).length;
+      const placeableRoadCount = roadTiles.filter((p) => {
+        if (ctx.roads.has(key(p.x, p.y))) return false;
+        return canPlaceStructure(ctx, STRUCTURES.ROAD, p.x, p.y);
+      }).length;
+      const blockedRoadCount = Math.max(0, roadTiles.length - existingRoadCount - placeableRoadCount);
+      const missingRoadCount = Math.max(0, roadTiles.length - existingRoadCount);
+      const satisfiedRoadCount = existingRoadCount + placeableRoadCount;
+      // Use in-bounds road count for thresholding so edge stamps can still be
+      // considered when they are completable with a few roads.
+      const roadOk =
+        roadTiles.length > 0 &&
+        (satisfiedRoadCount >= Math.max(2, Math.ceil(roadTiles.length * 0.45)) ||
+          (blockedRoadCount === 0 && missingRoadCount <= 2));
+      const slotCandidates = projectStampSlots(candidateNode, stamp.slots).filter((p) =>
+        inBounds(p.x, p.y) &&
+        (
+          checkerboard.classifyTileByPattern(p.x, p.y, storage, {
+            pattern: layoutPattern,
+            preferredParity: parity,
+          }) === 'structure' ||
+          (p.dx === 0 && p.dy === 0)
+        ) &&
+        ctx.matrices.walkableMatrix[idx(p.x, p.y)] === 1 &&
+        ctx.matrices.staticBlocked[idx(p.x, p.y)] !== 1 &&
+        !ctx.reserved.has(key(p.x, p.y)) &&
+        !ctx.roads.has(key(p.x, p.y)) &&
+        !ctx.structuresByPos.has(key(p.x, p.y)),
+      );
+      const viableSlots = foundationOnly
+        ? []
+        : slotCandidates.filter((p) => canPlaceStructure(ctx, STRUCTURES.EXTENSION, p.x, p.y));
+      return {
+        stamp,
+        roadOk,
+        existingRoadCount,
+        placeableRoadCount,
+        blockedRoadCount,
+        missingRoadCount,
+        slotCandidates,
+        viableSlots,
+      };
+    };
+
+    const evaluateBigCached = (candidateNode) => {
+      const k = evalKeyFor(candidateNode);
+      if (!bigEvalCache.has(k)) {
+        bigEvalCache.set(k, evaluateStamp(candidateNode, HARABI_ROAD_STAMP_5));
+      }
+      return bigEvalCache.get(k);
+    };
+
+    const tryApplyStamp = (candidateNode, evaluation, size, fallbackReason = null) => {
+      applyRoadStamp(ctx, candidateNode, evaluation.stamp.roads, 'road.stamp');
+      for (const slot of evaluation.slotCandidates || []) {
+        capacitySlotKeys.add(key(slot.x, slot.y));
+      }
+      if (!foundationOnly) {
+        const viable = evaluation.viableSlots;
+        if (viable.length === evaluation.stamp.slots.length) {
+          const placed = [];
+          for (const p of viable) {
+            if (extIdx >= 60) break;
+            if (placeExtensionTile(p.x, p.y)) placed.push({ x: p.x, y: p.y });
+          }
+          if (placed.length > 0) {
+            addPatternRoadHalo(ctx, placed, storage, layoutPattern, parity);
+          }
+        } else if (viable.length > 0) {
+          const fallback = viable[0];
+          if (placeExtensionTile(fallback.x, fallback.y)) {
+            addPatternRoadHalo(
+              ctx,
+              [{ x: fallback.x, y: fallback.y }],
+              storage,
+              layoutPattern,
+              parity,
+            );
+          }
+        }
+      }
+      stampCenters.push({ x: candidateNode.x, y: candidateNode.y });
+      addRoadHalo(candidateNode.x, candidateNode.y);
+      ctx.meta.stampStats.capacitySlots = capacitySlotKeys.size;
+      ctx.meta.stampStats.requiredSlots = requiredStampSlots;
+      if (size === 'big') {
+        ctx.meta.stampStats.bigPlaced += 1;
+        if (ctx.meta.stampStats.bigCenters.length < 80) {
+          ctx.meta.stampStats.bigCenters.push({ x: candidateNode.x, y: candidateNode.y });
+        }
+      } else if (size === 'small') {
+        ctx.meta.stampStats.smallPlaced += 1;
+        if (ctx.meta.stampStats.smallCenters.length < 80) {
+          ctx.meta.stampStats.smallCenters.push({ x: candidateNode.x, y: candidateNode.y });
+        }
+        if (fallbackReason) {
+          const reasons = ctx.meta.stampStats.smallFallbackReasons;
+          reasons[fallbackReason] = (reasons[fallbackReason] || 0) + 1;
+        }
+      }
+    };
+
+    const hasCapacityCoverage = () =>
+      foundationOnly ? false : capacitySlotKeys.size >= requiredStampSlots;
+
+    // Phase 1: place large 3x3-diagonal road stamps first, moving out from the core.
+    for (const nearNode of roadNodesNearToFar) {
+      if (stampCenters.length >= maxRoadStamps) break;
+      if (hasCapacityCoverage() && ctx.meta.stampStats.bigPlaced >= targetBigCoverage) break;
+      if (hasNearbyCenter(nearNode)) continue;
+      const big = evaluateBigCached(nearNode);
+      if (!big.roadOk) continue;
+      tryApplyStamp(nearNode, big, 'big');
+    }
+
+    // Phase 2 (small 2x2 fallback) is intentionally disabled.
+    // We only want the large 3x3-diagonal road stamp topology.
+  }
+
+  if (!foundationOnly && !isHarabiPattern(layoutPattern) && extIdx < 60) {
+    for (const node of sortedFlood) {
+      if (extIdx >= 60) break;
+      if (node.d > extensionDepthLimit) continue;
+      placeExtensionTile(node.x, node.y);
+    }
   }
 
   // Labs: no fixed stamp; choose two source labs then overlap region.
   let sourceLab1 = null;
   let sourceLab2 = null;
-  const terminalRef = terminal || storage;
-  const lab1Candidates = floodFromStorage
-    .filter((n) => n.d <= 8)
-    .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-    .filter((n) => chebyshev(n, terminalRef) <= 5);
-  sourceLab1 = findBestByCandidates(lab1Candidates, (p) => {
-    const dtv = dt[idx(p.x, p.y)] || 0;
-    return dtv + countWalkableNeighbors(ctx, p.x, p.y);
-  });
-  if (sourceLab1) addPlacement(ctx, STRUCTURES.LAB, sourceLab1.x, sourceLab1.y, 6, 'lab.source.1');
-
-  if (sourceLab1) {
-    const lab2Candidates = floodFromStorage
-      .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-      .filter((n) => {
-        const r = chebyshev(n, sourceLab1);
-        return r >= 2 && r <= 3;
-      });
-    sourceLab2 = findBestByCandidates(lab2Candidates, (p) => dt[idx(p.x, p.y)] || 0);
-    if (sourceLab2) addPlacement(ctx, STRUCTURES.LAB, sourceLab2.x, sourceLab2.y, 6, 'lab.source.2');
-  }
-
   const reactionLabs = [];
-  if (sourceLab1 && sourceLab2) {
-    const reactionCandidates = floodFromStorage
+  if (!foundationOnly) {
+    const terminalRef = terminal || storage;
+    const lab1Candidates = floodFromStorage
+      .filter((n) => n.d <= 8)
       .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-      .filter((n) => chebyshev(n, sourceLab1) <= 2 && chebyshev(n, sourceLab2) <= 2)
-      .sort((a, b) => chebyshev(a, terminalRef) - chebyshev(b, terminalRef));
-    for (const cand of reactionCandidates) {
-      if (reactionLabs.length >= 8) break;
-      if (
-        addPlacement(
-          ctx,
-          STRUCTURES.LAB,
-          cand.x,
-          cand.y,
-          reactionLabs.length < 1 ? 6 : reactionLabs.length < 4 ? 7 : 8,
-          `lab.reaction.${reactionLabs.length + 1}`,
-        )
-      ) {
-        reactionLabs.push(cand);
+      .filter((n) => chebyshev(n, terminalRef) <= 5);
+    sourceLab1 = findBestByCandidates(lab1Candidates, (p) => {
+      const dtv = dt[idx(p.x, p.y)] || 0;
+      return dtv + countWalkableNeighbors(ctx, p.x, p.y);
+    });
+    if (sourceLab1) addPlacement(ctx, STRUCTURES.LAB, sourceLab1.x, sourceLab1.y, 6, 'lab.source.1');
+
+    if (sourceLab1) {
+      const lab2Candidates = floodFromStorage
+        .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+        .filter((n) => {
+          const r = chebyshev(n, sourceLab1);
+          return r >= 2 && r <= 3;
+        });
+      sourceLab2 = findBestByCandidates(lab2Candidates, (p) => dt[idx(p.x, p.y)] || 0);
+      if (sourceLab2) addPlacement(ctx, STRUCTURES.LAB, sourceLab2.x, sourceLab2.y, 6, 'lab.source.2');
+    }
+
+    if (sourceLab1 && sourceLab2) {
+      const reactionCandidates = floodFromStorage
+        .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+        .filter((n) => chebyshev(n, sourceLab1) <= 2 && chebyshev(n, sourceLab2) <= 2)
+        .sort((a, b) => chebyshev(a, terminalRef) - chebyshev(b, terminalRef));
+      for (const cand of reactionCandidates) {
+        if (reactionLabs.length >= 8) break;
+        if (
+          addPlacement(
+            ctx,
+            STRUCTURES.LAB,
+            cand.x,
+            cand.y,
+            reactionLabs.length < 1 ? 6 : reactionLabs.length < 4 ? 7 : 8,
+            `lab.reaction.${reactionLabs.length + 1}`,
+          )
+        ) {
+          reactionLabs.push(cand);
+        }
       }
     }
   }
 
   // Rampart line proxy + ramparts over critical structures + controller ring.
-  const rampartCut = pickBestRampartCut(ctx, storage);
-  const rampartLine = rampartCut.line || [];
-  ctx.meta.rampartMargin = rampartCut.margin;
-  ctx.meta.rampartStandoff = rampartCut.standoff;
-  ctx.meta.minCut = rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin };
-  for (const rp of rampartLine) {
-    addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', {
-      allowOnBlocked: true,
-    });
-  }
-  for (const p of ctx.placements) {
-    if (
-      p.type === STRUCTURES.SPAWN ||
-      p.type === STRUCTURES.STORAGE ||
-      p.type === STRUCTURES.TERMINAL ||
-      p.type === STRUCTURES.TOWER ||
-      p.type === STRUCTURES.LAB ||
-      p.type === STRUCTURES.FACTORY ||
-      p.type === STRUCTURES.POWER_SPAWN ||
-      p.type === STRUCTURES.NUKER ||
-      p.type === STRUCTURES.LINK
-    ) {
-      addPlacement(ctx, STRUCTURES.RAMPART, p.x, p.y, 2, 'rampart.core', { allowOnBlocked: true });
-    }
-  }
-  for (const p of neighbors8(controllerPos.x, controllerPos.y)) {
-    addPlacement(ctx, STRUCTURES.RAMPART, p.x, p.y, 2, 'rampart.controller', {
-      allowOnBlocked: true,
-    });
-  }
-
-  // Towers: greedily improve weakest rampart point with spread >= 4.
-  const rampartTiles = ctx.placements
-    .filter((p) => p.type === STRUCTURES.RAMPART)
-    .map((p) => ({ x: p.x, y: p.y }));
+  let rampartTiles = [];
   const towers = [];
-  const towerCandidates = floodFromStorage
-    .filter((n) => canPlaceStructure(ctx, STRUCTURES.TOWER, n.x, n.y))
-    .filter((n) => chebyshev(n, storage) <= 12);
-  for (let i = 0; i < 6; i++) {
-    const bestTower = findBestByCandidates(towerCandidates, (cand) => {
-      if (towers.some((t) => chebyshev(t, cand) < 4)) return -99999;
-      let weakest = Infinity;
-      for (const rp of rampartTiles) {
-        let dmg = 0;
-        for (const t of towers) dmg += computeTowerDamage(chebyshev(t, rp));
-        dmg += computeTowerDamage(chebyshev(cand, rp));
-        weakest = Math.min(weakest, dmg);
+  if (!foundationOnly) {
+    const rampartCut = pickBestRampartCut(ctx, storage);
+    const rampartLine = rampartCut.line || [];
+    ctx.meta.rampartMargin = rampartCut.margin;
+    ctx.meta.rampartStandoff = rampartCut.standoff;
+    ctx.meta.minCut = rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin };
+    for (const rp of rampartLine) {
+      addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', {
+        allowOnBlocked: true,
+      });
+    }
+    for (const p of ctx.placements) {
+      if (
+        p.type === STRUCTURES.SPAWN ||
+        p.type === STRUCTURES.STORAGE ||
+        p.type === STRUCTURES.TERMINAL ||
+        p.type === STRUCTURES.TOWER ||
+        p.type === STRUCTURES.LAB ||
+        p.type === STRUCTURES.FACTORY ||
+        p.type === STRUCTURES.POWER_SPAWN ||
+        p.type === STRUCTURES.NUKER ||
+        p.type === STRUCTURES.LINK
+      ) {
+        addPlacement(ctx, STRUCTURES.RAMPART, p.x, p.y, 2, 'rampart.core', { allowOnBlocked: true });
       }
-      return weakest === Infinity ? -99999 : weakest;
-    });
-    if (!bestTower) break;
-    towers.push(bestTower);
-    addPlacement(
-      ctx,
-      STRUCTURES.TOWER,
-      bestTower.x,
-      bestTower.y,
-      i < 1 ? 3 : i < 2 ? 5 : 8,
-      `tower.${i + 1}`,
-    );
+    }
+    for (const p of neighbors8(controllerPos.x, controllerPos.y)) {
+      addPlacement(ctx, STRUCTURES.RAMPART, p.x, p.y, 2, 'rampart.controller', {
+        allowOnBlocked: true,
+      });
+    }
+
+    // Towers: greedily improve weakest rampart point with spread >= 4.
+    rampartTiles = ctx.placements
+      .filter((p) => p.type === STRUCTURES.RAMPART)
+      .map((p) => ({ x: p.x, y: p.y }));
+    const towerCandidates = floodFromStorage
+      .filter((n) => canPlaceStructure(ctx, STRUCTURES.TOWER, n.x, n.y))
+      .filter((n) => chebyshev(n, storage) <= 12);
+    for (let i = 0; i < 6; i++) {
+      const bestTower = findBestByCandidates(towerCandidates, (cand) => {
+        if (towers.some((t) => chebyshev(t, cand) < 4)) return -99999;
+        let weakest = Infinity;
+        for (const rp of rampartTiles) {
+          let dmg = 0;
+          for (const t of towers) dmg += computeTowerDamage(chebyshev(t, rp));
+          dmg += computeTowerDamage(chebyshev(cand, rp));
+          weakest = Math.min(weakest, dmg);
+        }
+        return weakest === Infinity ? -99999 : weakest;
+      });
+      if (!bestTower) break;
+      towers.push(bestTower);
+      addPlacement(
+        ctx,
+        STRUCTURES.TOWER,
+        bestTower.x,
+        bestTower.y,
+        i < 1 ? 3 : i < 2 ? 5 : 8,
+        `tower.${i + 1}`,
+      );
+    }
   }
 
   // Spawn #2/#3 with spread and storage proximity.
   const spawnCandidates = floodFromStorage
     .filter((n) => canPlaceStructure(ctx, STRUCTURES.SPAWN, n.x, n.y))
     .filter((n) => chebyshev(n, storage) <= 6);
-  const spawn2 = findBestByCandidates(spawnCandidates, (p) => {
+  const preferredSpawn2 = coreSlotAbs('spawn2');
+  const preferredSpawn3 = coreSlotAbs('spawn3');
+  if (preferredSpawn2 && canPlaceStructure(ctx, STRUCTURES.SPAWN, preferredSpawn2.x, preferredSpawn2.y)) {
+    spawnCandidates.unshift(preferredSpawn2);
+  }
+  if (preferredSpawn3 && canPlaceStructure(ctx, STRUCTURES.SPAWN, preferredSpawn3.x, preferredSpawn3.y)) {
+    spawnCandidates.unshift(preferredSpawn3);
+  }
+  const existingSpawn2 = ctx.placements.find((p) => p.tag === 'spawn.2');
+  const spawn2 = existingSpawn2 || (foundationOnly ? null : findBestByCandidates(spawnCandidates, (p) => {
     if (!spawn1) return -99999;
     const d1 = chebyshev(p, spawn1);
     const n = countWalkableNeighbors(ctx, p.x, p.y);
     if (d1 < 3 || n < 2) return -99999;
     return -2 * Math.abs(chebyshev(p, storage) - 3) + 3 + 2 * n;
-  });
-  if (spawn2) addPlacement(ctx, STRUCTURES.SPAWN, spawn2.x, spawn2.y, 7, 'spawn.2');
+  }));
+  if (spawn2 && !existingSpawn2) addPlacement(ctx, STRUCTURES.SPAWN, spawn2.x, spawn2.y, 7, 'spawn.2');
 
-  const spawn3 = findBestByCandidates(spawnCandidates, (p) => {
+  const existingSpawn3 = ctx.placements.find((p) => p.tag === 'spawn.3');
+  const spawn3 = existingSpawn3 || (foundationOnly ? null : findBestByCandidates(spawnCandidates, (p) => {
     if (!spawn1 || !spawn2) return -99999;
     const d1 = chebyshev(p, spawn1);
     const d2 = chebyshev(p, spawn2);
     const n = countWalkableNeighbors(ctx, p.x, p.y);
     if (d1 < 3 || d2 < 3 || n < 2) return -99999;
     return -Math.abs(chebyshev(p, storage) - 4) + d1 + d2 + n;
-  });
-  if (spawn3) addPlacement(ctx, STRUCTURES.SPAWN, spawn3.x, spawn3.y, 8, 'spawn.3');
+  }));
+  if (spawn3 && !existingSpawn3) addPlacement(ctx, STRUCTURES.SPAWN, spawn3.x, spawn3.y, 8, 'spawn.3');
 
   // Factory / PowerSpawn / Nuker / Observer.
   const placeNearStorage = (type, maxRange, rcl, tag) => {
+    if (foundationOnly) return;
+    if (ctx.placements.some((p) => p.tag === tag)) return;
+    if (useHarabi && type === STRUCTURES.POWER_SPAWN) {
+      const preferred = coreSlotAbs('powerSpawn');
+      if (preferred && canPlaceStructure(ctx, type, preferred.x, preferred.y)) {
+        addPlacement(ctx, type, preferred.x, preferred.y, rcl, tag);
+        return;
+      }
+    }
     const cands = floodFromStorage
       .filter((n) => chebyshev(n, storage) <= maxRange)
       .filter((n) => canPlaceStructure(ctx, type, n.x, n.y));
@@ -1177,6 +1924,15 @@ function buildPlanForAnchor(room, input) {
   };
   const protectedRoads = new Set();
   const preferredRoads = new Set();
+  const sourceRoadAnchorById = new Map();
+  for (const anchor of sourceRoadAnchors) {
+    if (!anchor || !anchor.sourceId) continue;
+    const anchorKey = key(anchor.x, anchor.y);
+    sourceRoadAnchorById.set(anchor.sourceId, anchorKey);
+    protectedRoads.add(anchorKey);
+    preferredRoads.add(anchorKey);
+    touchTraffic(anchor, 10);
+  }
   const addRoutePath = (path, weight, protect = false) => {
     for (const step of path) {
       const k = key(step.x, step.y);
@@ -1208,7 +1964,7 @@ function buildPlanForAnchor(room, input) {
     });
   }
   const controllerContainer = ctx.placements.find((p) => p.tag === 'controller.container');
-  if (controllerContainer) {
+  if (!foundationOnly && controllerContainer) {
     logisticTargets.push({
       id: 'controller.container',
       pos: { x: controllerContainer.x, y: controllerContainer.y },
@@ -1216,7 +1972,7 @@ function buildPlanForAnchor(room, input) {
       protect: true,
       avoidSourceContainers: true,
     });
-  } else if (upgraderSlots && upgraderSlots.length > 0) {
+  } else if (!foundationOnly && upgraderSlots && upgraderSlots.length > 0) {
     logisticTargets.push({
       id: 'controller.upgraderSlot',
       pos: upgraderSlots[0],
@@ -1235,19 +1991,54 @@ function buildPlanForAnchor(room, input) {
       avoidSourceContainers: true,
     });
   }
+  // Prefer connecting logistics from already-planned foundation road lattice, not
+  // directly from storage/core center. This avoids carving straight cuts through
+  // the base interior just to reach remote sources/resources.
+  const routeOriginRoads = (ctx.placements || [])
+    .filter((p) => p && p.type === STRUCTURES.ROAD)
+    .filter((p) => {
+      const tag = String(p.tag || '');
+      return tag === 'road.stamp' || tag === 'road.controllerStamp' || tag === 'road.grid';
+    })
+    .map((p) => ({ x: p.x, y: p.y }));
+  const pickLogisticOrigin = (targetPos) => {
+    if (!targetPos || !routeOriginRoads.length) return storage;
+    let best = null;
+    let bestScore = Infinity;
+    for (const origin of routeOriginRoads) {
+      const baseCorePenalty = chebyshev(origin, storage) <= 2 ? 6 : 0;
+      const score = manhattan(origin, targetPos) + baseCorePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = origin;
+      }
+    }
+    return best || storage;
+  };
   logisticTargets.sort((a, b) => manhattan(storage, a.pos) - manhattan(storage, b.pos));
   let connectedLogistics = 0;
   const missingLogistics = [];
   for (const target of logisticTargets) {
     const avoidKeys = target.avoidSourceContainers ? new Set(sourceContainerKeys) : null;
     if (avoidKeys) avoidKeys.delete(key(target.pos.x, target.pos.y));
-    let path = pathRoads(ctx, storage, target.pos, {
+    const routeOrigin = pickLogisticOrigin(target.pos);
+    let path = pathRoads(ctx, routeOrigin, target.pos, {
       preferredRoads,
       avoidKeys,
       avoidPenalty: 25,
     });
     if (!path.length && avoidKeys) {
-      path = pathRoads(ctx, storage, target.pos, { preferredRoads });
+      path = pathRoads(ctx, routeOrigin, target.pos, { preferredRoads });
+    }
+    if (
+      !path.length &&
+      (routeOrigin.x !== storage.x || routeOrigin.y !== storage.y)
+    ) {
+      path = pathRoads(ctx, storage, target.pos, {
+        preferredRoads,
+        avoidKeys,
+        avoidPenalty: 25,
+      });
     }
     if (!path.length && chebyshev(storage, target.pos) > 1) {
       ctx.meta.validation.push(`missing-logistics-route:${target.id}`);
@@ -1268,7 +2059,7 @@ function buildPlanForAnchor(room, input) {
     const path = pathRoads(ctx, from, to, { preferredRoads });
     addRoutePath(path, weight, false);
   };
-  if (upgraderSlots && upgraderSlots.length > 0) {
+  if (!foundationOnly && upgraderSlots && upgraderSlots.length > 0) {
     for (const slot of upgraderSlots) {
       const path = pathRoads(ctx, storage, slot, { preferredRoads });
       addRoutePath(path, 1, true);
@@ -1304,19 +2095,114 @@ function buildPlanForAnchor(room, input) {
 
   for (const n of floodFromStorage) {
     if (n.d > 10) continue;
-    if (checkerboard.classifyTile(n.x, n.y, parity) === 'structure') continue;
+    if (
+      checkerboard.classifyTileByPattern(n.x, n.y, storage, {
+        pattern: layoutPattern,
+        preferredParity: parity,
+      }) === 'structure'
+    ) {
+      continue;
+    }
     addPlacement(ctx, STRUCTURES.ROAD, n.x, n.y, 1, 'road.grid');
   }
   for (const rp of rampartTiles) {
     addPlacement(ctx, STRUCTURES.ROAD, rp.x, rp.y, 2, 'road.rampart');
   }
 
+  for (const sourceId in ctx.meta.sourceLogistics) {
+    const state = ctx.meta.sourceLogistics[sourceId];
+    const anchorKey = sourceRoadAnchorById.get(sourceId);
+    if (!state) continue;
+    if (anchorKey && ctx.roads.has(anchorKey)) {
+      state.roadAnchored = true;
+    } else if (state.containerPos) {
+      const hasAdjacentRoad = neighbors8(state.containerPos.x, state.containerPos.y).some((p) =>
+        ctx.roads.has(key(p.x, p.y)),
+      );
+      state.roadAnchored = hasAdjacentRoad;
+    }
+    if (!state.roadAnchored) {
+      ctx.meta.validation.push(`source-road-anchor-missing:${sourceId}`);
+    }
+  }
+
   const pruning = pruneRoadPlacements(ctx, {
     protectedRoads,
-    keepTags: ['road.rampart', 'road.protected'],
+    keepTags: [
+      'road.rampart',
+      'road.protected',
+      'road.stamp',
+      'road.stampHalo',
+      'road.coreStamp',
+      'road.controllerStamp',
+    ],
     depthByKey: floodDepthByTile,
   });
   ctx.meta.roadPruning = pruning;
+
+  const centerOverrideKeys = new Set(
+    (ctx.meta.stampStats && Array.isArray(ctx.meta.stampStats.bigCenters)
+      ? ctx.meta.stampStats.bigCenters
+      : []
+    ).map((c) => key(c.x, c.y)),
+  );
+  ctx.meta.validStructurePositions = collectValidStructurePositions(
+    ctx,
+    buildFullRoomNodes(),
+    storage,
+    layoutPattern,
+    parity,
+    {
+      depthLimit: 50,
+      labReserveKeys,
+      centerOverrideKeys,
+      maxPositions: 2500,
+    },
+  );
+  const sourceIds = sources
+    .filter((src) => src && src.id)
+    .map((src) => src.id);
+  const logistics = ctx.meta.sourceLogistics || {};
+  const sourceContainersPlaced = sourceContainers.length;
+  const sourceLinksPlaced = sourceIds.reduce(
+    (sum, sourceId) => sum + (logistics[sourceId] && logistics[sourceId].linkPlaced ? 1 : 0),
+    0,
+  );
+  const sourceRoadAnchored = sourceIds.reduce(
+    (sum, sourceId) => sum + (logistics[sourceId] && logistics[sourceId].roadAnchored ? 1 : 0),
+    0,
+  );
+  const sourceRouteTargets = logisticTargets.filter((target) =>
+    String(target && target.id || '').startsWith('source:'),
+  );
+  const missingSourceRoutes = missingLogistics.filter((id) => String(id || '').startsWith('source:'));
+  const hasMineralContainer = Boolean(mineralContainer);
+  const mineralRouteTarget = logisticTargets.some((target) => String(target && target.id || '') === 'mineral.container');
+  const mineralRouteMissing = missingLogistics.some((id) => String(id || '') === 'mineral.container');
+  ctx.meta.sourceResourceDebug = {
+    foundationOnly,
+    sourcesFound: sourceIds.length,
+    sourceContainersPlaced,
+    sourceLinksPlaced,
+    sourceRoadAnchored,
+    sourceRouteTargets: sourceRouteTargets.length,
+    sourceRoutesConnected: Math.max(0, sourceRouteTargets.length - missingSourceRoutes.length),
+    sourceRoutesMissing: missingSourceRoutes.length,
+    mineralFound: mineral && mineral.pos ? 1 : 0,
+    mineralContainerPlaced: hasMineralContainer ? 1 : 0,
+    mineralRouteTarget: mineralRouteTarget ? 1 : 0,
+    mineralRouteConnected: mineralRouteTarget && !mineralRouteMissing ? 1 : 0,
+  };
+  const coreTags = new Set(['spawn.1', 'spawn.2', 'spawn.3', 'core.storage', 'core.terminal', 'link.sink', 'core.powerSpawn']);
+  const corePlacements = ctx.placements.filter((p) => p && coreTags.has(String(p.tag || '')));
+  ctx.meta.foundationDebug = {
+    foundationOnly,
+    coreStructuresPlaced: corePlacements.length,
+    coreRoadsPlaced: ctx.placements.filter((p) => p && p.type === STRUCTURES.ROAD && String(p.tag || '').startsWith('road.core')).length,
+    stampBigPlaced: ctx.meta.stampStats ? Number(ctx.meta.stampStats.bigPlaced || 0) : 0,
+    stampSmallPlaced: ctx.meta.stampStats ? Number(ctx.meta.stampStats.smallPlaced || 0) : 0,
+    roadCount: ctx.roads.size,
+  };
 
   // Validation.
   const spawns = ctx.placements.filter((p) => p.type === STRUCTURES.SPAWN);
@@ -1343,6 +2229,9 @@ function buildPlanForAnchor(room, input) {
     }
   }
   const ctrlLink = ctx.placements.find((p) => p.tag === 'controller.link');
+  if (useHarabi && !ctrlLink) {
+    ctx.meta.validation.push('controller-link-missing');
+  }
   if (ctrlLink && chebyshev(ctrlLink, controllerPos) > 2) {
     ctx.meta.validation.push('controller-link-range-fail');
   }
@@ -1350,7 +2239,11 @@ function buildPlanForAnchor(room, input) {
   const exts = ctx.placements.filter((p) => p.type === STRUCTURES.EXTENSION);
   const storageFlood = computeDistanceMap(walkableWithPlan(ctx), storage);
   for (const e of exts) {
-    if (!checkerboard.sameParity(e, storage)) ctx.meta.validation.push(`extension-parity-fail:${e.x},${e.y}`);
+    const expectedType = checkerboard.classifyTileByPattern(e.x, e.y, storage, {
+      pattern: layoutPattern,
+      preferredParity: parity,
+    });
+    if (expectedType !== 'structure') ctx.meta.validation.push(`extension-pattern-fail:${e.x},${e.y}`);
     const d = storageFlood[key(e.x, e.y)];
     if (d === undefined || d > 10) ctx.meta.validation.push(`extension-distance-fail:${e.x},${e.y}`);
   }
@@ -1369,7 +2262,11 @@ function buildPlanForAnchor(room, input) {
     }
   }
 
-  if (typeof ctx.meta.rampartStandoff === 'number' && ctx.meta.rampartStandoff > 0 && ctx.meta.rampartStandoff < 2) {
+  if (
+    typeof ctx.meta.rampartStandoff === 'number' &&
+    ctx.meta.rampartStandoff > 0 &&
+    ctx.meta.rampartStandoff < 3
+  ) {
     ctx.meta.validation.push(`rampart-standoff-fail:${ctx.meta.rampartStandoff}`);
   }
 
@@ -1455,6 +2352,8 @@ function buildPlanForAnchor(room, input) {
     },
     meta: Object.assign({}, ctx.meta, {
       parity,
+      layoutPattern,
+      harabiStage,
       candidateIndex: candidateMeta ? candidateMeta.index : null,
       candidateInitialScore:
         candidateMeta && typeof candidateMeta.initialScore === 'number'
@@ -1489,6 +2388,26 @@ function computeCompactness(placements) {
   }
   const area = Math.max(1, (maxX - minX + 1) * (maxY - minY + 1));
   return clamp01(structures.length / area);
+}
+
+function evaluateOpenAreaEfficiency(placements) {
+  const structures = (placements || []).filter(
+    (p) => p.type !== STRUCTURES.ROAD && p.type !== STRUCTURES.RAMPART,
+  );
+  if (!structures.length) return 1;
+  let minX = 49;
+  let maxX = 0;
+  let minY = 49;
+  let maxY = 0;
+  for (const p of structures) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  const area = Math.max(1, (maxX - minX + 1) * (maxY - minY + 1));
+  const openTiles = Math.max(0, area - structures.length);
+  return clamp01(1 - openTiles / area);
 }
 
 function evaluateLabQuality(placements) {
@@ -1673,6 +2592,7 @@ function evaluateLayout(plan, roomName, options = {}) {
       : 50;
 
   const compactness = computeCompactness(placements);
+  const openAreaEfficiency = evaluateOpenAreaEfficiency(placements);
   const labQuality = evaluateLabQuality(placements);
   const hubQuality = evaluateHubQuality(placements);
   const logistics =
@@ -1707,6 +2627,7 @@ function evaluateLayout(plan, roomName, options = {}) {
     avgSourceDist,
     controllerDist,
     compactness,
+    openAreaEfficiency,
     labQuality,
     hubQuality,
     rangedBuffer,
@@ -1733,6 +2654,7 @@ function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
     sourceDist: clamp01(1 - (metrics.avgSourceDist || 0) / 50),
     controllerDist: clamp01(1 - (metrics.controllerDist || 0) / 50),
     compactness: clamp01(metrics.compactness || 0),
+    openAreaEff: clamp01(metrics.openAreaEfficiency || 0),
     labQuality: clamp01(metrics.labQuality || 0),
     hubQuality: clamp01(metrics.hubQuality || 0),
     rangedBuffer: clamp01(((metrics.rangedBuffer || 0) - 3) / 4),
@@ -1767,6 +2689,8 @@ function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
           ? metrics.compactness
           : metric === 'labQuality'
           ? metrics.labQuality
+          : metric === 'openAreaEff'
+          ? metrics.openAreaEfficiency
           : metric === 'rangedBuffer'
           ? metrics.rangedBuffer
           : metric === 'logisticsCoverage'
@@ -1857,6 +2781,8 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
     mineral,
     controllerPos,
     candidateMeta: options.candidateMeta || anchorInput,
+    layoutPattern: resolveLayoutPattern(options),
+    harabiStage: resolveHarabiStage(options),
   });
 
   const metrics = evaluateLayout(plan, roomName, { sources, controllerPos });
@@ -1888,6 +2814,8 @@ function generatePlan(roomName, options = {}) {
     const plan = generatePlanForAnchor(roomName, candidate, {
       candidateMeta: candidate,
       finalWeights: options.finalWeights || DEFAULT_FINAL_WEIGHTS,
+      layoutPattern: resolveLayoutPattern(options),
+      harabiStage: resolveHarabiStage(options),
     });
     return {
       candidate,

@@ -18,6 +18,7 @@ describe('constructionBlocker.isTileBlocked', function() {
     globals.resetGame();
     globals.resetMemory();
     htm.init();
+    Memory.settings = { layoutLegacyMode: true };
     Memory.rooms = { W1N1: {} };
     const spawn = { pos: { x: 5, y: 5, roomName: 'W1N1' } };
     Game.rooms['W1N1'] = {

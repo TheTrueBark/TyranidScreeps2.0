@@ -29,6 +29,7 @@ describe('layoutPlanner.populateDynamicLayout', function() {
       getTerrain: () => ({ get: () => 0 }),
     };
     Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
+    Memory.settings = { layoutLegacyMode: true };
   });
 
   it('adds cluster tasks and matrix entries', function() {

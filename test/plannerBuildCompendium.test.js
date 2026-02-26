@@ -28,8 +28,8 @@ describe('build compendium planner', function () {
       name: 'W1N1',
       controller: { my: true, pos: { x: 25, y: 25 } },
       find(type) {
-        if (type === FIND_SOURCES) return [sourceA, sourceB];
-        if (type === FIND_MINERALS) return [mineral];
+        if (type === FIND_SOURCES || type === 'FIND_SOURCES' || type === 1) return [sourceA, sourceB];
+        if (type === FIND_MINERALS || type === 'FIND_MINERALS' || type === 2) return [mineral];
         return [];
       },
       lookForAt() {
@@ -191,6 +191,184 @@ describe('build compendium planner', function () {
       expect(adjacent).to.equal(true);
     }
     expect(plan.meta.roadPruning).to.exist;
+  });
+
+  it('supports cluster3 extension/road pattern mode', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'full',
+    });
+    expect(plan).to.exist;
+    expect(plan.meta.layoutPattern).to.equal('cluster3');
+
+    const placements = plan.placements || [];
+    const storage = placements.find((p) => p.type === STRUCTURE_STORAGE);
+    expect(storage).to.exist;
+    const exts = placements.filter((p) => p.type === STRUCTURE_EXTENSION);
+    expect(exts).to.not.be.empty;
+
+    const checkerboard = require('../algorithm.checkerboard');
+    const preferredParity = checkerboard.parityAt(storage.x, storage.y);
+    const oddParityExt = exts.some((e) => ((e.x + e.y) % 2) !== preferredParity);
+    expect(oddParityExt).to.equal(true);
+
+    for (const ext of exts) {
+      const cls = checkerboard.classifyTileByPattern(ext.x, ext.y, storage, {
+        pattern: 'cluster3',
+        preferredParity,
+      });
+      expect(cls).to.equal('structure');
+
+      const nearRoad = placements.some((p) =>
+        p.type === STRUCTURE_ROAD &&
+        Math.max(Math.abs(p.x - ext.x), Math.abs(p.y - ext.y)) <= 1,
+      );
+      expect(nearRoad).to.equal(true);
+    }
+
+    const stampRoads = placements.filter(
+      (p) =>
+        p.type === STRUCTURE_ROAD &&
+        (p.tag === 'road.stamp' || p.tag === 'road.coreStamp'),
+    );
+    expect(stampRoads.length).to.be.greaterThan(0);
+    for (const ext of exts) {
+      const nearStampRoad = stampRoads.some(
+        (r) => Math.max(Math.abs(r.x - ext.x), Math.abs(r.y - ext.y)) <= 1,
+      );
+      expect(nearStampRoad).to.equal(true);
+    }
+
+    const spawn1 = placements.find((p) => p.type === STRUCTURE_SPAWN && p.tag === 'spawn.1');
+    const spawn2 = placements.find((p) => p.type === STRUCTURE_SPAWN && p.tag === 'spawn.2');
+    const spawn3 = placements.find((p) => p.type === STRUCTURE_SPAWN && p.tag === 'spawn.3');
+    const terminal = placements.find((p) => p.type === STRUCTURE_TERMINAL && p.tag === 'core.terminal');
+    const storageCore = placements.find((p) => p.type === STRUCTURE_STORAGE && p.tag === 'core.storage');
+    const linkCore = placements.find((p) => p.type === STRUCTURE_LINK && p.tag === 'link.sink');
+    const powerSpawnType =
+      typeof STRUCTURE_POWER_SPAWN !== 'undefined' ? STRUCTURE_POWER_SPAWN : 'powerSpawn';
+    const powerSpawn = placements.find((p) => p.type === powerSpawnType && p.tag === 'core.powerSpawn');
+
+    expect(spawn1).to.exist;
+    expect(spawn2).to.exist;
+    expect(spawn3).to.exist;
+    expect(terminal).to.exist;
+    expect(storageCore).to.exist;
+    expect(linkCore).to.exist;
+    expect(powerSpawn).to.exist;
+
+    const anchor = plan.anchor;
+    expect(anchor).to.exist;
+    expect(spawn1.x).to.equal(anchor.x);
+    expect(spawn1.y).to.equal(anchor.y);
+    expect(spawn2.x).to.equal(anchor.x - 1);
+    expect(spawn2.y).to.equal(anchor.y);
+    expect(spawn3.x).to.equal(anchor.x + 1);
+    expect(spawn3.y).to.equal(anchor.y);
+    expect(terminal.x).to.equal(anchor.x - 1);
+    expect(terminal.y).to.equal(anchor.y + 1);
+    expect(storageCore.x).to.equal(anchor.x - 1);
+    expect(storageCore.y).to.equal(anchor.y + 2);
+    expect(linkCore.x).to.equal(anchor.x + 1);
+    expect(linkCore.y).to.equal(anchor.y + 1);
+    expect(powerSpawn.x).to.equal(anchor.x + 1);
+    expect(powerSpawn.y).to.equal(anchor.y + 2);
+
+    expect(plan.meta).to.have.property('stampStats');
+    expect(plan.meta.stampStats.bigPlaced).to.be.greaterThan(0);
+    expect(plan.meta.stampStats.smallPlaced).to.be.at.most(plan.meta.stampStats.bigPlaced);
+    expect(plan.meta.stampStats.requiredSlots).to.be.greaterThan(0);
+    expect(plan.meta.stampStats.capacitySlots).to.be.at.least(plan.meta.stampStats.requiredSlots);
+    const fallbackReasonCount = Object.values(plan.meta.stampStats.smallFallbackReasons || {}).reduce(
+      (sum, value) => sum + Number(value || 0),
+      0,
+    );
+    expect(fallbackReasonCount).to.equal(plan.meta.stampStats.smallPlaced);
+    expect(plan.meta).to.have.property('validStructurePositions');
+    expect(plan.meta.validStructurePositions).to.have.property('canPlace');
+    expect(plan.meta.validStructurePositions.canPlace).to.be.a('number');
+    expect(plan.meta.validStructurePositions).to.have.property('roadClear');
+    expect(plan.meta.validStructurePositions.roadClear).to.be.at.most(plan.meta.validStructurePositions.structureClear);
+    const validKeys = new Set(
+      (plan.meta.validStructurePositions.positions || []).map((p) => `${p.x}:${p.y}`),
+    );
+    const roadKeys = new Set(
+      placements.filter((p) => p.type === STRUCTURE_ROAD).map((p) => `${p.x}:${p.y}`),
+    );
+    const overlapValidRoad = [...validKeys].some((k) => roadKeys.has(k));
+    expect(overlapValidRoad).to.equal(false);
+    const hasRoadPatternValid = (plan.meta.validStructurePositions.positions || []).some((p) =>
+      checkerboard.classifyTileByPattern(p.x, p.y, storage, {
+        pattern: 'cluster3',
+        preferredParity,
+      }) === 'road',
+    );
+    expect(hasRoadPatternValid).to.equal(true);
+    const nonRoadBigCenters = (plan.meta.stampStats.bigCenters || []).filter(
+      (c) => !roadKeys.has(`${c.x}:${c.y}`),
+    );
+    if (nonRoadBigCenters.length > 0) {
+      const hasCenterInValid = nonRoadBigCenters.some((c) =>
+        validKeys.has(`${c.x}:${c.y}`),
+      );
+      expect(hasCenterInValid).to.equal(true);
+    }
+
+    expect(plan.meta).to.have.property('sourceLogistics');
+    expect(plan.meta.sourceLogistics.sa).to.exist;
+    expect(plan.meta.sourceLogistics.sb).to.exist;
+    expect(plan.meta.sourceLogistics.sa.roadAnchored).to.equal(true);
+    expect(plan.meta.sourceLogistics.sb.roadAnchored).to.equal(true);
+    expect(plan.meta.sourceLogistics.sa.linkPlaced).to.be.a('boolean');
+    expect(plan.meta.sourceLogistics.sb.linkPlaced).to.be.a('boolean');
+
+    const coreRoadKeys = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD && p.tag === 'road.coreStamp')
+        .map((p) => `${p.x}:${p.y}`),
+    );
+    const overlapNonRoad = placements.some(
+      (p) => p.type !== STRUCTURE_ROAD && coreRoadKeys.has(`${p.x}:${p.y}`),
+    );
+    expect(overlapNonRoad).to.equal(false);
+  });
+
+  it('plans source containers, source links, and source routes in cluster3 foundation stage', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    expect(plan).to.exist;
+    expect(plan.meta.layoutPattern).to.equal('cluster3');
+    expect(plan.meta.harabiStage).to.equal('foundation');
+
+    const placements = plan.placements || [];
+    const sourceContainers = placements.filter((p) =>
+      p.type === STRUCTURE_CONTAINER && String(p.tag || '').startsWith('source.container.'),
+    );
+    const sourceLinks = placements.filter((p) =>
+      p.type === STRUCTURE_LINK && String(p.tag || '').startsWith('source.link.'),
+    );
+    const mineralContainers = placements.filter((p) => p.tag === 'mineral.container');
+    const mineralExtractors = placements.filter((p) => p.tag === 'mineral.extractor');
+    expect(sourceContainers.length).to.equal(2);
+    expect(sourceLinks.length).to.be.at.least(1);
+    expect(mineralContainers.length).to.equal(1);
+    expect(mineralExtractors.length).to.equal(1);
+
+    const logistics = plan.meta.sourceLogistics || {};
+    expect(logistics.sa).to.exist;
+    expect(logistics.sb).to.exist;
+    expect(logistics.sa.roadAnchored).to.equal(true);
+    expect(logistics.sb.roadAnchored).to.equal(true);
+    expect(plan.meta.sourceResourceDebug).to.exist;
+    expect(Number(plan.meta.sourceResourceDebug.sourceContainersPlaced || 0)).to.equal(2);
+    expect(Number(plan.meta.sourceResourceDebug.sourceRouteTargets || 0)).to.equal(2);
+    expect(Number(plan.meta.sourceResourceDebug.mineralFound || 0)).to.equal(1);
+    expect(Number(plan.meta.sourceResourceDebug.mineralContainerPlaced || 0)).to.equal(1);
+    expect(Number(plan.meta.sourceResourceDebug.mineralRouteTarget || 0)).to.equal(1);
   });
 
 });

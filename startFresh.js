@@ -15,6 +15,23 @@ function startFresh(options = {}) {
     typeof options === 'object' && options !== null
       ? Boolean(options.maintenanceMode)
       : false;
+  const extensionPattern =
+    typeof options === 'object' && options !== null
+      ? String(
+          options.extensionPattern ||
+            options.layoutExtensionPattern ||
+            (options.cluster3Mode ? 'cluster3' : 'parity'),
+        ).toLowerCase()
+      : 'parity';
+  const normalizedExtensionPattern =
+    extensionPattern === 'cluster3' || extensionPattern === 'harabi' || extensionPattern === 'diag2'
+      ? 'cluster3'
+      : 'parity';
+  const normalizedHarabiStage = 'foundation';
+  const layoutPlanDumpDebug =
+    typeof options === 'object' && options !== null
+      ? Boolean(options.layoutPlanDumpDebug || options.plannerDumpDebug || options.debugPlanDump)
+      : false;
   const useMaintenanceMode = maintenanceMode;
   const useTheoreticalMode = theoreticalMode && !useMaintenanceMode;
   const previousSettings = Memory.settings || {};
@@ -37,6 +54,10 @@ function startFresh(options = {}) {
     'layoutPlanningMaxCandidatesPerTick',
     'layoutPlanningDynamicBatching',
     'layoutPlanningReplanInterval',
+    'layoutExtensionPattern',
+    'layoutHarabiStage',
+    'layoutPlanDumpDebug',
+    'layoutLegacyMode',
     'enableTaskProfiling',
     'enableMemHack',
     'memHackDebug',
@@ -100,12 +121,25 @@ function startFresh(options = {}) {
     Memory.settings.layoutPlanningMaxCandidatesPerTick = 25;
     Memory.settings.layoutPlanningDynamicBatching = true;
     Memory.settings.layoutPlanningReplanInterval = 1000;
+    Memory.settings.layoutExtensionPattern = normalizedExtensionPattern;
+    Memory.settings.layoutHarabiStage = normalizedHarabiStage;
+    Memory.settings.layoutPlanDumpDebug = layoutPlanDumpDebug;
+    Memory.settings.layoutLegacyMode = false;
     Memory.settings.layoutRecalculateRequested = 'all';
     Memory.settings.layoutRecalculateMode = 'theoretical';
     Memory.settings.enableTaskProfiling = false;
     Memory.settings.enableMemHack = true;
     Memory.settings.memHackDebug = false;
-    statsConsole.log('Theoretical building mode enabled (planning overlay only).', 2);
+    statsConsole.log(
+      `Theoretical building mode enabled (planning overlay only, pattern=${normalizedExtensionPattern}, stage=${normalizedHarabiStage}).`,
+      2,
+    );
+    if (layoutPlanDumpDebug) {
+      statsConsole.log(
+        'Layout plan dump debug enabled. Use layoutPlanDump(roomName) after planning to print stamp and structure details.',
+        2,
+      );
+    }
   }
 
   if (useMaintenanceMode) {

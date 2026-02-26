@@ -55,6 +55,7 @@ function getLabelForCell(cell = {}) {
     if (match && match[1]) return `S${match[1]}`;
     return 'S';
   }
+  if (type === TYPES.POWER_SPAWN) return 'PS';
   return getGlyph(type);
 }
 
@@ -83,6 +84,12 @@ function getColor(type) {
 function fmt(value, digits = 2) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a';
   return value.toFixed(digits);
+}
+
+function toPlannedCells(basePlan, type) {
+  if (!basePlan || !basePlan.structures || !type) return [];
+  const rows = Array.isArray(basePlan.structures[type]) ? basePlan.structures[type] : [];
+  return rows.filter((row) => row && typeof row.x === 'number' && typeof row.y === 'number');
 }
 
 function resolveCandidateIndex(theoretical, preferredIndex) {
@@ -259,13 +266,14 @@ function getTheoreticalOverlayState(roomName, layout, settings) {
             { number: 1, label: 'Distance Transform', status: 'done', progress: '✔', detail: 'Distance map cached' },
             { number: 2, label: 'Candidate Filter', status: 'done', progress: '✔', detail: pipelineFilterDetail },
             { number: 3, label: 'Candidate Pre-Scoring', status: 'done', progress: '✔', detail: pipelineCandidateCount > 0 ? `Top ${pipelineCandidateCount} seeds scored` : 'No seeds scored yet' },
-            { number: 4, label: 'Core + Stations', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
-            { number: 5, label: 'Flood Fill + Extensions', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
-            { number: 6, label: 'Labs + Ramparts + Towers', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
-            { number: 7, label: 'Road Networks', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
-            { number: 8, label: 'End Evaluation (Weighted)', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Weighted scores finalized' : `Scoring ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 4, label: 'Core + Foundations', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 5, label: 'Sources + Resources', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 6, label: 'Valid Positions (rough)', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 7, label: 'Valid Positions (fine)', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Complete for all candidates' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 8, label: 'Road Network Evaluation', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Road tags + connectivity evaluated' : `Working ${pipelineDoneCount}/${pipelineCandidateCount}` },
+            { number: 9, label: 'End Evaluation (Weighted)', status: pipelineComplete ? 'done' : 'in_progress', progress: `${pipelineDoneCount}/${pipelineCandidateCount}`, detail: pipelineComplete ? 'Weighted scores finalized' : `Scoring ${pipelineDoneCount}/${pipelineCandidateCount}` },
             {
-              number: 9,
+              number: 10,
               label: 'Winner Selection',
               status: typeof theoreticalPipeline.bestCandidateIndex === 'number' ? 'done' : 'pending',
               progress: typeof theoreticalPipeline.bestCandidateIndex === 'number' ? '✔' : 'X',
@@ -275,7 +283,7 @@ function getTheoreticalOverlayState(roomName, layout, settings) {
                   : 'No winner selected',
             },
             {
-              number: 10,
+              number: 11,
               label: 'Persist + Overlay',
               status: theoreticalPipeline.status === 'completed' ? 'done' : 'pending',
               progress: theoreticalPipeline.status === 'completed' ? '✔' : 'X',
@@ -410,17 +418,33 @@ const layoutVisualizer = {
         }
       }
 
-      const roadTiles = [];
+      const roadMap = new Map();
+      const rampartMap = new Map();
       const roadSet = {};
+      const drawnStructureKeys = new Set();
+      const addRoadTile = (x, y, rcl = null) => {
+        const k = `${x}:${y}`;
+        roadSet[k] = true;
+        if (!roadMap.has(k)) roadMap.set(k, { x, y, rcl });
+      };
+      const addRampartTile = (x, y) => {
+        const k = `${x}:${y}`;
+        if (!rampartMap.has(k)) rampartMap.set(k, { x, y });
+      };
       for (const x in matrix) {
         for (const y in matrix[x]) {
           const cell = matrix[x][y];
           const px = parseInt(x, 10);
           const py = parseInt(y, 10);
           if (cell.structureType === TYPES.ROAD) {
-            roadTiles.push({ x: px, y: py, rcl: cell.rcl || null });
-            roadSet[`${px}:${py}`] = true;
+            addRoadTile(px, py, cell.rcl || null);
             continue;
+          }
+          if (cell.structureType === TYPES.RAMPART) {
+            addRampartTile(px, py);
+          }
+          if (cell.structureType !== TYPES.ROAD && cell.structureType !== TYPES.RAMPART) {
+            drawnStructureKeys.add(`${px}:${py}:${cell.structureType}`);
           }
           const color = getColor(cell.structureType);
           vis.text(getLabelForCell(cell), px, py + 0.1, {
@@ -437,6 +461,83 @@ const layoutVisualizer = {
           }
         }
       }
+
+      // Matrix cannot represent overlaps; enrich with persisted basePlan placements.
+      const basePlan = room.memory.basePlan || null;
+      const candidatePlans =
+        room.memory.layout &&
+        room.memory.layout.theoreticalCandidatePlans &&
+        typeof room.memory.layout.theoreticalCandidatePlans === 'object'
+          ? room.memory.layout.theoreticalCandidatePlans
+          : {};
+      const candidateKeys = Object.keys(candidatePlans);
+      const preferredCandidateIndex =
+        room.memory.layout && typeof room.memory.layout.currentDisplayCandidateIndex === 'number'
+          ? room.memory.layout.currentDisplayCandidateIndex
+          : theoretical && typeof theoretical.selectedCandidateIndex === 'number'
+            ? theoretical.selectedCandidateIndex
+            : candidateKeys.length > 0
+              ? Number(candidateKeys[0])
+              : null;
+      const activeCandidatePlan =
+        preferredCandidateIndex !== null &&
+        Object.prototype.hasOwnProperty.call(candidatePlans, String(preferredCandidateIndex))
+          ? candidatePlans[String(preferredCandidateIndex)]
+          : candidateKeys.length > 0
+            ? candidatePlans[candidateKeys[0]]
+            : null;
+      const validStructureDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.validStructurePositions &&
+          typeof basePlan.plannerDebug.validStructurePositions === 'object'
+          ? basePlan.plannerDebug.validStructurePositions
+          : null) ||
+        (theoretical &&
+          theoretical.validStructurePositions &&
+          typeof theoretical.validStructurePositions === 'object'
+          ? theoretical.validStructurePositions
+          : null) ||
+        (activeCandidatePlan &&
+          activeCandidatePlan.validStructurePositions &&
+          typeof activeCandidatePlan.validStructurePositions === 'object'
+          ? activeCandidatePlan.validStructurePositions
+          : null);
+      for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
+        addRoadTile(tile.x, tile.y, tile.rcl || null);
+      }
+      for (const tile of toPlannedCells(basePlan, TYPES.RAMPART)) {
+        addRampartTile(tile.x, tile.y);
+      }
+      if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
+        for (const type of Object.keys(basePlan.structures)) {
+          if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
+          const tiles = toPlannedCells(basePlan, type);
+          for (const tile of tiles) {
+            const drawnKey = `${tile.x}:${tile.y}:${type}`;
+            if (drawnStructureKeys.has(drawnKey)) continue;
+            vis.text(
+              getLabelForCell({ structureType: type, tag: tile.tag || null }),
+              tile.x,
+              tile.y + 0.1,
+              {
+                color: getColor(type),
+                font: 0.52,
+                align: 'center',
+              },
+            );
+            if (tile.rcl) {
+              vis.text(String(tile.rcl), tile.x + 0.31, tile.y + 0.32, {
+                color: '#a9a9a9',
+                font: 0.33,
+                align: 'left',
+              });
+            }
+            drawnStructureKeys.add(drawnKey);
+          }
+        }
+      }
+      const roadTiles = [...roadMap.values()];
       for (const tile of roadTiles) {
         const tx = tile.x;
         const ty = tile.y;
@@ -532,6 +633,43 @@ const layoutVisualizer = {
             align: 'left',
           });
         }
+      }
+
+      for (const tile of rampartMap.values()) {
+        if (typeof vis.circle === 'function') {
+          vis.circle(tile.x, tile.y, {
+            radius: 0.34,
+            fill: 'transparent',
+            stroke: getColor(TYPES.RAMPART),
+            strokeWidth: 0.08,
+            opacity: 0.9,
+          });
+        }
+      }
+
+      // Draw valid structure positions after roads/ramparts so they remain visible.
+      if (validStructureDebug && Array.isArray(validStructureDebug.positions)) {
+        for (const pos of validStructureDebug.positions) {
+          if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+          if (typeof vis.circle === 'function') {
+            vis.circle(pos.x, pos.y, {
+              radius: 0.22,
+              fill: '#6df7a7',
+              opacity: 0.65,
+              stroke: 'transparent',
+            });
+          }
+        }
+        vis.text(
+          `ValidStruct ${Number(validStructureDebug.structureClear) || 0} (canPlaceExt ${Number(validStructureDebug.canPlace) || 0}, shown ${validStructureDebug.positions.length}${validStructureDebug.truncated ? '+' : ''})`,
+          2,
+          2.5 + planningHudYOffset,
+          {
+            color: '#6df7a7',
+            font: 0.45,
+            align: 'left',
+          },
+        );
       }
 
       if (isTheoretical) {
@@ -742,6 +880,8 @@ const layoutVisualizer = {
             [TYPES.NUKER, 'Planned Nuker'],
             [TYPES.EXTRACTOR, 'Planned Extractor'],
             [TYPES.RAMPART, 'Planned Rampart'],
+            [TYPES.RAMPART, 'Road + Rampart Overlap'],
+            [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ]
         : [
             [TYPES.SPAWN, 'Spawn (S/S2/S3)'],
@@ -753,7 +893,10 @@ const layoutVisualizer = {
             [TYPES.TERMINAL, 'Terminal'],
             [TYPES.LINK, 'Link'],
             [TYPES.LAB, 'Lab'],
+            [TYPES.POWER_SPAWN, 'Power Spawn (PS)'],
             [TYPES.RAMPART, 'Rampart'],
+            [TYPES.RAMPART, 'Road + Rampart Overlap'],
+            [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ];
       const baseX = 2;
       const rowStep = 0.8;
@@ -778,7 +921,12 @@ const layoutVisualizer = {
         const [type, label] = legend[i];
         const y = baseY + i * rowStep;
         const color = getColor(type);
-        const glyph = type === TYPES.ROAD ? '─' : getGlyph(type);
+        const glyph =
+          type === TYPES.ROAD
+            ? '─'
+            : type === TYPES.POWER_SPAWN
+            ? 'PS'
+            : getGlyph(type);
         vis.text(glyph, baseX, y + 0.08, {
           color,
           font: 0.52,

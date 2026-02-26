@@ -137,6 +137,10 @@ Toggle in console:
 
 - `visual.runMode('live'|'theoretical'|'maintenance')` - switch runtime pipeline mode
 - `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
+- `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' })` - wipe memory and boot into theoretical planner mode with Harabi-style diagonal 2x2 road grid pattern
+- `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging (Harabi stage is foundation-only at runtime)
+- `layoutPlanDump('W1N1')` - print planner debug dump (big/small stamp counts, structure totals, and buildQueue entries) when debug flag is enabled
+- `Memory.settings.layoutPlanningMode = 'standard'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the normal planner with Harabi stamps via the same Top-5 candidate HTM pipeline (bucket-aware)
 - `visual.idleGating(1|0)` - enable/disable live idle fast-path
 - `visual.planningHeartbeat(1|0, ticks?)` - enable/disable planning heartbeat and optionally set cadence
 - `visual.cpuPolicy('aggressive'|'balanced'|'conservative')` - apply predefined stop/throttle thresholds

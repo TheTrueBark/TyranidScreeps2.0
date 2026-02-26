@@ -204,6 +204,8 @@
 - [x] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection. *(2026-02: `planner.buildCompendium.js` now exposes phase-specific APIs (`evaluateLayoutForRoom`, `generateCompleteLayout`, `generateOptimalLayout`) and performs weighted candidate selection across generated layouts.)*
 - [x] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption. *(2026-02: theoretical winner now persists to `Memory.rooms[room].basePlan`, HUD displays base plan status/score/next item, and `manager.building.executeLayout` consumes `basePlan.buildQueue` before legacy matrix tasks.)*
 - [x] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling. *(2026-02: `manager.basePlanValidation.js` now covers queue shape/bounds/border, overlap handling, extension RCL-cap normalization, controller-container + lab-range + rampart-connectivity checks, and records validation duration (`durationMs`) for profiling; manual phase initialization remains available for targeted recomputation.)*
+- [x] Harabi-Feinschliff: 3x3-Stamps priorisiert (2x2 nur lokaler Fallback), Source-Logistik mit `road first` vor Source-Link, und Overlay-Rendering für `Road + Rampart` auf derselben Koordinate.
+- [x] Foundation-Plan erweitert: Source-Container + Source-Link + Source-Roads auch im Foundation-Stage, Valid-Placement-Dots berücksichtigen belegte Source/Core-Tiles, und Planning-Checklist/HUD auf 11 Schritte (`Core+Foundations`, `Sources+Resources`, `Valid rough/fine`, `Road Network Evaluation`) aktualisiert.
 
 ### 🧱 Base-Building Workstream (Next)
 - [x] Runtime stabilisiert für Planner-Debug: Idle-Gating + HTM-Budgeting + strict overlay off-policy.

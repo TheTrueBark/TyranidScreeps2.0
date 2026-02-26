@@ -166,6 +166,7 @@ Form: `score = Σ(w_i * normalize(f_i))`
 - Extensions auf einer Farbe, Straßen auf der anderen
 - [x] Generator für Extension-Pattern
 - [x] Generator für Road-Pattern
+- [x] Optionales `cluster3`-Pattern als Harabi-Grid (diagonale 2x2-Road-Formationen) für besser begehbare Build-Felder.
 
 ---
 

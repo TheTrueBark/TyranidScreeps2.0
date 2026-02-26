@@ -27,6 +27,7 @@ describe('layoutPlanner.ensurePlan', function() {
       getTerrain: () => ({ get: () => 0 }),
     };
     Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
+    Memory.settings = { layoutLegacyMode: true };
   });
 
   it('creates a plan when missing', function() {
