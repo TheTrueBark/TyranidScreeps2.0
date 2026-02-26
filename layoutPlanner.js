@@ -150,6 +150,7 @@ function persistBasePlan(roomName, generated, pipeline) {
       foundationDebug: generated && generated.meta ? generated.meta.foundationDebug || {} : {},
       sourceResourceDebug: generated && generated.meta ? generated.meta.sourceResourceDebug || {} : {},
       logisticsRoutes: generated && generated.meta ? generated.meta.logisticsRoutes || {} : {},
+      labPlanning: generated && generated.meta ? generated.meta.labPlanning || {} : {},
       validStructurePositions:
         generated && generated.meta ? generated.meta.validStructurePositions || {} : {},
       validation: generated && generated.meta ? generated.meta.validation || [] : [],
@@ -248,7 +249,7 @@ function useLegacyLayoutPlanner() {
 }
 
 function readHarabiStage() {
-  // Runtime planning is intentionally foundation-only to minimize planner CPU.
+  // Harabi runtime is foundation-only by design.
   if (Memory && Memory.settings && Memory.settings.layoutHarabiStage !== 'foundation') {
     Memory.settings.layoutHarabiStage = 'foundation';
   }
@@ -1004,6 +1005,7 @@ const layoutPlanner = {
           foundationDebug: plan.foundationDebug || {},
           sourceResourceDebug: plan.sourceResourceDebug || {},
           logisticsRoutes: plan.logisticsRoutes || {},
+          labPlanning: plan.labPlanning || {},
           validStructurePositions: plan.validStructurePositions || {},
           defenseScore: Number(plan.defenseScore || 0),
           completedAt: Number(plan.completedAt || 0),
@@ -1618,6 +1620,7 @@ const layoutPlanner = {
       foundationDebug: generated.meta.foundationDebug || {},
       sourceResourceDebug: generated.meta.sourceResourceDebug || {},
       logisticsRoutes: generated.meta.logisticsRoutes || {},
+      labPlanning: generated.meta.labPlanning || {},
       validStructurePositions: generated.meta.validStructurePositions || {},
       defenseScore: generated.meta.defenseScore || 0,
       completedAt: Game.time,
@@ -1638,6 +1641,7 @@ const layoutPlanner = {
       foundationDebug: generated.meta.foundationDebug || {},
       sourceResourceDebug: generated.meta.sourceResourceDebug || {},
       logisticsRoutes: generated.meta.logisticsRoutes || {},
+      labPlanning: generated.meta.labPlanning || {},
       wallDistance: generated.analysis.dt || [],
       controllerDistance: toArrayMap(generated.analysis.controllerDistance || {}),
       floodScore: Array.isArray(generated.analysis.flood) ? generated.analysis.flood.length : 0,
@@ -1905,6 +1909,8 @@ const layoutPlanner = {
             generated.meta && generated.meta.sourceResourceDebug ? generated.meta.sourceResourceDebug : {},
           logisticsRoutes:
             generated.meta && generated.meta.logisticsRoutes ? generated.meta.logisticsRoutes : {},
+          labPlanning:
+            generated.meta && generated.meta.labPlanning ? generated.meta.labPlanning : {},
           validStructurePositions:
             generated.meta && generated.meta.validStructurePositions
               ? generated.meta.validStructurePositions

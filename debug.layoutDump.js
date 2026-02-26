@@ -226,6 +226,7 @@ function buildLayoutPlanDump(roomName) {
           foundationDebug: activeCandidate.foundationDebug || {},
           sourceResourceDebug: activeCandidate.sourceResourceDebug || {},
           logisticsRoutes: activeCandidate.logisticsRoutes || {},
+          labPlanning: activeCandidate.labPlanning || {},
           validStructurePositions: activeCandidate.validStructurePositions || {},
           validation: activeCandidate.validation || [],
         },
@@ -282,6 +283,10 @@ function buildLayoutPlanDump(roomName) {
     logisticsRoutes:
       plannerDebug.logisticsRoutes && typeof plannerDebug.logisticsRoutes === 'object'
         ? plannerDebug.logisticsRoutes
+        : {},
+    labPlanning:
+      plannerDebug.labPlanning && typeof plannerDebug.labPlanning === 'object'
+        ? plannerDebug.labPlanning
         : {},
     validStructurePositions:
       plannerDebug.validStructurePositions && typeof plannerDebug.validStructurePositions === 'object'
@@ -405,6 +410,12 @@ function formatLayoutPlanDump(payload, options = {}) {
   if (Object.keys(logisticsRoutes).length > 0) {
     lines.push(
       `[layoutPlanDump] logisticsRoutes required=${Number(logisticsRoutes.required || 0)} connected=${Number(logisticsRoutes.connected || 0)} missing=${Array.isArray(logisticsRoutes.missing) ? logisticsRoutes.missing.length : 0}`,
+    );
+  }
+  const labPlanning = payload.labPlanning || {};
+  if (Object.keys(labPlanning).length > 0) {
+    lines.push(
+      `[layoutPlanDump] labPlanning mode=${labPlanning.mode || 'n/a'} computed=${labPlanning.computed === true ? 'yes' : 'no'} cluster=${labPlanning.clusterFound === true ? 'yes' : 'no'} labs=${Number(labPlanning.totalLabs || 0)}`,
     );
   }
 

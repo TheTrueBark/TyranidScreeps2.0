@@ -193,11 +193,11 @@ describe('build compendium planner', function () {
     expect(plan.meta.roadPruning).to.exist;
   });
 
-  it('supports cluster3 extension/road pattern mode', function () {
+  it('supports cluster3 foundation road pattern mode', function () {
     const plan = planner.generatePlan('W1N1', {
       topN: 3,
       extensionPattern: 'cluster3',
-      harabiStage: 'full',
+      harabiStage: 'foundation',
     });
     expect(plan).to.exist;
     expect(plan.meta.layoutPattern).to.equal('cluster3');
@@ -205,27 +205,9 @@ describe('build compendium planner', function () {
     const placements = plan.placements || [];
     const storage = placements.find((p) => p.type === STRUCTURE_STORAGE);
     expect(storage).to.exist;
-    const exts = placements.filter((p) => p.type === STRUCTURE_EXTENSION);
-    expect(exts).to.not.be.empty;
 
     const checkerboard = require('../algorithm.checkerboard');
     const preferredParity = checkerboard.parityAt(storage.x, storage.y);
-    const oddParityExt = exts.some((e) => ((e.x + e.y) % 2) !== preferredParity);
-    expect(oddParityExt).to.equal(true);
-
-    for (const ext of exts) {
-      const cls = checkerboard.classifyTileByPattern(ext.x, ext.y, storage, {
-        pattern: 'cluster3',
-        preferredParity,
-      });
-      expect(cls).to.equal('structure');
-
-      const nearRoad = placements.some((p) =>
-        p.type === STRUCTURE_ROAD &&
-        Math.max(Math.abs(p.x - ext.x), Math.abs(p.y - ext.y)) <= 1,
-      );
-      expect(nearRoad).to.equal(true);
-    }
 
     const stampRoads = placements.filter(
       (p) =>
@@ -233,12 +215,6 @@ describe('build compendium planner', function () {
         (p.tag === 'road.stamp' || p.tag === 'road.coreStamp'),
     );
     expect(stampRoads.length).to.be.greaterThan(0);
-    for (const ext of exts) {
-      const nearStampRoad = stampRoads.some(
-        (r) => Math.max(Math.abs(r.x - ext.x), Math.abs(r.y - ext.y)) <= 1,
-      );
-      expect(nearStampRoad).to.equal(true);
-    }
 
     const spawn1 = placements.find((p) => p.type === STRUCTURE_SPAWN && p.tag === 'spawn.1');
     const spawn2 = placements.find((p) => p.type === STRUCTURE_SPAWN && p.tag === 'spawn.2');
@@ -278,7 +254,7 @@ describe('build compendium planner', function () {
     expect(plan.meta).to.have.property('stampStats');
     expect(plan.meta.stampStats.bigPlaced).to.be.greaterThan(0);
     expect(plan.meta.stampStats.smallPlaced).to.be.at.most(plan.meta.stampStats.bigPlaced);
-    expect(plan.meta.stampStats.requiredSlots).to.be.greaterThan(0);
+    expect(plan.meta.stampStats.requiredSlots).to.be.at.least(0);
     expect(plan.meta.stampStats.capacitySlots).to.be.at.least(plan.meta.stampStats.requiredSlots);
     const fallbackReasonCount = Object.values(plan.meta.stampStats.smallFallbackReasons || {}).reduce(
       (sum, value) => sum + Number(value || 0),
@@ -369,6 +345,69 @@ describe('build compendium planner', function () {
     expect(Number(plan.meta.sourceResourceDebug.mineralFound || 0)).to.equal(1);
     expect(Number(plan.meta.sourceResourceDebug.mineralContainerPlaced || 0)).to.equal(1);
     expect(Number(plan.meta.sourceResourceDebug.mineralRouteTarget || 0)).to.equal(1);
+
+    const queue = Array.isArray(plan.buildQueue) ? plan.buildQueue : [];
+    const sinkIdx = queue.findIndex((entry) => entry && entry.tag === 'link.sink');
+    const sourceLinkRows = queue
+      .map((entry, idx) => ({ entry, idx }))
+      .filter((row) => row.entry && String(row.entry.tag || '').startsWith('source.link.'));
+    const controllerIdx = queue.findIndex((entry) => entry && entry.tag === 'controller.link');
+    expect(sinkIdx).to.be.at.least(0);
+    expect(sourceLinkRows.length).to.equal(2);
+    expect(sourceLinkRows[0].idx).to.be.greaterThan(sinkIdx);
+    expect(sourceLinkRows[1].idx).to.be.greaterThan(sourceLinkRows[0].idx);
+    if (controllerIdx >= 0) {
+      expect(controllerIdx).to.be.greaterThan(sourceLinkRows[1].idx);
+    }
+  });
+
+  it('computes a central 10-lab preview cluster with valid source-lab range constraints on foundation', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    expect(plan).to.exist;
+    const placements = plan.placements || [];
+    const labs = placements.filter((p) => p.type === STRUCTURE_LAB);
+    expect(labs.length).to.equal(0);
+
+    const preview = plan.meta && plan.meta.labPlanning ? plan.meta.labPlanning : {};
+    const sourceLabs = Array.isArray(preview.sourceLabs) ? preview.sourceLabs : [];
+    const reactions = Array.isArray(preview.reactionLabs) ? preview.reactionLabs : [];
+    expect(preview.computed).to.equal(true);
+    expect(preview.clusterFound).to.equal(true);
+    expect(preview.totalLabs).to.equal(10);
+    expect(sourceLabs.length).to.equal(2);
+    expect(reactions.length).to.equal(8);
+    const source1 = sourceLabs[0];
+    const source2 = sourceLabs[1];
+    const previewLabs = [...sourceLabs, ...reactions];
+    const roadKeys = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
+    for (const lab of previewLabs) {
+      expect(roadKeys.has(`${lab.x}:${lab.y}`)).to.equal(false);
+    }
+
+    const stampCenters = ((plan.meta && plan.meta.stampStats && plan.meta.stampStats.bigCenters) || []).map(
+      (p) => `${p.x}:${p.y}`,
+    );
+    const centerSet = new Set(stampCenters);
+    const centerHits = previewLabs.reduce(
+      (sum, lab) => sum + (centerSet.has(`${lab.x}:${lab.y}`) ? 1 : 0),
+      0,
+    );
+    expect(centerHits).to.be.at.least(1);
+
+    for (const reaction of reactions) {
+      const d1 = Math.max(Math.abs(reaction.x - source1.x), Math.abs(reaction.y - source1.y));
+      const d2 = Math.max(Math.abs(reaction.x - source2.x), Math.abs(reaction.y - source2.y));
+      expect(d1).to.be.at.most(2);
+      expect(d2).to.be.at.most(2);
+    }
   });
 
 });

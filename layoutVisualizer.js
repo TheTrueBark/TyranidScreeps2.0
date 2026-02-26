@@ -503,6 +503,23 @@ const layoutVisualizer = {
           typeof activeCandidatePlan.validStructurePositions === 'object'
           ? activeCandidatePlan.validStructurePositions
           : null);
+      const labPlanningDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.labPlanning &&
+          typeof basePlan.plannerDebug.labPlanning === 'object'
+          ? basePlan.plannerDebug.labPlanning
+          : null) ||
+        (theoretical &&
+          theoretical.labPlanning &&
+          typeof theoretical.labPlanning === 'object'
+          ? theoretical.labPlanning
+          : null) ||
+        (activeCandidatePlan &&
+          activeCandidatePlan.labPlanning &&
+          typeof activeCandidatePlan.labPlanning === 'object'
+          ? activeCandidatePlan.labPlanning
+          : null);
       for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
         addRoadTile(tile.x, tile.y, tile.rcl || null);
       }
@@ -537,6 +554,34 @@ const layoutVisualizer = {
           }
         }
       }
+
+      // Keep labs readable even when road lines cross them.
+      const labKeys = new Set();
+      for (const x in matrix) {
+        for (const y in matrix[x]) {
+          const cell = matrix[x][y];
+          if (!cell || cell.structureType !== TYPES.LAB) continue;
+          const px = parseInt(x, 10);
+          const py = parseInt(y, 10);
+          labKeys.add(`${px}:${py}`);
+        }
+      }
+      for (const tile of toPlannedCells(basePlan, TYPES.LAB)) {
+        labKeys.add(`${tile.x}:${tile.y}`);
+      }
+      if (labPlanningDebug && Array.isArray(labPlanningDebug.sourceLabs)) {
+        for (const pos of labPlanningDebug.sourceLabs) {
+          if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+          labKeys.add(`${pos.x}:${pos.y}`);
+        }
+      }
+      if (labPlanningDebug && Array.isArray(labPlanningDebug.reactionLabs)) {
+        for (const pos of labPlanningDebug.reactionLabs) {
+          if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+          labKeys.add(`${pos.x}:${pos.y}`);
+        }
+      }
+
       const roadTiles = [...roadMap.values()];
       for (const tile of roadTiles) {
         const tx = tile.x;
@@ -647,10 +692,60 @@ const layoutVisualizer = {
         }
       }
 
+      for (const k of labKeys) {
+        const [lx, ly] = k.split(':').map(Number);
+        if (!Number.isFinite(lx) || !Number.isFinite(ly)) continue;
+        vis.text('L', lx, ly + 0.1, {
+          color: getColor(TYPES.LAB),
+          font: 0.54,
+          align: 'center',
+        });
+      }
+
       // Draw valid structure positions after roads/ramparts so they remain visible.
       if (validStructureDebug && Array.isArray(validStructureDebug.positions)) {
+        const occupiedStructureTiles = new Set();
+        const markOccupied = (x, y) => {
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          occupiedStructureTiles.add(`${x}:${y}`);
+        };
+        for (const mx in matrix) {
+          for (const my in matrix[mx]) {
+            const cell = matrix[mx][my];
+            if (!cell || !cell.structureType) continue;
+            if (cell.structureType === TYPES.ROAD || cell.structureType === TYPES.RAMPART) continue;
+            markOccupied(parseInt(mx, 10), parseInt(my, 10));
+          }
+        }
+        if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
+          for (const type of Object.keys(basePlan.structures)) {
+            if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
+            for (const tile of toPlannedCells(basePlan, type)) {
+              markOccupied(tile.x, tile.y);
+            }
+          }
+        }
+        if (activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
+          for (const placement of activeCandidatePlan.placements) {
+            if (!placement || !placement.type) continue;
+            if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
+            markOccupied(placement.x, placement.y);
+          }
+        }
+        if (labPlanningDebug && Array.isArray(labPlanningDebug.sourceLabs)) {
+          for (const pos of labPlanningDebug.sourceLabs) {
+            markOccupied(pos && pos.x, pos && pos.y);
+          }
+        }
+        if (labPlanningDebug && Array.isArray(labPlanningDebug.reactionLabs)) {
+          for (const pos of labPlanningDebug.reactionLabs) {
+            markOccupied(pos && pos.x, pos && pos.y);
+          }
+        }
+        let shownValidDots = 0;
         for (const pos of validStructureDebug.positions) {
           if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+          if (occupiedStructureTiles.has(`${pos.x}:${pos.y}`)) continue;
           if (typeof vis.circle === 'function') {
             vis.circle(pos.x, pos.y, {
               radius: 0.22,
@@ -658,10 +753,11 @@ const layoutVisualizer = {
               opacity: 0.65,
               stroke: 'transparent',
             });
+            shownValidDots += 1;
           }
         }
         vis.text(
-          `ValidStruct ${Number(validStructureDebug.structureClear) || 0} (canPlaceExt ${Number(validStructureDebug.canPlace) || 0}, shown ${validStructureDebug.positions.length}${validStructureDebug.truncated ? '+' : ''})`,
+          `ValidStruct ${Number(validStructureDebug.structureClear) || 0} (canPlaceExt ${Number(validStructureDebug.canPlace) || 0}, shown ${shownValidDots}${validStructureDebug.truncated ? '+' : ''})`,
           2,
           2.5 + planningHudYOffset,
           {

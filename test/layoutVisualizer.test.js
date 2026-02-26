@@ -232,6 +232,7 @@ describe('layoutVisualizer.drawLayout', function() {
   it('renders valid structure debug dots from active theoretical candidate plan fallback', function() {
     delete Memory.rooms.W1N1.basePlan;
     Memory.rooms.W1N1.layout.theoretical = {};
+    Memory.rooms.W1N1.layout.matrix = {};
     Memory.rooms.W1N1.layout.currentDisplayCandidateIndex = 0;
     Memory.rooms.W1N1.layout.theoreticalCandidatePlans = {
       0: {
@@ -246,5 +247,37 @@ describe('layoutVisualizer.drawLayout', function() {
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 18 && d.args[1] === 18)).to.be.true;
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 19 && d.args[1] === 19)).to.be.true;
+  });
+
+  it('does not draw valid dots on occupied structure tiles (e.g. labs/extensions)', function() {
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.rooms.W1N1.basePlan = {
+      structures: {
+        lab: [{ x: 24, y: 24, rcl: 6, tag: 'lab.source.1' }],
+        extension: [{ x: 25, y: 24, rcl: 2, tag: 'extension.1' }],
+      },
+      plannerDebug: {
+        validStructurePositions: {
+          structureClear: 3,
+          canPlace: 3,
+          positions: [{ x: 24, y: 24 }, { x: 25, y: 24 }, { x: 26, y: 24 }],
+          truncated: false,
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 24 && d.args[1] === 24)).to.equal(false);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 25 && d.args[1] === 24)).to.equal(false);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 26 && d.args[1] === 24)).to.equal(true);
+  });
+
+  it('renders lab tiles as L in overlay', function() {
+    Memory.rooms.W1N1.basePlan = {
+      structures: {
+        lab: [{ x: 22, y: 22, rcl: 6, tag: 'lab.source.1' }],
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'L' && d.args[1] === 22)).to.be.true;
   });
 });

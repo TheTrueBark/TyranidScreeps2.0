@@ -141,6 +141,7 @@ function createPlanContext(room, matrices) {
     blocked: new Set(),
     roads: new Set(),
     ramparts: new Set(),
+    labPreviewReserved: new Set(),
     reserved: new Set(),
     structuresByPos: new Map(),
     matrices,
@@ -162,6 +163,14 @@ function createPlanContext(room, matrices) {
       foundationDebug: {},
       sourceResourceDebug: {},
       logisticsRoutes: {},
+      labPlanning: {
+        mode: 'foundation-preview',
+        computed: false,
+        clusterFound: false,
+        sourceLabs: [],
+        reactionLabs: [],
+        totalLabs: 0,
+      },
       validStructurePositions: {
         totalCandidates: 0,
         patternStructure: 0,
@@ -194,9 +203,11 @@ function canPlaceStructure(ctx, type, x, y, options = {}) {
   if (type !== STRUCTURES.ROAD) {
     if (ctx.matrices.exitProximity[id] === 1) return false;
     if (!options.ignoreReservation && ctx.reserved.has(key(x, y))) return false;
+    if (type !== STRUCTURES.RAMPART && !options.allowOnRoad && ctx.roads.has(key(x, y))) return false;
     if (!options.allowOnBlocked && !isTileWalkableForPlacement(ctx, x, y)) return false;
   } else {
     if (ctx.matrices.walkableMatrix[id] !== 1) return false;
+    if (ctx.labPreviewReserved && ctx.labPreviewReserved.has(key(x, y))) return false;
     if (ctx.structuresByPos.has(key(x, y))) return false;
   }
   return true;
@@ -282,9 +293,8 @@ function resolveLayoutPattern(options = {}) {
 }
 
 function resolveHarabiStage(options = {}) {
-  const raw = options.harabiStage || options.layoutHarabiStage || 'foundation';
-  const normalized = String(raw || 'foundation').toLowerCase();
-  return normalized === 'full' ? 'full' : 'foundation';
+  // Harabi runtime now uses foundation as the single planning baseline.
+  return 'foundation';
 }
 
 function isHarabiPattern(pattern) {
@@ -757,6 +767,94 @@ function computeDirectionalOpenDistances(matrices, x, y) {
   return out;
 }
 
+function chooseLabClusterFromValidCandidates(candidates, storage, options = {}) {
+  if (!Array.isArray(candidates) || candidates.length < 10 || !storage) return null;
+  const stampCenterKeys =
+    options && options.stampCenterKeys instanceof Set ? options.stampCenterKeys : new Set();
+  const dist = (a, b) => chebyshev(a, b);
+  const sortedByStorage = candidates
+    .slice()
+    .sort((a, b) => manhattan(a, storage) - manhattan(b, storage))
+    .slice(0, 90);
+  const sorted = [];
+  const seen = new Set();
+  for (const candidate of sortedByStorage) {
+    if (sorted.length >= 70) break;
+    const k = key(candidate.x, candidate.y);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    sorted.push(candidate);
+  }
+  // Ensure stamp centers are always evaluated for lab clustering if they are valid candidates.
+  for (const candidate of sortedByStorage) {
+    const k = key(candidate.x, candidate.y);
+    if (!stampCenterKeys.has(k) || seen.has(k)) continue;
+    seen.add(k);
+    sorted.push(candidate);
+  }
+  let best = null;
+
+  const nearbyCount = (point) =>
+    sorted.reduce((sum, candidate) => sum + (dist(point, candidate) <= 2 ? 1 : 0), 0);
+
+  const hubs = sorted
+    .slice()
+    .sort((a, b) => {
+      const aScore = nearbyCount(a) * 10 - manhattan(a, storage);
+      const bScore = nearbyCount(b) * 10 - manhattan(b, storage);
+      return bScore - aScore;
+    })
+    .slice(0, 20);
+
+  for (let i = 0; i < hubs.length; i++) {
+    const hub = hubs[i];
+    const local = sorted
+      .filter((candidate) => dist(candidate, hub) <= 3)
+      .slice(0, 30);
+    for (let a = 0; a < local.length; a++) {
+      for (let b = a + 1; b < local.length; b++) {
+        const labA = local[a];
+        const labB = local[b];
+        if (dist(labA, labB) > 2) continue;
+        const reactions = local
+          .filter((candidate) => {
+            if ((candidate.x === labA.x && candidate.y === labA.y) || (candidate.x === labB.x && candidate.y === labB.y)) {
+              return false;
+            }
+            return dist(candidate, labA) <= 2 && dist(candidate, labB) <= 2;
+          })
+          .sort((left, right) =>
+            Number(stampCenterKeys.has(key(right.x, right.y))) -
+              Number(stampCenterKeys.has(key(left.x, left.y))) ||
+            manhattan(left, hub) - manhattan(right, hub) ||
+            manhattan(left, storage) - manhattan(right, storage),
+          );
+        if (reactions.length < 8) continue;
+        const chosenReactions = reactions.slice(0, 8);
+        const allLabs = [labA, labB, ...chosenReactions];
+        const compactness = allLabs.reduce((sum, lab) => sum + manhattan(lab, hub), 0);
+        const storageBias = allLabs.reduce((sum, lab) => sum + manhattan(lab, storage), 0);
+        const centerHits = allLabs.reduce(
+          (sum, lab) => sum + (stampCenterKeys.has(key(lab.x, lab.y)) ? 1 : 0),
+          0,
+        );
+        const score = 500 - compactness - storageBias * 0.25 + centerHits * 12;
+        if (!best || score > best.score) {
+          best = {
+            score,
+            source1: { x: labA.x, y: labA.y },
+            source2: { x: labB.x, y: labB.y },
+            reactions: chosenReactions.map((lab) => ({ x: lab.x, y: lab.y })),
+            hub: { x: hub.x, y: hub.y },
+          };
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
 function computeTerrainQuality(matrices, x, y, radius = 7) {
   let plainCount = 0;
   let totalCount = 0;
@@ -1112,7 +1210,8 @@ function buildPlanForAnchor(room, input) {
   } = input;
   const ctx = createPlanContext(room, matrices);
   const useHarabi = isHarabiPattern(layoutPattern);
-  const foundationOnly = useHarabi && String(harabiStage || 'foundation') !== 'full';
+  // Harabi cluster3 planning is foundation-only; "full" is intentionally retired.
+  const foundationOnly = useHarabi;
   const coreStamp = useHarabi ? getHarabiCoreStamp(anchor) : null;
   const coreSlotAbs = (slotKey) => {
     if (!coreStamp || !coreStamp.slots[slotKey]) return null;
@@ -1293,7 +1392,7 @@ function buildPlanForAnchor(room, input) {
         STRUCTURES.LINK,
         slink.x,
         slink.y,
-        sourceContainers.length === 1 ? 5 : 7,
+        7,
         `source.link.${src.id}`,
       );
       if (ctx.meta.sourceLogistics[src.id]) {
@@ -1301,6 +1400,13 @@ function buildPlanForAnchor(room, input) {
         ctx.meta.sourceLogistics[src.id].linkFallbackUsed = candidatePool !== primaryLinkCandidates;
       }
     }
+  }
+  const sourceLinkPlacements = (ctx.placements || [])
+    .filter((placement) => placement && placement.type === STRUCTURES.LINK)
+    .filter((placement) => String(placement.tag || '').startsWith('source.link.'))
+    .sort((left, right) => manhattan(storage, right) - manhattan(storage, left));
+  for (let i = 0; i < sourceLinkPlacements.length; i++) {
+    sourceLinkPlacements[i].rcl = i === 0 ? 6 : 7;
   }
 
   // Upgrader area + controller container/link.
@@ -1332,7 +1438,7 @@ function buildPlanForAnchor(room, input) {
       }
     }
     const ctrlLink = findBestByCandidates(ctrlLinkCandidates, (p) => -manhattan(storage, p));
-    if (ctrlLink) addPlacement(ctx, STRUCTURES.LINK, ctrlLink.x, ctrlLink.y, 6, 'controller.link');
+    if (ctrlLink) addPlacement(ctx, STRUCTURES.LINK, ctrlLink.x, ctrlLink.y, 8, 'controller.link');
   }
 
   if (useHarabi) {
@@ -1358,7 +1464,7 @@ function buildPlanForAnchor(room, input) {
       return 20 * open - manhattan(c, storage);
     });
     if (stampCenter) {
-      addPlacement(ctx, STRUCTURES.LINK, stampCenter.x, stampCenter.y, 6, 'controller.link');
+      addPlacement(ctx, STRUCTURES.LINK, stampCenter.x, stampCenter.y, 8, 'controller.link');
       for (const p of neighbors8(stampCenter.x, stampCenter.y)) {
         if (chebyshev(p, controllerPos) > 3) continue;
         addPlacement(ctx, STRUCTURES.ROAD, p.x, p.y, 2, 'road.controllerStamp');
@@ -1532,7 +1638,9 @@ function buildPlanForAnchor(room, input) {
   if (isHarabiPattern(layoutPattern)) {
     const stampCenters = [];
     const capacitySlotKeys = new Set();
-    const stampDepthLimit = foundationOnly ? 11 : extensionDepthLimit;
+    // Keep Harabi foundation geometry identical for both foundation and full stage.
+    // Full stage should enrich on top, not reshape the core stamp lattice.
+    const stampDepthLimit = 11;
     const fallbackStructureCaps = {
       [STRUCTURES.EXTENSION]: 60,
       [STRUCTURES.TOWER]: 6,
@@ -1572,11 +1680,9 @@ function buildPlanForAnchor(room, input) {
           STRUCTURES.TERMINAL,
           STRUCTURES.POWER_SPAWN,
         ].reduce((sum, type) => sum + structureLimitAtRcl8(type), 0) - 7;
-    const targetBigCoverage = foundationOnly
-      ? 12
-      : Math.max(1, Math.ceil(requiredStampSlots / Math.max(1, HARABI_ROAD_STAMP_5.slots.length)));
-    const maxRoadStamps = foundationOnly ? 18 : 40;
-    const minCenterSpacing = foundationOnly ? 4 : 2;
+    const targetBigCoverage = 12;
+    const maxRoadStamps = 18;
+    const minCenterSpacing = 4;
     const hasNearbyCenter = (node) => stampCenters.some((c) => chebyshev(c, node) < minCenterSpacing);
     const coreReference = coreStamp && coreStamp.center ? coreStamp.center : storage;
     const coreDistance = (node) => chebyshev(node, coreReference);
@@ -1738,49 +1844,121 @@ function buildPlanForAnchor(room, input) {
   let sourceLab1 = null;
   let sourceLab2 = null;
   const reactionLabs = [];
-  if (!foundationOnly) {
-    const terminalRef = terminal || storage;
-    const lab1Candidates = floodFromStorage
-      .filter((n) => n.d <= 8)
-      .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-      .filter((n) => chebyshev(n, terminalRef) <= 5);
-    sourceLab1 = findBestByCandidates(lab1Candidates, (p) => {
-      const dtv = dt[idx(p.x, p.y)] || 0;
-      return dtv + countWalkableNeighbors(ctx, p.x, p.y);
+  const terminalRef = terminal || storage;
+  const stampCenterKeys = new Set(
+    ((ctx.meta && ctx.meta.stampStats && ctx.meta.stampStats.bigCenters) || [])
+      .filter((pos) => pos && typeof pos.x === 'number' && typeof pos.y === 'number')
+      .map((pos) => key(pos.x, pos.y)),
+  );
+  const labCandidates = floodFromStorage
+    .filter((n) => n.d <= 8)
+    .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+    .filter((n) => chebyshev(n, terminalRef) <= 8)
+    .filter((n) => {
+      if (ctx.roads.has(key(n.x, n.y))) return false;
+      const patternClass = checkerboard.classifyTileByPattern(n.x, n.y, storage, {
+        pattern: layoutPattern,
+        preferredParity: parity,
+      });
+      const isStampCenter = stampCenterKeys.has(key(n.x, n.y));
+      if (patternClass !== 'structure' && !isStampCenter) return false;
+      return neighbors8(n.x, n.y).some((p) => ctx.roads.has(key(p.x, p.y)));
     });
-    if (sourceLab1) addPlacement(ctx, STRUCTURES.LAB, sourceLab1.x, sourceLab1.y, 6, 'lab.source.1');
 
-    if (sourceLab1) {
-      const lab2Candidates = floodFromStorage
-        .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-        .filter((n) => {
-          const r = chebyshev(n, sourceLab1);
-          return r >= 2 && r <= 3;
-        });
-      sourceLab2 = findBestByCandidates(lab2Candidates, (p) => dt[idx(p.x, p.y)] || 0);
-      if (sourceLab2) addPlacement(ctx, STRUCTURES.LAB, sourceLab2.x, sourceLab2.y, 6, 'lab.source.2');
+  const cluster = chooseLabClusterFromValidCandidates(labCandidates, storage, {
+    stampCenterKeys,
+  });
+  ctx.labPreviewReserved = new Set();
+  if (cluster) {
+    const reservePreviewLab = (pos) => {
+      if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
+      ctx.labPreviewReserved.add(key(pos.x, pos.y));
+    };
+    reservePreviewLab(cluster.source1);
+    reservePreviewLab(cluster.source2);
+    for (const pos of cluster.reactions || []) {
+      reservePreviewLab(pos);
     }
+  }
+  ctx.meta.labPlanning = {
+    mode: foundationOnly ? 'foundation-preview' : 'placement',
+    computed: true,
+    clusterFound: Boolean(cluster),
+    sourceLabs: cluster ? [cluster.source1, cluster.source2] : [],
+    reactionLabs: cluster ? cluster.reactions.slice(0, 8) : [],
+    totalLabs: cluster ? 2 + Math.min(8, cluster.reactions.length) : 0,
+  };
 
-    if (sourceLab1 && sourceLab2) {
-      const reactionCandidates = floodFromStorage
-        .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
-        .filter((n) => chebyshev(n, sourceLab1) <= 2 && chebyshev(n, sourceLab2) <= 2)
-        .sort((a, b) => chebyshev(a, terminalRef) - chebyshev(b, terminalRef));
-      for (const cand of reactionCandidates) {
-        if (reactionLabs.length >= 8) break;
+  if (!foundationOnly) {
+    if (cluster) {
+      sourceLab1 = cluster.source1;
+      sourceLab2 = cluster.source2;
+      addPlacement(ctx, STRUCTURES.LAB, sourceLab1.x, sourceLab1.y, 6, 'lab.source.1');
+      addPlacement(ctx, STRUCTURES.LAB, sourceLab2.x, sourceLab2.y, 6, 'lab.source.2');
+      for (let i = 0; i < cluster.reactions.length; i++) {
+        const cand = cluster.reactions[i];
         if (
           addPlacement(
             ctx,
             STRUCTURES.LAB,
             cand.x,
             cand.y,
-            reactionLabs.length < 1 ? 6 : reactionLabs.length < 4 ? 7 : 8,
-            `lab.reaction.${reactionLabs.length + 1}`,
+            i < 1 ? 6 : i < 4 ? 7 : 8,
+            `lab.reaction.${i + 1}`,
           )
         ) {
           reactionLabs.push(cand);
         }
       }
+    } else {
+      // Fallback: previous heuristic if a 10-lab cluster cannot be formed.
+      const lab1Candidates = labCandidates.filter((n) => chebyshev(n, terminalRef) <= 5);
+      sourceLab1 = findBestByCandidates(lab1Candidates, (p) => {
+        const dtv = dt[idx(p.x, p.y)] || 0;
+        return dtv + countWalkableNeighbors(ctx, p.x, p.y);
+      });
+      if (sourceLab1) addPlacement(ctx, STRUCTURES.LAB, sourceLab1.x, sourceLab1.y, 6, 'lab.source.1');
+
+      if (sourceLab1) {
+        const lab2Candidates = floodFromStorage
+          .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+          .filter((n) => {
+            const r = chebyshev(n, sourceLab1);
+            return r >= 2 && r <= 3;
+          });
+        sourceLab2 = findBestByCandidates(lab2Candidates, (p) => dt[idx(p.x, p.y)] || 0);
+        if (sourceLab2) addPlacement(ctx, STRUCTURES.LAB, sourceLab2.x, sourceLab2.y, 6, 'lab.source.2');
+      }
+
+      if (sourceLab1 && sourceLab2) {
+        const reactionCandidates = floodFromStorage
+          .filter((n) => canPlaceStructure(ctx, STRUCTURES.LAB, n.x, n.y))
+          .filter((n) => chebyshev(n, sourceLab1) <= 2 && chebyshev(n, sourceLab2) <= 2)
+          .sort((a, b) => chebyshev(a, terminalRef) - chebyshev(b, terminalRef));
+        for (const cand of reactionCandidates) {
+          if (reactionLabs.length >= 8) break;
+          if (
+            addPlacement(
+              ctx,
+              STRUCTURES.LAB,
+              cand.x,
+              cand.y,
+              reactionLabs.length < 1 ? 6 : reactionLabs.length < 4 ? 7 : 8,
+              `lab.reaction.${reactionLabs.length + 1}`,
+            )
+          ) {
+            reactionLabs.push(cand);
+          }
+        }
+      }
+      ctx.meta.labPlanning = {
+        mode: 'placement',
+        computed: true,
+        clusterFound: false,
+        sourceLabs: sourceLab1 && sourceLab2 ? [sourceLab1, sourceLab2] : [],
+        reactionLabs: reactionLabs.slice(0, 8),
+        totalLabs: (sourceLab1 && sourceLab2 ? 2 : 0) + reactionLabs.length,
+      };
     }
   }
 
@@ -2707,9 +2885,21 @@ function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
 
 
 
-function structurePriority(type) {
+function structurePriority(type, tag = null, context = {}) {
+  if (type === STRUCTURES.LINK) {
+    const tagStr = String(tag || '');
+    if (tagStr === 'link.sink') return 1;
+    if (tagStr.startsWith('source.link.')) {
+      const order = context.sourceLinkOrder || {};
+      const rank = Number(order[tagStr]);
+      if (Number.isFinite(rank)) return 2 + rank;
+      return 3;
+    }
+    if (tagStr === 'controller.link') return 9;
+    return 8;
+  }
   if (type === STRUCTURES.SPAWN || type === STRUCTURES.EXTENSION || type === STRUCTURES.STORAGE) return 1;
-  if (type === STRUCTURES.TOWER || type === STRUCTURES.LINK || type === STRUCTURES.TERMINAL) return 2;
+  if (type === STRUCTURES.TOWER || type === STRUCTURES.TERMINAL || type === STRUCTURES.LAB) return 2;
   if (type === STRUCTURES.CONTAINER || type === STRUCTURES.RAMPART || type === STRUCTURES.ROAD) return 3;
   return 4;
 }
@@ -2717,11 +2907,32 @@ function structurePriority(type) {
 function buildQueueFromPlan(plan) {
   if (!plan || !Array.isArray(plan.placements)) return [];
   const spawn = plan.placements.find((p) => p.type === STRUCTURES.SPAWN) || { x: 25, y: 25 };
+  const storage = plan.placements.find((p) => p.type === STRUCTURES.STORAGE) || spawn;
+  const floodDepth = new Map(
+    Array.isArray(plan.analysis && plan.analysis.flood)
+      ? plan.analysis.flood.map((tile) => [key(tile.x, tile.y), Number(tile.d || 0)])
+      : [],
+  );
+  const getDepth = (x, y) => {
+    const k = key(x, y);
+    if (floodDepth.has(k)) return floodDepth.get(k);
+    return chebyshev({ x, y }, storage);
+  };
+  const sourceLinks = (plan.placements || [])
+    .filter((placement) => placement && placement.type === STRUCTURES.LINK)
+    .filter((placement) => String(placement.tag || '').startsWith('source.link.'))
+    .sort((left, right) => getDepth(right.x, right.y) - getDepth(left.x, left.y));
+  const sourceLinkOrder = {};
+  for (let i = 0; i < sourceLinks.length; i++) {
+    sourceLinkOrder[String(sourceLinks[i].tag || '')] = i;
+  }
+
   const queue = plan.placements.map((placement, i) => ({
     type: placement.type,
     pos: { x: placement.x, y: placement.y },
     rcl: placement.rcl || 1,
-    priority: structurePriority(placement.type),
+    priority: structurePriority(placement.type, placement.tag, { sourceLinkOrder }),
+    depth: getDepth(placement.x, placement.y),
     built: false,
     tag: placement.tag || null,
     sequence: i,
@@ -2730,8 +2941,12 @@ function buildQueueFromPlan(plan) {
   queue.sort((a, b) => {
     if (a.rcl !== b.rcl) return a.rcl - b.rcl;
     if (a.priority !== b.priority) return a.priority - b.priority;
-    const ad = Math.max(Math.abs(a.pos.x - spawn.x), Math.abs(a.pos.y - spawn.y));
-    const bd = Math.max(Math.abs(b.pos.x - spawn.x), Math.abs(b.pos.y - spawn.y));
+    const ad = Number.isFinite(a.depth)
+      ? a.depth
+      : Math.max(Math.abs(a.pos.x - spawn.x), Math.abs(a.pos.y - spawn.y));
+    const bd = Number.isFinite(b.depth)
+      ? b.depth
+      : Math.max(Math.abs(b.pos.x - spawn.x), Math.abs(b.pos.y - spawn.y));
     if (ad !== bd) return ad - bd;
     return a.sequence - b.sequence;
   });
