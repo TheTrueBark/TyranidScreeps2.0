@@ -154,6 +154,43 @@ describe('layoutVisualizer.drawLayout', function() {
     ).to.be.true;
   });
 
+  it('renders replay progress detail in checklist stage 9', function() {
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.settings.layoutOverlayView = 'plan';
+    Memory.settings.enableHudCalcCache = false;
+    Memory.rooms.W2N2 = { layout: JSON.parse(JSON.stringify(Memory.rooms.W1N1.layout || {})) };
+    Game.rooms.W2N2 = Object.assign({}, Game.rooms.W1N1, {
+      name: 'W2N2',
+      memory: Memory.rooms.W2N2,
+      controller: { level: 8, my: true, pos: { x: 20, y: 20 } },
+    });
+    const layout = Memory.rooms.W2N2.layout;
+    layout.mode = 'theoretical';
+    layout.theoretical = {
+      checklist: {
+        stages: [
+          {
+            number: 9,
+            label: 'End Evaluation (Weighted)',
+            status: 'in_progress',
+            progress: '1/5',
+            detail: 'Replay gen 3/8, accepted 2/24, +7.4%',
+          },
+        ],
+        candidateStates: [],
+      },
+      candidates: [],
+      sourceContainers: [],
+      upgraderSlots: [],
+    };
+    visualizer.drawLayout('W2N2');
+    expect(
+      drawn.some(
+        d => d.type === 'text' && String(d.args[0]) === 'Replay gen 3/8, accepted 2/24, +7.4%',
+      ),
+    ).to.be.true;
+  });
+
   it('renders spawn variant labels (S2) from matrix tags', function() {
     Memory.settings.showLayoutOverlayLabels = true;
     const matrix = Memory.rooms.W1N1.layout.matrix;
@@ -279,5 +316,30 @@ describe('layoutVisualizer.drawLayout', function() {
     };
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'L' && d.args[1] === 22)).to.be.true;
+  });
+
+  it('renders structure planning previews and suppresses valid dots on those tiles', function() {
+    Memory.rooms.W1N1.basePlan = {
+      plannerDebug: {
+        structurePlanning: {
+          placements: [
+            { type: 'extension', x: 27, y: 27, tag: 'preview.extension' },
+            { type: 'factory', x: 28, y: 27, tag: 'preview.factory' },
+          ],
+        },
+        validStructurePositions: {
+          structureClear: 3,
+          canPlace: 3,
+          positions: [{ x: 27, y: 27 }, { x: 28, y: 27 }, { x: 29, y: 27 }],
+          truncated: false,
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'E' && d.args[1] === 27)).to.equal(true);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'F' && d.args[1] === 28)).to.equal(true);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 27 && d.args[1] === 27)).to.equal(false);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 28 && d.args[1] === 27)).to.equal(false);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 29 && d.args[1] === 27)).to.equal(true);
   });
 });

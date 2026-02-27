@@ -141,7 +141,7 @@ function createPlanContext(room, matrices) {
     blocked: new Set(),
     roads: new Set(),
     ramparts: new Set(),
-    labPreviewReserved: new Set(),
+    roadBlockedByStructures: new Set(),
     reserved: new Set(),
     structuresByPos: new Map(),
     matrices,
@@ -170,6 +170,12 @@ function createPlanContext(room, matrices) {
         sourceLabs: [],
         reactionLabs: [],
         totalLabs: 0,
+      },
+      structurePlanning: {
+        mode: 'foundation-preview',
+        computed: false,
+        placements: [],
+        counts: {},
       },
       validStructurePositions: {
         totalCandidates: 0,
@@ -207,7 +213,7 @@ function canPlaceStructure(ctx, type, x, y, options = {}) {
     if (!options.allowOnBlocked && !isTileWalkableForPlacement(ctx, x, y)) return false;
   } else {
     if (ctx.matrices.walkableMatrix[id] !== 1) return false;
-    if (ctx.labPreviewReserved && ctx.labPreviewReserved.has(key(x, y))) return false;
+    if (ctx.roadBlockedByStructures && ctx.roadBlockedByStructures.has(key(x, y))) return false;
     if (ctx.structuresByPos.has(key(x, y))) return false;
   }
   return true;
@@ -237,6 +243,7 @@ function addPlacement(ctx, type, x, y, rcl, tag = null, options = {}) {
   } else if (type === STRUCTURES.RAMPART) {
     ctx.ramparts.add(k);
   } else {
+    ctx.roadBlockedByStructures.add(k);
     ctx.blocked.add(k);
     ctx.structuresByPos.set(k, type);
   }
@@ -297,6 +304,28 @@ function resolveHarabiStage(options = {}) {
   return 'foundation';
 }
 
+function normalizeMutationOptions(mutation = null) {
+  if (!mutation || typeof mutation !== 'object') return {};
+  const toInt = (value, fallback = 0) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.trunc(num);
+  };
+  return {
+    anchorDx: Math.max(-2, Math.min(2, toInt(mutation.anchorDx, 0))),
+    anchorDy: Math.max(-2, Math.min(2, toInt(mutation.anchorDy, 0))),
+    roadAngleShift: Math.max(-16, Math.min(16, toInt(mutation.roadAngleShift, 0))),
+    slotOrderShift: Math.max(-16, Math.min(16, toInt(mutation.slotOrderShift, 0))),
+    routeTieBreakShift: Math.max(-16, Math.min(16, toInt(mutation.routeTieBreakShift, 0))),
+  };
+}
+
+function deterministicJitter(x, y, shift) {
+  const s = Number(shift || 0);
+  const hash = ((x * 73856093) ^ (y * 19349663) ^ (s * 83492791)) >>> 0;
+  return hash % 2;
+}
+
 function isHarabiPattern(pattern) {
   const normalized = String(pattern || 'parity').toLowerCase();
   return normalized === 'cluster3' || normalized === 'harabi' || normalized === 'diag2';
@@ -350,6 +379,180 @@ function projectStampSlots(center, slotOffsets) {
     slots.push({ x: center.x + o.x, y: center.y + o.y, dx: o.x, dy: o.y });
   }
   return slots;
+}
+
+function stampCrossSlots(center) {
+  if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') return [];
+  return [
+    { x: center.x, y: center.y },
+    { x: center.x, y: center.y - 1 },
+    { x: center.x - 1, y: center.y },
+    { x: center.x + 1, y: center.y },
+    { x: center.x, y: center.y + 1 },
+  ].filter((p) => inBounds(p.x, p.y));
+}
+
+function inferStampGeometryFromRoadStamps(ctx) {
+  const roadStampSet = new Set(
+    (ctx.placements || [])
+      .filter((p) => p && p.type === STRUCTURES.ROAD && String(p.tag || '') === 'road.stamp')
+      .map((p) => key(p.x, p.y)),
+  );
+  const bigOffsets = HARABI_ROAD_STAMP_5.roads;
+  const smallOffsets = [
+    { x: 0, y: -1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+  ];
+  const hasRoad = (x, y) => roadStampSet.has(key(x, y));
+  const centers = new Set();
+  for (const rk of roadStampSet) {
+    const pos = parseKey(rk);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        centers.add(key(pos.x + dx, pos.y + dy));
+      }
+    }
+  }
+  const bigCenters = [];
+  const smallCentersRaw = [];
+  for (const ck of centers) {
+    const c = parseKey(ck);
+    if (!inBounds(c.x, c.y)) continue;
+    const bigMatch = bigOffsets.every((o) => hasRoad(c.x + o.x, c.y + o.y));
+    if (bigMatch) {
+      bigCenters.push(c);
+      continue;
+    }
+    const smallMatch = smallOffsets.every((o) => hasRoad(c.x + o.x, c.y + o.y));
+    if (smallMatch) smallCentersRaw.push(c);
+  }
+  const smallCenters = smallCentersRaw.filter((small) =>
+    !bigCenters.some((big) => chebyshev(small, big) <= 1),
+  );
+  return { bigCenters, smallCenters };
+}
+
+function collectStampCenterOverrideKeys(ctx) {
+  const keys = new Set();
+  const explicitBig = Array.isArray(ctx && ctx.meta && ctx.meta.stampStats && ctx.meta.stampStats.bigCenters)
+    ? ctx.meta.stampStats.bigCenters
+    : [];
+  for (const center of explicitBig) {
+    if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') continue;
+    keys.add(key(center.x, center.y));
+  }
+  const inferred = inferStampGeometryFromRoadStamps(ctx);
+  for (const center of (inferred.bigCenters || [])) {
+    if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') continue;
+    keys.add(key(center.x, center.y));
+  }
+  for (const center of (inferred.smallCenters || [])) {
+    if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') continue;
+    keys.add(key(center.x, center.y));
+  }
+  return keys;
+}
+
+function pruneUnusedRoadStamps(ctx, options = {}) {
+  if (!ctx || !ctx.meta) return { removedRoadTiles: 0, prunedBig: 0, prunedSmall: 0 };
+  if (!isHarabiPattern(options.layoutPattern || 'parity')) {
+    return { removedRoadTiles: 0, prunedBig: 0, prunedSmall: 0 };
+  }
+  const explicitBigCenters = Array.isArray(ctx.meta.stampStats && ctx.meta.stampStats.bigCenters)
+    ? ctx.meta.stampStats.bigCenters
+    : [];
+  const inferred = inferStampGeometryFromRoadStamps(ctx);
+  const inferredSmallCenters = inferred.smallCenters || [];
+  const occupied = new Set();
+  for (const p of ctx.placements || []) {
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') continue;
+    if (p.type === STRUCTURES.ROAD || p.type === STRUCTURES.RAMPART) continue;
+    occupied.add(key(p.x, p.y));
+  }
+  const labPlanning = ctx.meta.labPlanning || {};
+  for (const lab of (Array.isArray(labPlanning.sourceLabs) ? labPlanning.sourceLabs : [])) {
+    if (!lab) continue;
+    occupied.add(key(lab.x, lab.y));
+  }
+  for (const lab of (Array.isArray(labPlanning.reactionLabs) ? labPlanning.reactionLabs : [])) {
+    if (!lab) continue;
+    occupied.add(key(lab.x, lab.y));
+  }
+  const structurePlanning = ctx.meta.structurePlanning || {};
+  for (const placement of (Array.isArray(structurePlanning.placements) ? structurePlanning.placements : [])) {
+    if (!placement) continue;
+    occupied.add(key(placement.x, placement.y));
+  }
+
+  const keepBigCenters = [];
+  for (const center of explicitBigCenters) {
+    const used = stampCrossSlots(center).some((slot) => occupied.has(key(slot.x, slot.y)));
+    if (used) keepBigCenters.push(center);
+  }
+  const keepSmallCenters = [];
+  for (const center of inferredSmallCenters) {
+    const used = occupied.has(key(center.x, center.y));
+    if (used) keepSmallCenters.push(center);
+  }
+
+  const keepRoadKeys = new Set();
+  for (const center of keepBigCenters) {
+    for (const o of HARABI_ROAD_STAMP_5.roads) {
+      const x = center.x + o.x;
+      const y = center.y + o.y;
+      if (!inBounds(x, y)) continue;
+      keepRoadKeys.add(key(x, y));
+    }
+  }
+  const smallOffsets = [
+    { x: 0, y: -1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+  ];
+  for (const center of keepSmallCenters) {
+    for (const o of smallOffsets) {
+      const x = center.x + o.x;
+      const y = center.y + o.y;
+      if (!inBounds(x, y)) continue;
+      keepRoadKeys.add(key(x, y));
+    }
+  }
+
+  let removedRoadTiles = 0;
+  ctx.placements = (ctx.placements || []).filter((placement) => {
+    if (!placement || placement.type !== STRUCTURES.ROAD) return true;
+    if (String(placement.tag || '') !== 'road.stamp') return true;
+    const rk = key(placement.x, placement.y);
+    if (keepRoadKeys.has(rk)) return true;
+    removedRoadTiles += 1;
+    return false;
+  });
+  if (removedRoadTiles > 0) {
+    ctx.roads = new Set(
+      (ctx.placements || [])
+        .filter((p) => p && p.type === STRUCTURES.ROAD)
+        .map((p) => key(p.x, p.y)),
+    );
+  }
+
+  const prunedBig = Math.max(0, explicitBigCenters.length - keepBigCenters.length);
+  const prunedSmall = Math.max(0, inferredSmallCenters.length - keepSmallCenters.length);
+  if (ctx.meta.stampStats) {
+    ctx.meta.stampStats.bigCenters = keepBigCenters.slice(0, 80);
+    ctx.meta.stampStats.bigPlaced = keepBigCenters.length;
+  }
+  ctx.meta.stampPruning = {
+    enabled: true,
+    prunedBig,
+    prunedSmall,
+    keptBig: keepBigCenters.length,
+    keptSmall: keepSmallCenters.length,
+    removedRoadTiles,
+  };
+  return ctx.meta.stampPruning;
 }
 
 function getHarabiCoreStamp(anchor) {
@@ -411,6 +614,7 @@ function collectValidStructurePositions(
   const depthLimit = Number.isFinite(options.depthLimit) ? Number(options.depthLimit) : 12;
   const labReserveKeys = options.labReserveKeys instanceof Set ? options.labReserveKeys : new Set();
   const centerOverrideKeys = options.centerOverrideKeys instanceof Set ? options.centerOverrideKeys : new Set();
+  const excludedKeys = options.excludedKeys instanceof Set ? options.excludedKeys : new Set();
   const maxPositions = Number.isFinite(options.maxPositions) ? Math.max(1, Number(options.maxPositions)) : 300;
   const result = {
     totalCandidates: 0,
@@ -420,6 +624,7 @@ function collectValidStructurePositions(
     reservedClear: 0,
     structureClear: 0,
     roadClear: 0,
+    previewExcluded: 0,
     adjacentRoad: 0,
     labReserveClear: 0,
     canPlace: 0,
@@ -449,6 +654,10 @@ function collectValidStructurePositions(
     result.structureClear += 1;
     if (ctx.roads.has(k)) continue;
     result.roadClear += 1;
+    if (excludedKeys.has(k)) {
+      result.previewExcluded += 1;
+      continue;
+    }
     const hasAdjacentRoad = neighbors8(node.x, node.y).some((n) => ctx.roads.has(key(n.x, n.y)));
     if (!hasAdjacentRoad) continue;
     result.adjacentRoad += 1;
@@ -463,6 +672,239 @@ function collectValidStructurePositions(
     result.canPlace += 1;
   }
   return result;
+}
+
+function collectFoundationPreviewCandidates(
+  ctx,
+  storage,
+  layoutPattern,
+  preferredParity,
+  options = {},
+) {
+  const centerOverrideKeys = options.centerOverrideKeys instanceof Set ? options.centerOverrideKeys : new Set();
+  const depthLimit = Number.isFinite(options.depthLimit) ? Number(options.depthLimit) : 50;
+  const spawnReference =
+    options.spawnReference &&
+    typeof options.spawnReference.x === 'number' &&
+    typeof options.spawnReference.y === 'number'
+      ? options.spawnReference
+      : storage;
+  const allowedRoadTags = new Set(options.allowedRoadTags || [
+    'road.stamp',
+    'road.coreStamp',
+    'road.controllerStamp',
+    'road.grid',
+  ]);
+  const allowedRoadKeys = new Set(
+    (ctx.placements || [])
+      .filter((p) => p && p.type === STRUCTURES.ROAD && allowedRoadTags.has(String(p.tag || '')))
+      .map((p) => key(p.x, p.y)),
+  );
+  const nodes = [];
+  for (let y = 0; y <= 49; y++) {
+    for (let x = 0; x <= 49; x++) {
+      const k = key(x, y);
+      const d = chebyshev({ x, y }, spawnReference);
+      if (d > depthLimit) continue;
+      const patternType = checkerboard.classifyTileByPattern(x, y, storage, {
+        pattern: layoutPattern,
+        preferredParity,
+      });
+      if (patternType !== 'structure' && !centerOverrideKeys.has(k)) continue;
+      if (ctx.matrices.walkableMatrix[idx(x, y)] !== 1) continue;
+      if (ctx.matrices.staticBlocked[idx(x, y)] === 1) continue;
+      if (ctx.reserved.has(k)) continue;
+      if (ctx.structuresByPos.has(k)) continue;
+      if (ctx.roads.has(k)) continue;
+      const hasAdjacentAllowedRoad = neighbors8(x, y).some((n) => allowedRoadKeys.has(key(n.x, n.y)));
+      if (!hasAdjacentAllowedRoad) continue;
+      if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, x, y)) continue;
+      nodes.push({ x, y, d });
+    }
+  }
+  return nodes;
+}
+
+function planFoundationStructurePreview(
+  ctx,
+  sortedFlood,
+  storage,
+  layoutPattern,
+  preferredParity,
+  options = {},
+) {
+  const centerOverrideKeys = options.centerOverrideKeys instanceof Set ? options.centerOverrideKeys : new Set();
+  const excludedKeys = options.excludedKeys instanceof Set ? options.excludedKeys : new Set();
+  const depthLimit = Number.isFinite(options.depthLimit) ? Number(options.depthLimit) : 14;
+  const slotOrderShift = Number.isFinite(options.slotOrderShift) ? Number(options.slotOrderShift) : 0;
+  const spawnReference =
+    options.spawnReference &&
+    typeof options.spawnReference.x === 'number' &&
+    typeof options.spawnReference.y === 'number'
+      ? options.spawnReference
+      : storage;
+  const stampCenters = Array.isArray(options.stampCenters) ? options.stampCenters : [];
+  const smallStampCenters = Array.isArray(options.smallStampCenters) ? options.smallStampCenters : [];
+  const crossSlotToBucket = new Map();
+  const bucketInfoById = new Map();
+  for (let i = 0; i < stampCenters.length; i++) {
+    const center = stampCenters[i];
+    if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') continue;
+    const id = `big:${i}`;
+    bucketInfoById.set(id, { id, capacity: 5 });
+    for (const slot of stampCrossSlots(center)) {
+      crossSlotToBucket.set(key(slot.x, slot.y), id);
+    }
+  }
+  for (let i = 0; i < smallStampCenters.length; i++) {
+    const center = smallStampCenters[i];
+    if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') continue;
+    const id = `small:${i}`;
+    bucketInfoById.set(id, { id, capacity: 1 });
+    crossSlotToBucket.set(key(center.x, center.y), id);
+  }
+  const candidates = [];
+  for (const node of sortedFlood || []) {
+    if (!node || node.d > depthLimit) continue;
+    const k = key(node.x, node.y);
+    if (excludedKeys.has(k)) continue;
+    const patternType = checkerboard.classifyTileByPattern(node.x, node.y, storage, {
+      pattern: layoutPattern,
+      preferredParity,
+    });
+    if (patternType !== 'structure' && !centerOverrideKeys.has(k)) continue;
+    if (!neighbors8(node.x, node.y).some((n) => ctx.roads.has(key(n.x, n.y)))) continue;
+    if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, node.x, node.y)) continue;
+    candidates.push({
+      x: node.x,
+      y: node.y,
+      d: Number(node.d || 0),
+      centerBonus: centerOverrideKeys.has(k) ? 1 : 0,
+      stampBucket: crossSlotToBucket.get(k) || null,
+      spawnDist: chebyshev(node, spawnReference),
+    });
+  }
+
+  const used = new Set();
+  const placements = [];
+  const selectedByKey = new Map();
+  const bucketById = new Map();
+  const ensureBucket = (bucketId, candidate) => {
+    if (!bucketById.has(bucketId)) {
+      bucketById.set(bucketId, {
+        id: bucketId,
+        candidates: [],
+        minSpawnDist: Number(candidate && candidate.spawnDist ? candidate.spawnDist : 999),
+      });
+    }
+    return bucketById.get(bucketId);
+  };
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const bucketId = candidate.stampBucket || `solo:${candidate.x}:${candidate.y}`;
+    const bucket = ensureBucket(bucketId, candidate);
+    bucket.candidates.push(candidate);
+    bucket.minSpawnDist = Math.min(bucket.minSpawnDist, Number(candidate.spawnDist || 999));
+  }
+  for (const bucket of bucketById.values()) {
+    bucket.candidates.sort(
+      (a, b) =>
+        b.centerBonus - a.centerBonus ||
+        a.spawnDist - b.spawnDist ||
+        a.d - b.d ||
+        manhattan(a, storage) - manhattan(b, storage) ||
+        deterministicJitter(a.x, a.y, slotOrderShift) - deterministicJitter(b.x, b.y, slotOrderShift),
+    );
+  }
+  const orderedBuckets = [...bucketById.values()].sort((a, b) => a.minSpawnDist - b.minSpawnDist);
+  const allSorted = candidates
+    .slice()
+    .sort(
+      (a, b) =>
+        b.centerBonus - a.centerBonus ||
+        a.spawnDist - b.spawnDist ||
+        a.d - b.d ||
+        manhattan(a, storage) - manhattan(b, storage) ||
+        deterministicJitter(a.x, a.y, slotOrderShift) - deterministicJitter(b.x, b.y, slotOrderShift),
+    );
+  const placeCandidate = (type, tag, candidate) => {
+    if (!candidate) return false;
+    const k = key(candidate.x, candidate.y);
+    if (used.has(k)) return false;
+    used.add(k);
+    placements.push({ type, x: candidate.x, y: candidate.y, tag });
+    selectedByKey.set(k, { type, tag });
+    return true;
+  };
+  const placeSingleClosest = (type, tag) => {
+    for (const candidate of allSorted) {
+      if (placeCandidate(type, tag, candidate)) return true;
+    }
+    return false;
+  };
+  const placeExtensionsByBucket = (count) => {
+    let placed = 0;
+    for (const bucket of orderedBuckets) {
+      if (placed >= count) break;
+      for (const candidate of bucket.candidates) {
+        if (placed >= count) break;
+        if (placeCandidate(STRUCTURES.EXTENSION, 'preview.extension', candidate)) {
+          placed += 1;
+        }
+      }
+    }
+    return placed;
+  };
+
+  // Order requested by user:
+  // first special buildings, then rank + fill extensions bucket by bucket (closest spawn first).
+  placeSingleClosest(STRUCTURES.FACTORY, 'preview.factory');
+  placeSingleClosest(STRUCTURES.NUKER, 'preview.nuker');
+  placeSingleClosest(STRUCTURES.OBSERVER, 'preview.observer');
+  placeExtensionsByBucket(60);
+
+  const rankingLimit = Number.isFinite(options.rankingLimit)
+    ? Math.max(1, Math.trunc(options.rankingLimit))
+    : 200;
+  const extensionOrder = [];
+  let extensionOrderTotal = 0;
+  for (const bucket of orderedBuckets) {
+    for (const candidate of bucket.candidates) {
+      extensionOrderTotal += 1;
+      if (extensionOrder.length >= rankingLimit) continue;
+      const k = key(candidate.x, candidate.y);
+      const selected = selectedByKey.get(k) || null;
+      extensionOrder.push({
+        rank: extensionOrderTotal,
+        x: candidate.x,
+        y: candidate.y,
+        bucket: bucket.id,
+        spawnDist: Number(candidate.spawnDist || 0),
+        center: candidate.centerBonus ? 1 : 0,
+        selectedType: selected ? selected.type : null,
+        selectedTag: selected ? selected.tag : null,
+      });
+    }
+  }
+
+  const counts = {};
+  for (const placement of placements) {
+    counts[placement.type] = Number(counts[placement.type] || 0) + 1;
+  }
+  return {
+    mode: 'foundation-preview',
+    computed: true,
+    strategy: 'special-first + spawn-closest-rank + bucket-fill',
+    placements,
+    counts,
+    ranking: {
+      spawnRef: { x: spawnReference.x, y: spawnReference.y },
+      orderedBuckets: orderedBuckets.length,
+      extensionOrderTotal,
+      extensionOrder,
+      extensionOrderTruncated: extensionOrderTotal > extensionOrder.length,
+    },
+  };
 }
 
 function buildFullRoomNodes() {
@@ -483,6 +925,9 @@ function pathRoads(ctx, from, to, options = {}) {
   const preferredRoads = options.preferredRoads || null;
   const avoidKeys = options.avoidKeys || null;
   const avoidPenalty = Number.isFinite(options.avoidPenalty) ? options.avoidPenalty : 15;
+  const routeTieBreakShift = Number.isFinite(options.routeTieBreakShift)
+    ? Number(options.routeTieBreakShift)
+    : Number(ctx && ctx.meta ? ctx.meta.routeTieBreakShift || 0 : 0);
 
   const res = PathFinder.search(
     new RoomPosition(from.x, from.y, ctx.roomName),
@@ -512,6 +957,9 @@ function pathRoads(ctx, from, to, options = {}) {
             }
             if (ctx.roads.has(k) || (preferredRoads && preferredRoads.has(k))) {
               costs.set(x, y, 1);
+            } else if (routeTieBreakShift !== 0) {
+              // Deterministic tie-break to explore alternate but still stable logistics routes.
+              costs.set(x, y, deterministicJitter(x, y, routeTieBreakShift) ? 2 : 3);
             }
           }
         }
@@ -1207,8 +1655,11 @@ function buildPlanForAnchor(room, input) {
     candidateMeta = null,
     layoutPattern = 'parity',
     harabiStage = 'foundation',
+    mutation = null,
   } = input;
+  const mutationOptions = normalizeMutationOptions(mutation);
   const ctx = createPlanContext(room, matrices);
+  ctx.meta.routeTieBreakShift = mutationOptions.routeTieBreakShift || 0;
   const useHarabi = isHarabiPattern(layoutPattern);
   // Harabi cluster3 planning is foundation-only; "full" is intentionally retired.
   const foundationOnly = useHarabi;
@@ -1686,9 +2137,12 @@ function buildPlanForAnchor(room, input) {
     const hasNearbyCenter = (node) => stampCenters.some((c) => chebyshev(c, node) < minCenterSpacing);
     const coreReference = coreStamp && coreStamp.center ? coreStamp.center : storage;
     const coreDistance = (node) => chebyshev(node, coreReference);
+    const angleShiftRadians = (Math.PI / 8) * Number(mutationOptions.roadAngleShift || 0);
     const angleAroundCore = (node) => {
       const raw = Math.atan2(node.y - coreReference.y, node.x - coreReference.x);
-      return raw >= 0 ? raw : raw + 2 * Math.PI;
+      const shifted = raw + angleShiftRadians;
+      const wrapped = shifted >= 0 ? shifted : shifted + 2 * Math.PI;
+      return wrapped % (2 * Math.PI);
     };
     const sortedRoadNodes = sortedFlood
       .filter((node) => node.d <= stampDepthLimit)
@@ -1868,11 +2322,11 @@ function buildPlanForAnchor(room, input) {
   const cluster = chooseLabClusterFromValidCandidates(labCandidates, storage, {
     stampCenterKeys,
   });
-  ctx.labPreviewReserved = new Set();
+  ctx.roadBlockedByStructures = ctx.roadBlockedByStructures || new Set();
   if (cluster) {
     const reservePreviewLab = (pos) => {
       if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
-      ctx.labPreviewReserved.add(key(pos.x, pos.y));
+      ctx.roadBlockedByStructures.add(key(pos.x, pos.y));
     };
     reservePreviewLab(cluster.source1);
     reservePreviewLab(cluster.source2);
@@ -1961,6 +2415,9 @@ function buildPlanForAnchor(room, input) {
       };
     }
   }
+
+  // Foundation preview structures are planned later on finalized stamp roads
+  // (after early stamp pruning and before logistics roads are added).
 
   // Rampart line proxy + ramparts over critical structures + controller ring.
   let rampartTiles = [];
@@ -2092,6 +2549,90 @@ function buildPlanForAnchor(room, input) {
     );
     const mcont = findBestByCandidates(mcands, (p) => -manhattan(storage, p));
     if (mcont) addPlacement(ctx, STRUCTURES.CONTAINER, mcont.x, mcont.y, 6, 'mineral.container');
+  }
+
+  const syncRoadBlockedByStructures = () => {
+    const blocked = new Set();
+    for (const placement of ctx.placements || []) {
+      if (!placement || typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
+      if (placement.type === STRUCTURES.ROAD || placement.type === STRUCTURES.RAMPART) continue;
+      blocked.add(key(placement.x, placement.y));
+    }
+    for (const lab of (Array.isArray(ctx.meta.labPlanning.sourceLabs) ? ctx.meta.labPlanning.sourceLabs : [])) {
+      if (!lab || typeof lab.x !== 'number' || typeof lab.y !== 'number') continue;
+      blocked.add(key(lab.x, lab.y));
+    }
+    for (const lab of (Array.isArray(ctx.meta.labPlanning.reactionLabs) ? ctx.meta.labPlanning.reactionLabs : [])) {
+      if (!lab || typeof lab.x !== 'number' || typeof lab.y !== 'number') continue;
+      blocked.add(key(lab.x, lab.y));
+    }
+    const structurePlanning = ctx.meta.structurePlanning || {};
+    for (const placement of (Array.isArray(structurePlanning.placements) ? structurePlanning.placements : [])) {
+      if (!placement || typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
+      blocked.add(key(placement.x, placement.y));
+    }
+    ctx.roadBlockedByStructures = blocked;
+  };
+
+  const computeFoundationStructurePreview = () => {
+    const centerOverrideKeys = collectStampCenterOverrideKeys(ctx);
+    const excludedKeys = new Set();
+    const previewLabs = [
+      ...(Array.isArray(ctx.meta.labPlanning.sourceLabs) ? ctx.meta.labPlanning.sourceLabs : []),
+      ...(Array.isArray(ctx.meta.labPlanning.reactionLabs) ? ctx.meta.labPlanning.reactionLabs : []),
+    ];
+    for (const pos of previewLabs) {
+      if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+      excludedKeys.add(key(pos.x, pos.y));
+    }
+    const previewCandidates = collectFoundationPreviewCandidates(
+      ctx,
+      storage,
+      layoutPattern,
+      parity,
+      {
+        depthLimit: 50,
+        spawnReference: spawn1 || storage,
+        centerOverrideKeys,
+      },
+    );
+    return planFoundationStructurePreview(
+      ctx,
+      previewCandidates,
+      storage,
+      layoutPattern,
+      parity,
+      {
+        centerOverrideKeys,
+        excludedKeys,
+        depthLimit: 50,
+        slotOrderShift: mutationOptions.slotOrderShift || 0,
+        spawnReference: spawn1 || storage,
+        stampCenters:
+          ctx.meta.stampStats && Array.isArray(ctx.meta.stampStats.bigCenters)
+            ? ctx.meta.stampStats.bigCenters
+            : [],
+        smallStampCenters: inferStampGeometryFromRoadStamps(ctx).smallCenters || [],
+      },
+    );
+  };
+
+  if (foundationOnly) {
+    // First pass: select preview occupancy for stamp-pruning decisions.
+    ctx.meta.structurePlanning = computeFoundationStructurePreview();
+    syncRoadBlockedByStructures();
+  }
+
+  // Remove unused stamp geometry before generating logistics roads so we avoid
+  // stamp/road feedback loops and keep structure candidates stable.
+  pruneUnusedRoadStamps(ctx, {
+    layoutPattern,
+  });
+
+  if (foundationOnly) {
+    // Second pass after prune: ensure final preview uses only surviving stamp layout.
+    ctx.meta.structurePlanning = computeFoundationStructurePreview();
+    syncRoadBlockedByStructures();
   }
 
   // Roads: highest-traffic paths first + checkerboard interior + rampart line roads.
@@ -2318,12 +2859,24 @@ function buildPlanForAnchor(room, input) {
   });
   ctx.meta.roadPruning = pruning;
 
-  const centerOverrideKeys = new Set(
-    (ctx.meta.stampStats && Array.isArray(ctx.meta.stampStats.bigCenters)
-      ? ctx.meta.stampStats.bigCenters
-      : []
-    ).map((c) => key(c.x, c.y)),
-  );
+  const centerOverrideKeys = collectStampCenterOverrideKeys(ctx);
+  const previewExcludedKeys = new Set();
+  if (foundationOnly) {
+    const structurePlanning = ctx.meta.structurePlanning || {};
+    for (const placement of (Array.isArray(structurePlanning.placements) ? structurePlanning.placements : [])) {
+      if (!placement || typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
+      previewExcludedKeys.add(key(placement.x, placement.y));
+    }
+    const labPlanning = ctx.meta.labPlanning || {};
+    for (const lab of (Array.isArray(labPlanning.sourceLabs) ? labPlanning.sourceLabs : [])) {
+      if (!lab || typeof lab.x !== 'number' || typeof lab.y !== 'number') continue;
+      previewExcludedKeys.add(key(lab.x, lab.y));
+    }
+    for (const lab of (Array.isArray(labPlanning.reactionLabs) ? labPlanning.reactionLabs : [])) {
+      if (!lab || typeof lab.x !== 'number' || typeof lab.y !== 'number') continue;
+      previewExcludedKeys.add(key(lab.x, lab.y));
+    }
+  }
   ctx.meta.validStructurePositions = collectValidStructurePositions(
     ctx,
     buildFullRoomNodes(),
@@ -2334,6 +2887,7 @@ function buildPlanForAnchor(room, input) {
       depthLimit: 50,
       labReserveKeys,
       centerOverrideKeys,
+      excludedKeys: previewExcludedKeys,
       maxPositions: 2500,
     },
   );
@@ -2987,6 +3541,11 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
         ? anchorInput.score
         : 0,
   };
+  const mutationOptions = normalizeMutationOptions(options.mutation);
+  if (mutationOptions.anchorDx || mutationOptions.anchorDy) {
+    anchor.x = Math.max(1, Math.min(48, anchor.x + mutationOptions.anchorDx));
+    anchor.y = Math.max(1, Math.min(48, anchor.y + mutationOptions.anchorDy));
+  }
 
   const plan = buildPlanForAnchor(room, {
     anchor,
@@ -2998,6 +3557,7 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
     candidateMeta: options.candidateMeta || anchorInput,
     layoutPattern: resolveLayoutPattern(options),
     harabiStage: resolveHarabiStage(options),
+    mutation: mutationOptions,
   });
 
   const metrics = evaluateLayout(plan, roomName, { sources, controllerPos });

@@ -139,7 +139,11 @@ Toggle in console:
 - `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' })` - wipe memory and boot into theoretical planner mode with Harabi-style diagonal 2x2 road grid pattern
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging (Harabi stage is foundation-only at runtime)
+- In Harabi `foundation` runtime, planner debug overlay previews labs plus late structures (`extension`, `factory`, `observer`, `nuker`) on valid tiles; those preview tiles replace green valid dots.
 - `layoutPlanDump('W1N1')` - print planner debug dump (big/small stamp counts, structure totals, and buildQueue entries) when debug flag is enabled
+- Theoretical planner includes optional replay refinement between weighted evaluation and winner selection (Top-N seeds, local mutations, strict score-only acceptance).
+- `visual.layoutRefinement(1|0|'status')` - enable/disable replay refinement and inspect current budget/gate.
+- `visual.layoutRefinementBudget(generations, variants, minBucket)` - tune replay generations, variants per generation, and bucket gate.
 - `Memory.settings.layoutPlanningMode = 'standard'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the normal planner with Harabi stamps via the same Top-5 candidate HTM pipeline (bucket-aware)
 - `visual.idleGating(1|0)` - enable/disable live idle fast-path
 - `visual.planningHeartbeat(1|0, ticks?)` - enable/disable planning heartbeat and optionally set cadence

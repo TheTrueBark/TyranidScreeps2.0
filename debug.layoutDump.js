@@ -222,11 +222,14 @@ function buildLayoutPlanDump(roomName) {
           layoutPattern: Memory && Memory.settings ? Memory.settings.layoutExtensionPattern || null : null,
           harabiStage: Memory && Memory.settings ? Memory.settings.layoutHarabiStage || null : null,
           stampStats: activeCandidate.stampStats || {},
+          stampPruning: activeCandidate.stampPruning || {},
           sourceLogistics: activeCandidate.sourceLogistics || {},
           foundationDebug: activeCandidate.foundationDebug || {},
           sourceResourceDebug: activeCandidate.sourceResourceDebug || {},
           logisticsRoutes: activeCandidate.logisticsRoutes || {},
           labPlanning: activeCandidate.labPlanning || {},
+          structurePlanning: activeCandidate.structurePlanning || {},
+          refinementDebug: activeCandidate.refinementDebug || {},
           validStructurePositions: activeCandidate.validStructurePositions || {},
           validation: activeCandidate.validation || [],
         },
@@ -266,6 +269,10 @@ function buildLayoutPlanDump(roomName) {
       smallCenters: explicitSmallCenters,
       hasExplicitStats: hasExplicitStampStats,
     },
+    stampPruning:
+      plannerDebug.stampPruning && typeof plannerDebug.stampPruning === 'object'
+        ? plannerDebug.stampPruning
+        : {},
     layoutPattern: plannerDebug.layoutPattern || null,
     harabiStage: plannerDebug.harabiStage || null,
     structureCounts,
@@ -287,6 +294,14 @@ function buildLayoutPlanDump(roomName) {
     labPlanning:
       plannerDebug.labPlanning && typeof plannerDebug.labPlanning === 'object'
         ? plannerDebug.labPlanning
+        : {},
+    structurePlanning:
+      plannerDebug.structurePlanning && typeof plannerDebug.structurePlanning === 'object'
+        ? plannerDebug.structurePlanning
+        : {},
+    refinementDebug:
+      plannerDebug.refinementDebug && typeof plannerDebug.refinementDebug === 'object'
+        ? plannerDebug.refinementDebug
         : {},
     validStructurePositions:
       plannerDebug.validStructurePositions && typeof plannerDebug.validStructurePositions === 'object'
@@ -357,6 +372,12 @@ function formatLayoutPlanDump(payload, options = {}) {
   lines.push(
     `[layoutPlanDump] smallFallbackReasons=${reasonKeys.length ? reasonKeys.map((k) => `${k}:${reasons[k]}`).join(', ') : 'none'}`,
   );
+  const stampPruning = payload.stampPruning || {};
+  if (Object.keys(stampPruning).length > 0) {
+    lines.push(
+      `[layoutPlanDump] stampPruning enabled=${stampPruning.enabled === true ? 'yes' : 'no'} prunedBig=${Number(stampPruning.prunedBig || 0)} prunedSmall=${Number(stampPruning.prunedSmall || 0)} keptBig=${Number(stampPruning.keptBig || 0)} keptSmall=${Number(stampPruning.keptSmall || 0)} removedRoadTiles=${Number(stampPruning.removedRoadTiles || 0)}`,
+    );
+  }
 
   lines.push('[layoutPlanDump] structures (planned totals):');
   for (const row of sortedCountEntries(payload.structureCounts)) {
@@ -418,6 +439,56 @@ function formatLayoutPlanDump(payload, options = {}) {
       `[layoutPlanDump] labPlanning mode=${labPlanning.mode || 'n/a'} computed=${labPlanning.computed === true ? 'yes' : 'no'} cluster=${labPlanning.clusterFound === true ? 'yes' : 'no'} labs=${Number(labPlanning.totalLabs || 0)}`,
     );
   }
+  const structurePlanning = payload.structurePlanning || {};
+  if (Object.keys(structurePlanning).length > 0) {
+    const placements = Array.isArray(structurePlanning.placements) ? structurePlanning.placements : [];
+    const counts = structurePlanning.counts && typeof structurePlanning.counts === 'object'
+      ? structurePlanning.counts
+      : {};
+    const ranking = structurePlanning.ranking && typeof structurePlanning.ranking === 'object'
+      ? structurePlanning.ranking
+      : {};
+    const countRows = sortedCountEntries(counts);
+    lines.push(
+      `[layoutPlanDump] structurePlanning mode=${structurePlanning.mode || 'n/a'} computed=${structurePlanning.computed === true ? 'yes' : 'no'} placements=${placements.length}`,
+    );
+    if (countRows.length > 0) {
+      lines.push(`[layoutPlanDump] structurePlanning counts=${countRows.map((r) => `${r.type}:${r.count}`).join(', ')}`);
+    }
+    const extensionOrder = Array.isArray(ranking.extensionOrder) ? ranking.extensionOrder : [];
+    if (extensionOrder.length > 0) {
+      const total = Number(ranking.extensionOrderTotal || extensionOrder.length);
+      lines.push(
+        `[layoutPlanDump] structurePlanning extensionOrder total=${total} shown=${extensionOrder.length}${ranking.extensionOrderTruncated ? '+' : ''}`,
+      );
+      const rows = extensionOrder.slice(0, Math.min(maxEntries, 80)).map((entry) => {
+        const centerMark = Number(entry && entry.center) > 0 ? '*' : '';
+        const selectedType = entry && entry.selectedType ? `->${entry.selectedType}` : '';
+        const selectedTag = entry && entry.selectedTag ? `[${entry.selectedTag}]` : '';
+        return `${Number(entry && entry.rank || 0)}:${entry.x},${entry.y}${centerMark}${selectedType}${selectedTag}`;
+      });
+      lines.push(`[layoutPlanDump] structurePlanning extensionOrder.rows=${rows.join(' | ')}`);
+      if (total > rows.length) {
+        lines.push(`[layoutPlanDump] structurePlanning extensionOrder truncated ${total - rows.length}`);
+      }
+    }
+  }
+  const refinement = payload.refinementDebug || {};
+  if (Object.keys(refinement).length > 0) {
+    const generation = Number(refinement.generation || 0);
+    const maxGenerations = Number(refinement.maxGenerations || 0);
+    const attempted = Number(refinement.attemptedMutations || 0);
+    const accepted = Number(refinement.acceptedMutations || 0);
+    const before = Number(refinement.bestScoreBefore || 0);
+    const after = Number(refinement.bestScoreAfter || 0);
+    const improvement = Number(refinement.improvementPct || 0);
+    lines.push(
+      `[layoutPlanDump] refinementDebug status=${refinement.status || 'pending'} seeds=${Array.isArray(refinement.seedIndices) ? refinement.seedIndices.length : 0} gens=${generation}/${maxGenerations} attempts=${attempted} accepted=${accepted}`,
+    );
+    lines.push(
+      `[layoutPlanDump] refinementDebug scoreBefore=${before.toFixed(4)} scoreAfter=${after.toFixed(4)} improvement=${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}%${refinement.skipReason ? ` skip=${refinement.skipReason}` : ''}`,
+    );
+  }
 
   const valid = payload.validStructurePositions || {};
   const validTotal = Number(valid.structureClear) || 0;
@@ -435,6 +506,7 @@ function formatLayoutPlanDump(payload, options = {}) {
       `reservedClear:${Number(valid.reservedClear) || 0}`,
       `structureClear:${Number(valid.structureClear) || 0}`,
       `roadClear:${Number(valid.roadClear) || 0}`,
+      `previewExcluded:${Number(valid.previewExcluded) || 0}`,
       `adjacentRoad:${Number(valid.adjacentRoad) || 0}`,
       `labReserveClear:${Number(valid.labReserveClear) || 0}`,
     ];

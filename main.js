@@ -193,6 +193,21 @@ if (Memory.settings.layoutPlanningDynamicBatching === undefined) {
 if (Memory.settings.layoutPlanningReplanInterval === undefined) {
   Memory.settings.layoutPlanningReplanInterval = 1000;
 }
+if (Memory.settings.layoutRefinementEnabled === undefined) {
+  Memory.settings.layoutRefinementEnabled = true;
+}
+if (Memory.settings.layoutRefinementTopSeeds === undefined) {
+  Memory.settings.layoutRefinementTopSeeds = 2;
+}
+if (Memory.settings.layoutRefinementMaxGenerations === undefined) {
+  Memory.settings.layoutRefinementMaxGenerations = 8;
+}
+if (Memory.settings.layoutRefinementVariantsPerGeneration === undefined) {
+  Memory.settings.layoutRefinementVariantsPerGeneration = 4;
+}
+if (Memory.settings.layoutRefinementMinBucket === undefined) {
+  Memory.settings.layoutRefinementMinBucket = 3500;
+}
 if (Memory.settings.allowSavestateRestore === undefined) {
   Memory.settings.allowSavestateRestore = false;
 }
@@ -685,9 +700,14 @@ function buildRuntimeState(tickCtx) {
 function filterPipelinesByBucket(basePipelines) {
   const cpu = getCpuPolicySettings();
   const bucket = Number(Game.cpu.bucket || 0);
+  const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+  const burstStopAt =
+    runtimeMode === 'theoretical'
+      ? 2000
+      : Number(cpu.stopAt.burstOnly || 8000);
   const list = [];
   for (const pipeline of basePipelines) {
-    const stopAt = Number(cpu.stopAt[pipeline] || 0);
+    const stopAt = pipeline === 'burstOnly' ? burstStopAt : Number(cpu.stopAt[pipeline] || 0);
     if (bucket < stopAt) continue;
     list.push(pipeline);
   }
@@ -875,6 +895,11 @@ function executeHtmPhase(tickCtx, reason) {
     };
   }
   const bucket = Number(Game.cpu.bucket || 0);
+  const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+  const burstStopAt =
+    runtimeMode === 'theoretical'
+      ? 2000
+      : Number(cpuPolicy.stopAt.burstOnly || 8000);
   const softBudget =
     tickCtx && typeof tickCtx.softBudget === 'number' ? tickCtx.softBudget : fallbackTickLimit;
   const emergencyRatio = Math.max(0.5, Math.min(0.98, Number(cpuPolicy.emergencyBrakeRatio || 0.85)));
@@ -904,7 +929,7 @@ function executeHtmPhase(tickCtx, reason) {
   if (!result && !hasCriticalRunnable && !hasRealtimeRunnable &&
       Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.background) || 0) <= 0 &&
       Number((htmSummary.runnableByPipeline && htmSummary.runnableByPipeline.burstOnly) || 0) > 0 &&
-      bucket < Number(cpuPolicy.stopAt.burstOnly || 8000)) {
+      bucket < burstStopAt) {
     result = {
       executed: 0,
       cpu: 0,
@@ -2445,6 +2470,42 @@ global.visual = {
       2,
     );
   },
+  layoutRefinement: function (toggle = 'status') {
+    if (!Memory.settings) Memory.settings = {};
+    if (toggle === 'status') {
+      const enabled = Memory.settings.layoutRefinementEnabled !== false;
+      const topSeeds = Number(Memory.settings.layoutRefinementTopSeeds || 2);
+      const generations = Number(Memory.settings.layoutRefinementMaxGenerations || 8);
+      const variants = Number(Memory.settings.layoutRefinementVariantsPerGeneration || 4);
+      const minBucket = Number(Memory.settings.layoutRefinementMinBucket || 3500);
+      const line = `Layout refinement: ${enabled ? 'ON' : 'OFF'} (top=${topSeeds}, generations=${generations}, variants=${variants}, minBucket=${minBucket})`;
+      statsConsole.log(line, 2);
+      return line;
+    }
+    if (toggle === 1 || toggle === true) {
+      Memory.settings.layoutRefinementEnabled = true;
+      statsConsole.log('Layout refinement: ON', 2);
+      return true;
+    }
+    if (toggle === 0 || toggle === false) {
+      Memory.settings.layoutRefinementEnabled = false;
+      statsConsole.log('Layout refinement: OFF', 2);
+      return false;
+    }
+    statsConsole.log("Usage: visual.layoutRefinement(1|0|'status')", 3);
+    return null;
+  },
+  layoutRefinementBudget: function (generations = 8, variants = 4, minBucket = 3500) {
+    if (!Memory.settings) Memory.settings = {};
+    const g = Math.max(1, Math.min(50, Math.floor(Number(generations) || 8)));
+    const v = Math.max(1, Math.min(10, Math.floor(Number(variants) || 4)));
+    const b = Math.max(0, Math.min(10000, Math.floor(Number(minBucket) || 3500)));
+    Memory.settings.layoutRefinementMaxGenerations = g;
+    Memory.settings.layoutRefinementVariantsPerGeneration = v;
+    Memory.settings.layoutRefinementMinBucket = b;
+    statsConsole.log(`Layout refinement budget: generations=${g}, variants=${v}, minBucket=${b}`, 2);
+    return { generations: g, variants: v, minBucket: b };
+  },
 
   layoutPhaseWindow: function (from = 1, to = 10) {
     if (!Memory.settings) Memory.settings = {};
@@ -2934,6 +2995,11 @@ function runMainLoop(loopStartCpu = 0) {
   if (Memory.settings.layoutPlanningDebugPhaseFrom === undefined) Memory.settings.layoutPlanningDebugPhaseFrom = 1;
   if (Memory.settings.layoutPlanningDebugPhaseTo === undefined) Memory.settings.layoutPlanningDebugPhaseTo = 10;
   if (Memory.settings.layoutPlanningRecalcScope === undefined) Memory.settings.layoutPlanningRecalcScope = 'all';
+  if (Memory.settings.layoutRefinementEnabled === undefined) Memory.settings.layoutRefinementEnabled = true;
+  if (Memory.settings.layoutRefinementTopSeeds === undefined) Memory.settings.layoutRefinementTopSeeds = 2;
+  if (Memory.settings.layoutRefinementMaxGenerations === undefined) Memory.settings.layoutRefinementMaxGenerations = 8;
+  if (Memory.settings.layoutRefinementVariantsPerGeneration === undefined) Memory.settings.layoutRefinementVariantsPerGeneration = 4;
+  if (Memory.settings.layoutRefinementMinBucket === undefined) Memory.settings.layoutRefinementMinBucket = 3500;
   // Manual phase planner mode: planner waits idle until a phase range is initialized via visual.layoutInitializePhase().
   if (Memory.settings.layoutPlanningManualMode === undefined) Memory.settings.layoutPlanningManualMode = false;
   if (Memory.settings.layoutPlanningManualBypassOnce === undefined) Memory.settings.layoutPlanningManualBypassOnce = false;
@@ -3305,6 +3371,9 @@ function runMainLoop(loopStartCpu = 0) {
   // Run late tick management
   let hudPassCpu = 0;
   const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+  const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+  const cpuBucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 10000;
+  const forceHudInTheoretical = runtimeMode === 'theoretical' && cpuBucket >= 2000;
   const shouldRunHudPass =
     overlayMode !== 'off' &&
     (
@@ -3312,7 +3381,7 @@ function runMainLoop(loopStartCpu = 0) {
       Boolean(Memory.settings && Memory.settings.enableVisuals) ||
       Boolean(Memory.settings && Memory.settings.showHtmOverlay)
     );
-  if (shouldRunHudPass && !tickPipeline.hardStopReached(tickCtx, 2)) {
+  if (shouldRunHudPass && (!tickPipeline.hardStopReached(tickCtx, 2) || forceHudInTheoretical)) {
     hudPassCpu = recordTickPhase(tickCtx, 'execution-hud', () => {
       const hudStart = Game.cpu.getUsed();
       for (const roomName in Game.rooms) {

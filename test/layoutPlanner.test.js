@@ -13,6 +13,7 @@ const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
 const htm = require('../manager.htm');
+const buildCompendium = require('../planner.buildCompendium');
 // suppress visuals
 global.RoomVisual = function () { this.structure = () => {}; };
 
@@ -315,5 +316,185 @@ describe('layoutPlanner.plan', function() {
     expect(layout.theoreticalPipeline).to.exist;
     expect(layout.theoreticalPipeline.candidateCount).to.be.at.least(5);
     expect(['running', 'completed']).to.include(layout.theoreticalPipeline.status);
+  });
+
+  it('skips replay refinement when bucket gate is not met', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutRefinementEnabled: true,
+      layoutRefinementMinBucket: 9000,
+      layoutRefinementTopSeeds: 2,
+      layoutRefinementMaxGenerations: 2,
+      layoutRefinementVariantsPerGeneration: 2,
+    };
+    Game.cpu.bucket = 2000;
+    const pipeline = {
+      runId: 'test:skip',
+      status: 'running',
+      candidateCount: 2,
+      candidates: [
+        { index: 0, anchor: { x: 25, y: 25 } },
+        { index: 1, anchor: { x: 26, y: 26 } },
+      ],
+      results: {
+        0: { index: 0, weightedScore: 0.6, completedAt: Game.time },
+        1: { index: 1, weightedScore: 0.5, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: true,
+        status: 'pending',
+        seedIndices: [],
+        generation: 0,
+        maxGenerations: 2,
+        variantsPerGeneration: 2,
+        attemptedMutations: 0,
+        acceptedMutations: 0,
+        bestScoreBefore: 0,
+        bestScoreAfter: 0,
+        improvementPct: 0,
+        minBucket: 9000,
+        topSeeds: 2,
+        history: [],
+      },
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+    const ranked = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore);
+    layoutPlanner._initializeRefinementIfNeeded(pipeline, ranked);
+    layoutPlanner._runRefinementStep('W1N1', pipeline, Memory.rooms.W1N1);
+    expect(pipeline.refinement.status).to.equal('skipped-bucket');
+    expect(pipeline.refinement.seedIndices).to.deep.equal([0, 1]);
+  });
+
+  it('runs replay refinement and can switch winner to improved candidate', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutRefinementEnabled: true,
+      layoutRefinementMinBucket: 0,
+      layoutRefinementTopSeeds: 2,
+      layoutRefinementMaxGenerations: 1,
+      layoutRefinementVariantsPerGeneration: 1,
+    };
+    Game.cpu.bucket = 10000;
+    const pipeline = {
+      runId: 'test:run',
+      status: 'running',
+      candidateCount: 2,
+      candidates: [
+        { index: 0, anchor: { x: 25, y: 25 } },
+        { index: 1, anchor: { x: 26, y: 26 } },
+      ],
+      results: {
+        0: { index: 0, weightedScore: 0.6, completedAt: Game.time },
+        1: { index: 1, weightedScore: 0.55, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: true,
+        status: 'pending',
+        seedIndices: [],
+        generation: 0,
+        maxGenerations: 1,
+        variantsPerGeneration: 1,
+        attemptedMutations: 0,
+        acceptedMutations: 0,
+        bestScoreBefore: 0,
+        bestScoreAfter: 0,
+        improvementPct: 0,
+        minBucket: 0,
+        topSeeds: 2,
+        history: [],
+      },
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      const idx = options && options.candidateMeta ? options.candidateMeta.index : 0;
+      const score = idx === 1 ? 0.75 : 0.61;
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [],
+        evaluation: { weightedScore: score, metrics: {}, contributions: {} },
+        meta: { validation: [], defenseScore: 0, validStructurePositions: {} },
+      };
+    };
+    try {
+      const ranked = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore);
+      layoutPlanner._initializeRefinementIfNeeded(pipeline, ranked);
+      layoutPlanner._runRefinementStep('W1N1', pipeline, Memory.rooms.W1N1);
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+    expect(pipeline.refinement.status).to.equal('done');
+    expect(pipeline.refinement.acceptedMutations).to.be.at.least(1);
+    const best = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore)[0];
+    expect(best.index).to.equal(1);
+  });
+
+  it('keeps winner unchanged when replay does not improve', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutRefinementEnabled: true,
+      layoutRefinementMinBucket: 0,
+      layoutRefinementTopSeeds: 2,
+      layoutRefinementMaxGenerations: 1,
+      layoutRefinementVariantsPerGeneration: 1,
+    };
+    Game.cpu.bucket = 10000;
+    const pipeline = {
+      runId: 'test:no-improve',
+      status: 'running',
+      candidateCount: 2,
+      candidates: [
+        { index: 0, anchor: { x: 25, y: 25 } },
+        { index: 1, anchor: { x: 26, y: 26 } },
+      ],
+      results: {
+        0: { index: 0, weightedScore: 0.7, completedAt: Game.time },
+        1: { index: 1, weightedScore: 0.6, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: true,
+        status: 'pending',
+        seedIndices: [],
+        generation: 0,
+        maxGenerations: 1,
+        variantsPerGeneration: 1,
+        attemptedMutations: 0,
+        acceptedMutations: 0,
+        bestScoreBefore: 0,
+        bestScoreAfter: 0,
+        improvementPct: 0,
+        minBucket: 0,
+        topSeeds: 2,
+        history: [],
+      },
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      const idx = options && options.candidateMeta ? options.candidateMeta.index : 0;
+      const score = idx === 0 ? 0.69 : 0.58;
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [],
+        evaluation: { weightedScore: score, metrics: {}, contributions: {} },
+        meta: { validation: [], defenseScore: 0, validStructurePositions: {} },
+      };
+    };
+    try {
+      const ranked = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore);
+      layoutPlanner._initializeRefinementIfNeeded(pipeline, ranked);
+      layoutPlanner._runRefinementStep('W1N1', pipeline, Memory.rooms.W1N1);
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+    expect(pipeline.refinement.status).to.equal('done');
+    expect(pipeline.refinement.acceptedMutations).to.equal(0);
+    const best = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore)[0];
+    expect(best.index).to.equal(0);
   });
 });

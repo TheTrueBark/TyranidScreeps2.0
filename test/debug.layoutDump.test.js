@@ -31,6 +31,25 @@ describe('debug.layoutDump', function() {
               requiredSlots: 78,
               smallFallbackReasons: { noBigFitLocal: 1 },
             },
+            stampPruning: {
+              enabled: true,
+              prunedBig: 2,
+              prunedSmall: 1,
+              keptBig: 7,
+              keptSmall: 0,
+              removedRoadTiles: 9,
+            },
+            refinementDebug: {
+              status: 'done',
+              seedIndices: [0, 1],
+              generation: 8,
+              maxGenerations: 8,
+              attemptedMutations: 64,
+              acceptedMutations: 7,
+              bestScoreBefore: 0.52,
+              bestScoreAfter: 0.61,
+              improvementPct: 17.3,
+            },
             validation: [],
           },
         },
@@ -53,7 +72,9 @@ describe('debug.layoutDump', function() {
     const result = layoutDump.dump('W1N1', { print: false, maxEntries: 5, returnObject: true });
     expect(result.ok).to.equal(true);
     expect(result.lines.some((line) => line.includes('stamps big=9 small=1'))).to.equal(true);
+    expect(result.lines.some((line) => line.includes('stampPruning enabled=yes'))).to.equal(true);
     expect(result.lines.some((line) => line.includes('type=spawn'))).to.equal(true);
+    expect(result.lines.some((line) => line.includes('refinementDebug status=done'))).to.equal(true);
   });
 
   it('formats buildQueue coordinates from entry.pos fallback', function() {
@@ -118,5 +139,28 @@ describe('debug.layoutDump', function() {
     expect(payload.structureCounts.spawn).to.equal(1);
     expect(payload.stampStats.bigPlaced).to.equal(7);
     expect(payload.validStructurePositions.structureClear).to.equal(2);
+  });
+
+  it('prints structure planning extension order rows when ranking debug is present', function() {
+    Memory.rooms.W1N1.basePlan.plannerDebug.structurePlanning = {
+      mode: 'foundation-preview',
+      computed: true,
+      placements: [{ type: 'extension', x: 23, y: 17, tag: 'preview.extension' }],
+      counts: { extension: 1 },
+      ranking: {
+        extensionOrderTotal: 3,
+        extensionOrder: [
+          { rank: 1, x: 23, y: 17, center: 1, selectedType: 'extension', selectedTag: 'preview.extension' },
+          { rank: 2, x: 24, y: 17, center: 0, selectedType: null, selectedTag: null },
+          { rank: 3, x: 25, y: 17, center: 0, selectedType: 'factory', selectedTag: 'preview.factory' },
+        ],
+        extensionOrderTruncated: false,
+      },
+    };
+
+    const result = layoutDump.dump('W1N1', { print: false, returnObject: true });
+    expect(result.ok).to.equal(true);
+    expect(result.lines.some((line) => line.includes('structurePlanning extensionOrder total=3 shown=3'))).to.equal(true);
+    expect(result.lines.some((line) => line.includes('1:23,17*->extension[preview.extension]'))).to.equal(true);
   });
 });

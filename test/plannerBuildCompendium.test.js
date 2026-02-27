@@ -203,6 +203,18 @@ describe('build compendium planner', function () {
     expect(plan.meta.layoutPattern).to.equal('cluster3');
 
     const placements = plan.placements || [];
+    const roadKeys = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
+    const invalidOverlap = placements.filter(
+      (p) =>
+        p.type !== STRUCTURE_ROAD &&
+        p.type !== STRUCTURE_RAMPART &&
+        roadKeys.has(`${p.x}:${p.y}`),
+    );
+    expect(invalidOverlap).to.deep.equal([]);
     const storage = placements.find((p) => p.type === STRUCTURE_STORAGE);
     expect(storage).to.exist;
 
@@ -269,10 +281,10 @@ describe('build compendium planner', function () {
     const validKeys = new Set(
       (plan.meta.validStructurePositions.positions || []).map((p) => `${p.x}:${p.y}`),
     );
-    const roadKeys = new Set(
+    const roadKeysForValid = new Set(
       placements.filter((p) => p.type === STRUCTURE_ROAD).map((p) => `${p.x}:${p.y}`),
     );
-    const overlapValidRoad = [...validKeys].some((k) => roadKeys.has(k));
+    const overlapValidRoad = [...validKeys].some((k) => roadKeysForValid.has(k));
     expect(overlapValidRoad).to.equal(false);
     const hasRoadPatternValid = (plan.meta.validStructurePositions.positions || []).some((p) =>
       checkerboard.classifyTileByPattern(p.x, p.y, storage, {
@@ -282,13 +294,30 @@ describe('build compendium planner', function () {
     );
     expect(hasRoadPatternValid).to.equal(true);
     const nonRoadBigCenters = (plan.meta.stampStats.bigCenters || []).filter(
-      (c) => !roadKeys.has(`${c.x}:${c.y}`),
+      (c) => !roadKeysForValid.has(`${c.x}:${c.y}`),
     );
     if (nonRoadBigCenters.length > 0) {
-      const hasCenterInValid = nonRoadBigCenters.some((c) =>
-        validKeys.has(`${c.x}:${c.y}`),
+      const previewOccupied = new Set();
+      const structurePreview = plan.meta && plan.meta.structurePlanning && Array.isArray(plan.meta.structurePlanning.placements)
+        ? plan.meta.structurePlanning.placements
+        : [];
+      for (const pos of structurePreview) {
+        if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+        previewOccupied.add(`${pos.x}:${pos.y}`);
+      }
+      const labPreview = plan.meta && plan.meta.labPlanning ? plan.meta.labPlanning : {};
+      for (const pos of Array.isArray(labPreview.sourceLabs) ? labPreview.sourceLabs : []) {
+        if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+        previewOccupied.add(`${pos.x}:${pos.y}`);
+      }
+      for (const pos of Array.isArray(labPreview.reactionLabs) ? labPreview.reactionLabs : []) {
+        if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') continue;
+        previewOccupied.add(`${pos.x}:${pos.y}`);
+      }
+      const hasCenterRepresented = nonRoadBigCenters.some((c) =>
+        validKeys.has(`${c.x}:${c.y}`) || previewOccupied.has(`${c.x}:${c.y}`),
       );
-      expect(hasCenterInValid).to.equal(true);
+      expect(hasCenterRepresented).to.equal(true);
     }
 
     expect(plan.meta).to.have.property('sourceLogistics');
@@ -407,6 +436,99 @@ describe('build compendium planner', function () {
       const d2 = Math.max(Math.abs(reaction.x - source2.x), Math.abs(reaction.y - source2.y));
       expect(d1).to.be.at.most(2);
       expect(d2).to.be.at.most(2);
+    }
+  });
+
+  it('computes foundation preview placements for extensions and late-game core structures without road overlap', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    const preview = plan.meta && plan.meta.structurePlanning ? plan.meta.structurePlanning : {};
+    expect(preview.computed).to.equal(true);
+    const placements = Array.isArray(preview.placements) ? preview.placements : [];
+    const counts = preview.counts || {};
+    const ranking = preview.ranking && typeof preview.ranking === 'object' ? preview.ranking : {};
+    const extensionOrder = Array.isArray(ranking.extensionOrder) ? ranking.extensionOrder : [];
+    const factoryType = typeof STRUCTURE_FACTORY !== 'undefined' ? STRUCTURE_FACTORY : 'factory';
+    const observerType = typeof STRUCTURE_OBSERVER !== 'undefined' ? STRUCTURE_OBSERVER : 'observer';
+    const nukerType = typeof STRUCTURE_NUKER !== 'undefined' ? STRUCTURE_NUKER : 'nuker';
+    expect(Number(counts[STRUCTURE_EXTENSION] || 0)).to.be.at.most(60);
+    expect(Number(counts[factoryType] || 0)).to.be.at.most(1);
+    expect(Number(counts[observerType] || 0)).to.be.at.most(1);
+    expect(Number(counts[nukerType] || 0)).to.be.at.most(1);
+    expect(Number(ranking.extensionOrderTotal || 0)).to.be.at.least(extensionOrder.length);
+    if (extensionOrder.length > 0) {
+      expect(extensionOrder[0]).to.have.property('rank', 1);
+    }
+
+    const roadKeys = new Set(
+      (plan.placements || [])
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
+    const roadTagsByPos = new Map();
+    for (const road of (plan.placements || [])) {
+      if (!road || road.type !== STRUCTURE_ROAD) continue;
+      const k = `${road.x}:${road.y}`;
+      const tags = roadTagsByPos.get(k) || new Set();
+      tags.add(String(road.tag || ''));
+      roadTagsByPos.set(k, tags);
+    }
+    const allowedFoundationRoadTags = new Set([
+      'road.stamp',
+      'road.coreStamp',
+      'road.controllerStamp',
+      'road.grid',
+    ]);
+    const hasAdjacentAllowedFoundationRoad = (x, y) => {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const tags = roadTagsByPos.get(`${x + dx}:${y + dy}`);
+          if (!tags) continue;
+          for (const tag of tags) {
+            if (allowedFoundationRoadTags.has(tag)) return true;
+          }
+        }
+      }
+      return false;
+    };
+    for (const pos of placements) {
+      expect(roadKeys.has(`${pos.x}:${pos.y}`)).to.equal(false);
+      expect(hasAdjacentAllowedFoundationRoad(pos.x, pos.y)).to.equal(true);
+    }
+
+    const pruning = plan.meta && plan.meta.stampPruning ? plan.meta.stampPruning : {};
+    expect(pruning.enabled).to.equal(true);
+    expect(Number(pruning.removedRoadTiles || 0)).to.be.at.least(0);
+
+    const occupied = new Set();
+    for (const pos of (plan.placements || [])) {
+      if (!pos || pos.type === STRUCTURE_ROAD || pos.type === STRUCTURE_RAMPART) continue;
+      occupied.add(`${pos.x}:${pos.y}`);
+    }
+    for (const pos of placements) occupied.add(`${pos.x}:${pos.y}`);
+    const labPreview = plan.meta && plan.meta.labPlanning ? plan.meta.labPlanning : {};
+    for (const lab of Array.isArray(labPreview.sourceLabs) ? labPreview.sourceLabs : []) {
+      occupied.add(`${lab.x}:${lab.y}`);
+    }
+    for (const lab of Array.isArray(labPreview.reactionLabs) ? labPreview.reactionLabs : []) {
+      occupied.add(`${lab.x}:${lab.y}`);
+    }
+    const bigCenters = plan.meta && plan.meta.stampStats && Array.isArray(plan.meta.stampStats.bigCenters)
+      ? plan.meta.stampStats.bigCenters
+      : [];
+    for (const center of bigCenters) {
+      const cross = [
+        `${center.x}:${center.y}`,
+        `${center.x}:${center.y - 1}`,
+        `${center.x - 1}:${center.y}`,
+        `${center.x + 1}:${center.y}`,
+        `${center.x}:${center.y + 1}`,
+      ];
+      expect(cross.some((k) => occupied.has(k))).to.equal(true);
     }
   });
 

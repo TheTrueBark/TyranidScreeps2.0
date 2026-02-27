@@ -520,6 +520,23 @@ const layoutVisualizer = {
           typeof activeCandidatePlan.labPlanning === 'object'
           ? activeCandidatePlan.labPlanning
           : null);
+      const structurePlanningDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.structurePlanning &&
+          typeof basePlan.plannerDebug.structurePlanning === 'object'
+          ? basePlan.plannerDebug.structurePlanning
+          : null) ||
+        (theoretical &&
+          theoretical.structurePlanning &&
+          typeof theoretical.structurePlanning === 'object'
+          ? theoretical.structurePlanning
+          : null) ||
+        (activeCandidatePlan &&
+          activeCandidatePlan.structurePlanning &&
+          typeof activeCandidatePlan.structurePlanning === 'object'
+          ? activeCandidatePlan.structurePlanning
+          : null);
       for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
         addRoadTile(tile.x, tile.y, tile.rcl || null);
       }
@@ -701,6 +718,23 @@ const layoutVisualizer = {
           align: 'center',
         });
       }
+      if (structurePlanningDebug && Array.isArray(structurePlanningDebug.placements)) {
+        for (const placement of structurePlanningDebug.placements) {
+          if (!placement || !placement.type) continue;
+          if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
+          if (typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
+          vis.text(
+            getLabelForCell({ structureType: placement.type, tag: placement.tag || null }),
+            placement.x,
+            placement.y + 0.1,
+            {
+              color: getColor(placement.type),
+              font: 0.52,
+              align: 'center',
+            },
+          );
+        }
+      }
 
       // Draw valid structure positions after roads/ramparts so they remain visible.
       if (validStructureDebug && Array.isArray(validStructureDebug.positions)) {
@@ -740,6 +774,12 @@ const layoutVisualizer = {
         if (labPlanningDebug && Array.isArray(labPlanningDebug.reactionLabs)) {
           for (const pos of labPlanningDebug.reactionLabs) {
             markOccupied(pos && pos.x, pos && pos.y);
+          }
+        }
+        if (structurePlanningDebug && Array.isArray(structurePlanningDebug.placements)) {
+          for (const pos of structurePlanningDebug.placements) {
+            if (!pos || pos.type === TYPES.ROAD || pos.type === TYPES.RAMPART) continue;
+            markOccupied(pos.x, pos.y);
           }
         }
         let shownValidDots = 0;
