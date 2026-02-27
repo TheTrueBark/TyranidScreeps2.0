@@ -25,10 +25,16 @@ describe('layoutPlanner.plan', function() {
     globals.resetMemory();
     Memory.rooms = { W1N1: {} };
     const spawn = { pos: { x: 10, y: 10, roomName: 'W1N1' } };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
       controller: { level: 1, my: true, pos: { x: 20, y: 20 } },
-      find: type => (type === FIND_MY_SPAWNS ? [spawn] : []),
+      find: type => {
+        if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [spawn];
+        if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+        return [];
+      },
       memory: Memory.rooms['W1N1'],
       lookForAt: () => [],
       getTerrain: () => ({ get: () => 0 }),
@@ -36,18 +42,16 @@ describe('layoutPlanner.plan', function() {
     Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
   });
 
-  it('stores anchor and stamps', function() {
-    Memory.settings = { layoutLegacyMode: true };
-    const room = Game.rooms['W1N1'];
+  it('always plans through the theoretical pipeline', function() {
+    Memory.settings = {
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 5,
+    };
     layoutPlanner.plan('W1N1');
-    expect(Memory.rooms['W1N1'].layout.baseAnchor).to.deep.equal({ x: 10, y: 10 });
-    const matrix = Memory.rooms['W1N1'].layout.matrix;
-    expect(matrix['10']['10'].structureType).to.equal(STRUCTURE_SPAWN);
-    expect(matrix['11']['10'].structureType).to.equal(STRUCTURE_EXTENSION);
-    const cell = matrix['10']['10'];
-    expect(cell.plannedBy).to.equal('layoutPlanner');
-    expect(cell.blockedUntil).to.equal(Game.time + 1500);
-    expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(1);
+    expect(Memory.rooms['W1N1'].layout.mode).to.equal('theoretical');
+    expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(2);
+    expect(Memory.rooms['W1N1'].basePlan).to.exist;
   });
 
   it('builds a theoretical, spawn-independent plan when enabled', function() {
@@ -292,9 +296,9 @@ describe('layoutPlanner.plan', function() {
     expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
   });
 
-  it('uses top-5 candidate pipeline in standard mode when harabi pattern is enabled', function() {
+  it('uses configured top-N candidate pipeline in theoretical mode when harabi pattern is enabled', function() {
     Memory.settings = {
-      layoutPlanningMode: 'standard',
+      layoutPlanningMode: 'theoretical',
       layoutExtensionPattern: 'cluster3',
       layoutPlanningTopCandidates: 1,
       layoutPlanningCandidatesPerTick: 1,
@@ -312,9 +316,9 @@ describe('layoutPlanner.plan', function() {
 
     const layout = Memory.rooms['W1N1'].layout;
     expect(layout).to.exist;
-    expect(layout.mode).to.equal('standard');
+    expect(layout.mode).to.equal('theoretical');
     expect(layout.theoreticalPipeline).to.exist;
-    expect(layout.theoreticalPipeline.candidateCount).to.be.at.least(5);
+    expect(layout.theoreticalPipeline.candidateCount).to.be.at.least(1);
     expect(['running', 'completed']).to.include(layout.theoreticalPipeline.status);
   });
 

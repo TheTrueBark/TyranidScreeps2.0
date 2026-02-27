@@ -716,7 +716,7 @@ module.exports = {
     const overlayMode = getOverlayMode();
     if (overlayMode === 'off') return;
     const theoreticalMode =
-      String(settings.layoutPlanningMode || 'standard').toLowerCase() === 'theoretical';
+      String(settings.layoutPlanningMode || 'theoretical').toLowerCase() === 'theoretical';
     const visualsEnabled = Boolean(visualizer.enabled);
 
     if (overlayMode === 'debug') {

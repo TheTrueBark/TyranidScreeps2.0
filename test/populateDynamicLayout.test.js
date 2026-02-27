@@ -4,6 +4,7 @@ const layoutPlanner = require('../layoutPlanner');
 const htm = require('../manager.htm');
 
 global.FIND_MY_SPAWNS = 1;
+global.FIND_SOURCES = 2;
 
 global.STRUCTURE_EXTENSION = 'extension';
 global.STRUCTURE_STORAGE = 'storage';
@@ -20,44 +21,40 @@ describe('layoutPlanner.populateDynamicLayout', function() {
     htm.init();
     Memory.rooms = { W1N1: { layout: { matrix: {}, reserved: {} } } };
     const spawn = { pos: { x: 10, y: 10, roomName: 'W1N1' } };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
       controller: { level: 3, my: true, pos: { x: 20, y: 20 } },
-      find: type => (type === FIND_MY_SPAWNS ? [spawn] : []),
+      find: type => {
+        if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [spawn];
+        if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+        return [];
+      },
       memory: Memory.rooms['W1N1'],
       lookForAt: () => [],
       getTerrain: () => ({ get: () => 0 }),
     };
     Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
-    Memory.settings = { layoutLegacyMode: true };
+    Memory.settings = { layoutPlanningMode: 'theoretical', layoutPlanningTopCandidates: 1, layoutPlanningCandidatesPerTick: 5 };
   });
 
-  it('adds cluster tasks and matrix entries', function() {
+  it('delegates to theoretical planner and writes matrix entries', function() {
     layoutPlanner.populateDynamicLayout('W1N1');
     const matrix = Memory.rooms['W1N1'].layout.matrix;
     expect(Object.keys(matrix).length).to.be.above(0);
-    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
-    const cluster = container.tasks.find(t => t.name === 'BUILD_CLUSTER');
-    const part = container.tasks.find(t => t.name === 'BUILD_LAYOUT_PART');
-    expect(cluster).to.exist;
-    expect(part).to.exist;
-    expect(part.parentTaskId).to.equal('extCluster1');
+    expect(Memory.rooms['W1N1'].layout.mode).to.equal('theoretical');
+    expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(2);
     const firstCell = matrix[Object.keys(matrix)[0]][Object.keys(matrix[Object.keys(matrix)[0]])[0]];
     expect(firstCell).to.have.property('planned', true);
     expect(firstCell).to.have.property('plannedBy', 'layoutPlanner');
     expect(firstCell).to.have.property('blockedUntil');
   });
 
-  it('skips tasks for existing structures', function() {
-    Game.rooms['W1N1'].lookForAt = (type, x, y) =>
-      type === LOOK_STRUCTURES && x === 11 && y === 10
-        ? [{ structureType: STRUCTURE_EXTENSION }]
-        : [];
+  it('still produces a plan when some tiles are occupied', function() {
+    Game.rooms['W1N1'].lookForAt = () => [{ structureType: STRUCTURE_EXTENSION }];
     layoutPlanner.populateDynamicLayout('W1N1');
-    const container = htm._getContainer(htm.LEVELS.COLONY, 'W1N1');
-    const part = container.tasks.find(
-      t => t.name === 'BUILD_LAYOUT_PART' && t.data.x === 11 && t.data.y === 10
-    );
-    expect(part).to.be.undefined;
+    expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(2);
+    expect(Memory.rooms['W1N1'].basePlan).to.exist;
   });
 });

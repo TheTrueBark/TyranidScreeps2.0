@@ -38,7 +38,7 @@ Toggle helpers:
 - `Memory.settings.layoutCandidateOverlayIndex = -1` (selected winner, or a concrete candidate index; internal 0-based)
 
 `visual.layoutLegend(1|0)` toggles the legend quickly from console.
-`visual.layoutMode('theoretical'|'standard')` switches planner mode.
+`visual.layoutMode('theoretical')` keeps planner mode on theoretical.
 `visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'spawnScore'|'candidates'|'evaluation')` switches overlay view.
 `visual.layoutCandidate('selected'|index)` selects which candidate breakdown is shown in overlay views (console index is 1-based).
 

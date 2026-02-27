@@ -170,7 +170,10 @@ if (Memory.settings.cpu.throttleAt.background === undefined) Memory.settings.cpu
 if (Memory.settings.cpu.throttleAt.burstOnly === undefined) Memory.settings.cpu.throttleAt.burstOnly = 9000;
 if (Memory.settings.cpu.emergencyBrakeRatio === undefined) Memory.settings.cpu.emergencyBrakeRatio = 0.85;
 if (Memory.settings.layoutPlanningMode === undefined) {
-  Memory.settings.layoutPlanningMode = 'standard';
+  Memory.settings.layoutPlanningMode = 'theoretical';
+}
+if (String(Memory.settings.layoutPlanningMode).toLowerCase() !== 'theoretical') {
+  Memory.settings.layoutPlanningMode = 'theoretical';
 }
 if (Memory.settings.layoutOverlayView === undefined) {
   Memory.settings.layoutOverlayView = 'plan';
@@ -320,7 +323,7 @@ function applyRuntimeMode(mode, options = {}) {
 
   if (normalized === 'live') {
     Memory.settings.runtimeMode = 'live';
-    Memory.settings.layoutPlanningMode = 'standard';
+    Memory.settings.layoutPlanningMode = 'theoretical';
     Memory.settings.buildPreviewOnly = false;
     Memory.settings.pauseBot = false;
     if (options.keepLayoutOverlay !== true) {
@@ -2346,23 +2349,20 @@ global.visual = {
     }
     console.log(lines.join('\n'));
   },
-  layoutMode: function (mode = 'standard') {
+  layoutMode: function (mode = 'theoretical') {
     if (!Memory.settings) Memory.settings = {};
     const normalized = String(mode || '').toLowerCase();
-    const allowed = ['standard', 'theoretical'];
-    if (!allowed.includes(normalized)) {
+    if (normalized !== 'theoretical') {
       statsConsole.log(
-        "Usage: visual.layoutMode('standard'|'theoretical')",
+        "Usage: visual.layoutMode('theoretical')",
         3,
       );
       return;
     }
-    Memory.settings.layoutPlanningMode = normalized;
-    if (normalized === 'theoretical') {
-      Memory.settings.showLayoutOverlay = true;
-      Memory.settings.enableBaseBuilderPlanning = true;
-    }
-    statsConsole.log(`Layout planning mode: ${normalized.toUpperCase()}`, 2);
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.settings.showLayoutOverlay = true;
+    Memory.settings.enableBaseBuilderPlanning = true;
+    statsConsole.log('Layout planning mode: THEORETICAL', 2);
   },
   layoutView: function (view = 'plan') {
     if (!Memory.settings) Memory.settings = {};
@@ -2587,12 +2587,12 @@ global.visual = {
       null;
     if (!targetName || !Game.rooms[targetName]) {
       statsConsole.log(
-        "Usage: visual.recalculateLayout('W1N1', 'theoretical'|'standard')",
+        "Usage: visual.recalculateLayout('W1N1', 'theoretical')",
         3,
       );
       return false;
     }
-    const targetMode = mode || (Memory.settings && Memory.settings.layoutPlanningMode) || 'standard';
+    const targetMode = 'theoretical';
     const recalcScope = String(scope || (Memory.settings && Memory.settings.layoutPlanningRecalcScope) || 'all').toLowerCase();
     const phaseFromValue = phaseFrom !== null ? Number(phaseFrom) : (Memory.settings && Memory.settings.layoutPlanningDebugPhaseFrom);
     const phaseToValue = phaseTo !== null ? Number(phaseTo) : (Memory.settings && Memory.settings.layoutPlanningDebugPhaseTo);

@@ -19,7 +19,7 @@ Memory.settings.pauseBot = false;
 Memory.settings.buildPreviewOnly = false;
 Memory.settings.showLayoutLegend = true;
 Memory.settings.showLayoutOverlayLabels = false;
-Memory.settings.layoutPlanningMode = 'standard';
+Memory.settings.layoutPlanningMode = 'theoretical';
 Memory.settings.layoutOverlayView = 'plan';
 Memory.settings.allowSavestateRestore = false;
 Memory.settings.maxSavestates = 25;
@@ -107,9 +107,9 @@ Memory.settings.showLayoutLegend = true
 Memory.settings.showLayoutOverlayLabels = true
 ```
 
-### `layoutPlanningMode` (default `'standard'`)
+### `layoutPlanningMode` (default `'theoretical'`)
 ```javascript
-Memory.settings.layoutPlanningMode = 'theoretical' // or 'standard'
+Memory.settings.layoutPlanningMode = 'theoretical'
 ```
 
 ### `layoutOverlayView` (default `'plan'`)
@@ -268,7 +268,6 @@ visual.buildPreview(0) // planner/overlay-only mode off
 visual.layoutLegend(1) // planner legend on
 visual.layoutLegend(0) // planner legend off
 visual.layoutMode('theoretical') // switch planner to theoretical mode
-visual.layoutMode('standard')    // switch planner to standard mode
 visual.layoutView('plan')        // plan view
 visual.layoutView('wallDistance')
 visual.layoutView('controllerDistance')

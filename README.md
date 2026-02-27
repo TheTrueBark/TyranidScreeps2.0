@@ -144,7 +144,7 @@ Toggle in console:
 - Theoretical planner includes optional replay refinement between weighted evaluation and winner selection (Top-N seeds, local mutations, strict score-only acceptance).
 - `visual.layoutRefinement(1|0|'status')` - enable/disable replay refinement and inspect current budget/gate.
 - `visual.layoutRefinementBudget(generations, variants, minBucket)` - tune replay generations, variants per generation, and bucket gate.
-- `Memory.settings.layoutPlanningMode = 'standard'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the normal planner with Harabi stamps via the same Top-5 candidate HTM pipeline (bucket-aware)
+- `Memory.settings.layoutPlanningMode = 'theoretical'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the 3x3-cluster theoretical planner with Harabi stamps via the Top-N candidate HTM pipeline (bucket-aware)
 - `visual.idleGating(1|0)` - enable/disable live idle fast-path
 - `visual.planningHeartbeat(1|0, ticks?)` - enable/disable planning heartbeat and optionally set cadence
 - `visual.cpuPolicy('aggressive'|'balanced'|'conservative')` - apply predefined stop/throttle thresholds

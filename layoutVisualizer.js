@@ -339,7 +339,7 @@ const layoutVisualizer = {
     const start = Game.cpu.getUsed();
     try {
       const vis = new RoomVisual(roomName);
-      const layoutMode = String((Memory.settings && Memory.settings.layoutPlanningMode) || 'standard').toLowerCase();
+      const layoutMode = String((Memory.settings && Memory.settings.layoutPlanningMode) || 'theoretical').toLowerCase();
       const overlayView = String((Memory.settings && Memory.settings.layoutOverlayView) || 'plan').toLowerCase();
       const isTheoretical = room.memory.layout.mode === 'theoretical' || layoutMode === 'theoretical';
 
@@ -442,10 +442,9 @@ const layoutVisualizer = {
           }
           if (cell.structureType === TYPES.RAMPART) {
             addRampartTile(px, py);
+            continue;
           }
-          if (cell.structureType !== TYPES.ROAD && cell.structureType !== TYPES.RAMPART) {
-            drawnStructureKeys.add(`${px}:${py}:${cell.structureType}`);
-          }
+          drawnStructureKeys.add(`${px}:${py}:${cell.structureType}`);
           const color = getColor(cell.structureType);
           vis.text(getLabelForCell(cell), px, py + 0.1, {
             color,
@@ -698,15 +697,11 @@ const layoutVisualizer = {
       }
 
       for (const tile of rampartMap.values()) {
-        if (typeof vis.circle === 'function') {
-          vis.circle(tile.x, tile.y, {
-            radius: 0.34,
-            fill: 'transparent',
-            stroke: getColor(TYPES.RAMPART),
-            strokeWidth: 0.08,
-            opacity: 0.9,
-          });
-        }
+        vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
+          fill: getColor(TYPES.RAMPART),
+          opacity: 0.14,
+          stroke: 'transparent',
+        });
       }
 
       for (const k of labKeys) {

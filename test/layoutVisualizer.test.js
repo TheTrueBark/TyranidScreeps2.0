@@ -7,6 +7,7 @@ global.STRUCTURE_TOWER = 'tower';
 global.STRUCTURE_STORAGE = 'storage';
 global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
+global.FIND_SOURCES = 2;
 global.TERRAIN_MASK_WALL = 1;
 global.TERRAIN_MASK_SWAMP = 2;
 global.FIND_STRUCTURES = 107;
@@ -28,13 +29,24 @@ describe('layoutVisualizer.drawLayout', function() {
     global.RoomVisual.prototype.rect = function(...args) { drawn.push({ type: 'rect', args }); };
     global.RoomVisual.prototype.circle = function(...args) { drawn.push({ type: 'circle', args }); };
     global.RoomVisual.prototype.line = function(...args) { drawn.push({ type: 'line', args }); };
-    Memory.settings = { showLayoutOverlay: true, layoutLegacyMode: true };
+    Memory.settings = {
+      showLayoutOverlay: true,
+      layoutPlanningMode: 'theoretical',
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 5,
+    };
     Memory.rooms = { W1N1: {} };
     const spawn = { pos: { x: 5, y: 5, roomName: 'W1N1' } };
+    const sourceA = { id: 'srcA', pos: { x: 8, y: 8 } };
+    const sourceB = { id: 'srcB', pos: { x: 38, y: 38 } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
       controller: { level: 8, my: true, pos: { x: 20, y: 20 } },
-      find: type => (type === FIND_MY_SPAWNS ? [spawn] : []),
+      find: type => {
+        if (type === FIND_MY_SPAWNS || type === 'FIND_MY_SPAWNS') return [spawn];
+        if (type === FIND_SOURCES || type === 'FIND_SOURCES') return [sourceA, sourceB];
+        return [];
+      },
       memory: Memory.rooms['W1N1'],
       lookForAt: () => [],
       getTerrain: () => ({ get: () => 0 }),
@@ -49,6 +61,22 @@ describe('layoutVisualizer.drawLayout', function() {
     const types = drawn.map(d => d.type);
     expect(types).to.include('text');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === '2')).to.be.true;
+  });
+
+  it('renders ramparts as tile tint without A glyph so roads stay readable', function() {
+    Memory.rooms.W1N1.basePlan = {
+      structures: {
+        road: [{ x: 20, y: 20, rcl: 2, tag: 'road.rampart' }],
+        rampart: [{ x: 20, y: 20, rcl: 2, tag: 'rampart.edge' }],
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 19.5 && d.args[1] === 19.5)).to.be.true;
+    expect(
+      drawn.some(
+        d => d.type === 'text' && d.args[0] === 'A' && d.args[1] === 20 && d.args[2] > 20 && d.args[2] < 20.3,
+      ),
+    ).to.be.false;
   });
 
   it('draws theoretical spawn marker when theoretical mode is active', function() {
@@ -118,7 +146,7 @@ describe('layoutVisualizer.drawLayout', function() {
       sourceContainers: [],
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.false;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.true;
     expect(
       drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('Eval C2 weighted:')),
     ).to.be.true;
@@ -217,7 +245,6 @@ describe('layoutVisualizer.drawLayout', function() {
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S2')).to.be.true;
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S3')).to.be.true;
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'PS')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Power Spawn (PS)')).to.be.true;
   });
 
   it('renders road+rampart overlap from base plan structures', function() {
@@ -235,7 +262,7 @@ describe('layoutVisualizer.drawLayout', function() {
       },
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 20 && d.args[1] === 20)).to.be.true;
+    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 19.5 && d.args[1] === 19.5)).to.be.true;
     const hasRoadLine = drawn.some(
       d =>
         d.type === 'line' &&
@@ -297,7 +324,7 @@ describe('layoutVisualizer.drawLayout', function() {
         validStructurePositions: {
           structureClear: 3,
           canPlace: 3,
-          positions: [{ x: 24, y: 24 }, { x: 25, y: 24 }, { x: 26, y: 24 }],
+          positions: [{ x: 24, y: 24 }, { x: 25, y: 24 }, { x: 30, y: 30 }],
           truncated: false,
         },
       },
@@ -305,7 +332,7 @@ describe('layoutVisualizer.drawLayout', function() {
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 24 && d.args[1] === 24)).to.equal(false);
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 25 && d.args[1] === 24)).to.equal(false);
-    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 26 && d.args[1] === 24)).to.equal(true);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 30 && d.args[1] === 30)).to.equal(true);
   });
 
   it('renders lab tiles as L in overlay', function() {

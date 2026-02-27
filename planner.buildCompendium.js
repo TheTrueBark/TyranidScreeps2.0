@@ -1081,10 +1081,23 @@ function pickBestRampartCut(ctx, storagePos) {
       ? cut.line
       : estimateRampartEnvelopeFromPoints(defensePoints, margin);
     const standoff = computeMinRampartStandoff(ctx.placements, line, storagePos);
+    let exitDistSum = 0;
+    let exitDistMax = 0;
+    let exitDistCount = 0;
+    for (const rp of line) {
+      if (!rp || typeof rp.x !== 'number' || typeof rp.y !== 'number') continue;
+      const dist = Math.max(0, ctx.matrices.exitDistance[idx(rp.x, rp.y)] || 0);
+      exitDistSum += dist;
+      exitDistMax = Math.max(exitDistMax, dist);
+      exitDistCount += 1;
+    }
+    const exitDistAvg = exitDistCount > 0 ? exitDistSum / exitDistCount : 0;
     const underPenalty = standoff < targetStandoff ? (targetStandoff - standoff) * 2000 : 0;
     const overPenalty = standoff > targetStandoff ? (standoff - targetStandoff) * 120 : 0;
     const sizePenalty = line.length * 1.2;
-    const score = underPenalty + overPenalty + sizePenalty;
+    // Prefer cut lines that intercept nearer to room exits instead of hugging only the core.
+    const exitPenalty = exitDistAvg * 8 + exitDistMax * 1.2;
+    const score = underPenalty + overPenalty + sizePenalty + exitPenalty;
     if (!best || score < best.score) {
       best = {
         score,
@@ -2454,24 +2467,38 @@ function buildPlanForAnchor(room, input) {
       });
     }
 
-    // Towers: greedily improve weakest rampart point with spread >= 4.
+    // Towers: greedily improve weakest rampart point, with extra weight on edge ramparts
+    // that are closer to room exits.
     rampartTiles = ctx.placements
       .filter((p) => p.type === STRUCTURES.RAMPART)
-      .map((p) => ({ x: p.x, y: p.y }));
+      .map((p) => ({ x: p.x, y: p.y, tag: p.tag || null }));
     const towerCandidates = floodFromStorage
       .filter((n) => canPlaceStructure(ctx, STRUCTURES.TOWER, n.x, n.y))
       .filter((n) => chebyshev(n, storage) <= 12);
     for (let i = 0; i < 6; i++) {
       const bestTower = findBestByCandidates(towerCandidates, (cand) => {
         if (towers.some((t) => chebyshev(t, cand) < 4)) return -99999;
-        let weakest = Infinity;
+        let weakestWeighted = Infinity;
+        let edgeWeightedSum = 0;
+        let edgeWeightTotal = 0;
         for (const rp of rampartTiles) {
           let dmg = 0;
           for (const t of towers) dmg += computeTowerDamage(chebyshev(t, rp));
           dmg += computeTowerDamage(chebyshev(cand, rp));
-          weakest = Math.min(weakest, dmg);
+          const exitDist = Math.max(0, ctx.matrices.exitDistance[idx(rp.x, rp.y)] || 0);
+          const exitBias = clamp01((10 - exitDist) / 10);
+          const isEdgeRampart = String(rp.tag || '').startsWith('rampart.edge');
+          const weight = isEdgeRampart ? 1.4 + exitBias * 1.6 : 1;
+          const weighted = dmg * weight;
+          weakestWeighted = Math.min(weakestWeighted, weighted);
+          if (isEdgeRampart) {
+            edgeWeightedSum += weighted;
+            edgeWeightTotal += weight;
+          }
         }
-        return weakest === Infinity ? -99999 : weakest;
+        if (weakestWeighted === Infinity) return -99999;
+        const edgeAverage = edgeWeightTotal > 0 ? edgeWeightedSum / edgeWeightTotal : weakestWeighted;
+        return weakestWeighted * 6 + edgeAverage;
       });
       if (!bestTower) break;
       towers.push(bestTower);

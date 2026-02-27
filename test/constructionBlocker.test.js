@@ -9,7 +9,6 @@ global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
 const globals = require('./mocks/globals');
 
-const layoutPlanner = require('../layoutPlanner');
 const blocker = require('../constructionBlocker');
 const htm = require('../manager.htm');
 
@@ -18,8 +17,8 @@ describe('constructionBlocker.isTileBlocked', function() {
     globals.resetGame();
     globals.resetMemory();
     htm.init();
-    Memory.settings = { layoutLegacyMode: true };
-    Memory.rooms = { W1N1: {} };
+    Memory.settings = { layoutPlanningMode: 'theoretical' };
+    Memory.rooms = { W1N1: { layout: { reserved: { 5: { 5: true } } } } };
     const spawn = { pos: { x: 5, y: 5, roomName: 'W1N1' } };
     Game.rooms['W1N1'] = {
       name: 'W1N1',
@@ -30,7 +29,6 @@ describe('constructionBlocker.isTileBlocked', function() {
       getTerrain: () => ({ get: () => 0 }),
     };
     Game.rooms['W1N1'].memory.distanceTransform = new Array(2500).fill(5);
-    layoutPlanner.plan('W1N1');
   });
 
   it('returns true for reserved tiles', function() {

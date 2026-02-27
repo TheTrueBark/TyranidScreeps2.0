@@ -187,7 +187,7 @@ describe('hudManager spawn queue panel', function () {
     Memory.settings = {
       enableVisuals: false,
       showLayoutOverlay: true,
-      layoutPlanningMode: 'standard',
+      layoutPlanningMode: 'theoretical',
     };
     const room = { name: 'W1N1', find: () => [], controller: null };
     hudManager.createHUD(room);

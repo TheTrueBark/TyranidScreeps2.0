@@ -82,7 +82,7 @@ describe('startFresh command', function() {
       runtimeMode: 'maintenance',
       pauseBot: false,
       buildPreviewOnly: false,
-      layoutPlanningMode: 'standard',
+      layoutPlanningMode: 'theoretical',
       enableBaseBuilderPlanning: false,
       overlayMode: 'off',
       enableVisuals: false,
@@ -105,7 +105,7 @@ describe('startFresh command', function() {
   it('prefers maintenance mode when both maintenance and theoretical are requested', function() {
     startFresh({ maintenanceMode: true, theoreticalBuildingMode: true });
     expect(Memory.settings.runtimeMode).to.equal('maintenance');
-    expect(Memory.settings.layoutPlanningMode).to.equal('standard');
+    expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
     expect(Memory.settings.buildPreviewOnly).to.equal(false);
     expect(Memory.settings.overlayMode).to.equal('off');
   });

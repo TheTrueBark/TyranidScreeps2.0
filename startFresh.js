@@ -57,7 +57,6 @@ function startFresh(options = {}) {
     'layoutExtensionPattern',
     'layoutHarabiStage',
     'layoutPlanDumpDebug',
-    'layoutLegacyMode',
     'enableTaskProfiling',
     'enableMemHack',
     'memHackDebug',
@@ -124,7 +123,6 @@ function startFresh(options = {}) {
     Memory.settings.layoutExtensionPattern = normalizedExtensionPattern;
     Memory.settings.layoutHarabiStage = normalizedHarabiStage;
     Memory.settings.layoutPlanDumpDebug = layoutPlanDumpDebug;
-    Memory.settings.layoutLegacyMode = false;
     Memory.settings.layoutRecalculateRequested = 'all';
     Memory.settings.layoutRecalculateMode = 'theoretical';
     Memory.settings.enableTaskProfiling = false;
@@ -148,7 +146,7 @@ function startFresh(options = {}) {
     Memory.settings.runtimeMode = 'maintenance';
     Memory.settings.pauseBot = false;
     Memory.settings.buildPreviewOnly = false;
-    Memory.settings.layoutPlanningMode = 'standard';
+    Memory.settings.layoutPlanningMode = 'theoretical';
     Memory.settings.enableBaseBuilderPlanning = false;
     Memory.settings.overlayMode = 'off';
     Memory.settings.enableVisuals = false;
