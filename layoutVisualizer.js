@@ -543,11 +543,42 @@ const layoutVisualizer = {
           typeof activeCandidatePlan.structurePlanning === 'object'
           ? activeCandidatePlan.structurePlanning
           : null);
+      const rampartPreviewDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.rampartPreview &&
+          typeof basePlan.plannerDebug.rampartPreview === 'object'
+          ? basePlan.plannerDebug.rampartPreview
+          : null) ||
+        (theoretical &&
+          theoretical.rampartPreview &&
+          typeof theoretical.rampartPreview === 'object'
+          ? theoretical.rampartPreview
+          : null) ||
+        (activeCandidatePlan &&
+          activeCandidatePlan.rampartPreview &&
+          typeof activeCandidatePlan.rampartPreview === 'object'
+          ? activeCandidatePlan.rampartPreview
+          : null);
       for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
         addRoadTile(tile.x, tile.y, tile.rcl || null);
       }
       for (const tile of toPlannedCells(basePlan, TYPES.RAMPART)) {
         addRampartTile(tile.x, tile.y);
+      }
+      if (rampartPreviewDebug && Array.isArray(rampartPreviewDebug.edge)) {
+        for (const tile of rampartPreviewDebug.edge) {
+          if (!tile || typeof tile.x !== 'number' || typeof tile.y !== 'number') continue;
+          addRampartTile(tile.x, tile.y);
+          addRoadTile(tile.x, tile.y, 2);
+        }
+      }
+      if (rampartPreviewDebug && Array.isArray(rampartPreviewDebug.outer)) {
+        for (const tile of rampartPreviewDebug.outer) {
+          if (!tile || typeof tile.x !== 'number' || typeof tile.y !== 'number') continue;
+          addRampartTile(tile.x, tile.y);
+          addRoadTile(tile.x, tile.y, 2);
+        }
       }
       if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
         for (const type of Object.keys(basePlan.structures)) {

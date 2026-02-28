@@ -145,6 +145,7 @@ function persistBasePlan(roomName, generated, pipeline) {
       logisticsRoutes: generated && generated.meta ? generated.meta.logisticsRoutes || {} : {},
       labPlanning: generated && generated.meta ? generated.meta.labPlanning || {} : {},
       structurePlanning: generated && generated.meta ? generated.meta.structurePlanning || {} : {},
+      rampartPreview: generated && generated.meta ? generated.meta.rampartPreview || {} : {},
       refinementDebug: generated && generated.meta ? generated.meta.refinementDebug || {} : {},
       validStructurePositions:
         generated && generated.meta ? generated.meta.validStructurePositions || {} : {},
@@ -1432,6 +1433,7 @@ const layoutPlanner = {
       logisticsRoutes: generated.meta.logisticsRoutes || {},
       labPlanning: generated.meta.labPlanning || {},
       structurePlanning: generated.meta.structurePlanning || {},
+      rampartPreview: generated.meta.rampartPreview || {},
       refinementDebug: generated.meta.refinementDebug || {},
       validStructurePositions: generated.meta.validStructurePositions || {},
       defenseScore: generated.meta.defenseScore || 0,
@@ -1456,6 +1458,7 @@ const layoutPlanner = {
       logisticsRoutes: generated.meta.logisticsRoutes || {},
       labPlanning: generated.meta.labPlanning || {},
       structurePlanning: generated.meta.structurePlanning || {},
+      rampartPreview: generated.meta.rampartPreview || {},
       refinementDebug: generated.meta.refinementDebug || {},
       wallDistance: generated.analysis.dt || [],
       controllerDistance: toArrayMap(generated.analysis.controllerDistance || {}),

@@ -193,6 +193,71 @@ describe('build compendium planner', function () {
     expect(plan.meta.roadPruning).to.exist;
   });
 
+  it('places roads under edge ramparts and outer anti-ranged ramparts', function () {
+    const plan = planner.generatePlan('W1N1', { topN: 3 });
+    expect(plan).to.exist;
+    const placements = plan.placements || [];
+    const roads = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
+    const edgeRamparts = placements.filter((p) => p.type === STRUCTURE_RAMPART && p.tag === 'rampart.edge');
+    const outerRamparts = placements.filter(
+      (p) => p.type === STRUCTURE_RAMPART && p.tag === 'rampart.edge.outer',
+    );
+    expect(edgeRamparts.length).to.be.greaterThan(0);
+    expect(outerRamparts.length).to.be.greaterThan(0);
+
+    for (const rp of [...edgeRamparts, ...outerRamparts]) {
+      expect(roads.has(`${rp.x}:${rp.y}`)).to.equal(true);
+    }
+
+    const exitDistance =
+      plan.analysis && Array.isArray(plan.analysis.exitDistance) ? plan.analysis.exitDistance : new Array(2500).fill(0);
+    for (const outer of outerRamparts) {
+      const adjacentEdges = edgeRamparts.filter(
+        (edge) => Math.max(Math.abs(edge.x - outer.x), Math.abs(edge.y - outer.y)) <= 1,
+      );
+      expect(adjacentEdges.length).to.be.greaterThan(0);
+      const outerDist = Number(exitDistance[outer.y * 50 + outer.x] || 0);
+      const nearestEdgeDist = adjacentEdges.reduce(
+        (minDist, edge) => Math.min(minDist, Number(exitDistance[edge.y * 50 + edge.x] || 0)),
+        Infinity,
+      );
+      expect(outerDist).to.be.at.most(nearestEdgeDist);
+    }
+  });
+
+  it('keeps edge ramparts exit-aware when most borders have no exits', function () {
+    Game.rooms.W1N1.getTerrain = function () {
+      const wallMask = typeof TERRAIN_MASK_WALL !== 'undefined' ? TERRAIN_MASK_WALL : 1;
+      return {
+        get(x, y) {
+          const border = x === 0 || x === 49 || y === 0 || y === 49;
+          if (!border) return 0;
+          if (y === 0 && x >= 22 && x <= 27) return 0;
+          return wallMask;
+        },
+      };
+    };
+
+    const plan = planner.generatePlan('W1N1', { topN: 3 });
+    expect(plan).to.exist;
+    const edgeRamparts = (plan.placements || []).filter(
+      (p) => p.type === STRUCTURE_RAMPART && p.tag === 'rampart.edge',
+    );
+    expect(edgeRamparts.length).to.be.greaterThan(0);
+
+    const exitDistance =
+      plan.analysis && Array.isArray(plan.analysis.exitDistance) ? plan.analysis.exitDistance : new Array(2500).fill(99);
+    const maxEdgeExitDistance = edgeRamparts.reduce(
+      (maxDist, rp) => Math.max(maxDist, Number(exitDistance[rp.y * 50 + rp.x] || 0)),
+      0,
+    );
+    expect(maxEdgeExitDistance).to.be.at.most(24);
+  });
+
   it('supports cluster3 foundation road pattern mode', function () {
     const plan = planner.generatePlan('W1N1', {
       topN: 3,
@@ -217,6 +282,9 @@ describe('build compendium planner', function () {
     expect(invalidOverlap).to.deep.equal([]);
     const storage = placements.find((p) => p.type === STRUCTURE_STORAGE);
     expect(storage).to.exist;
+    const rampartPreview = plan.meta && plan.meta.rampartPreview ? plan.meta.rampartPreview : {};
+    expect(Array.isArray(rampartPreview.edge)).to.equal(true);
+    expect(rampartPreview.edge.length).to.be.greaterThan(0);
 
     const checkerboard = require('../algorithm.checkerboard');
     const preferredParity = checkerboard.parityAt(storage.x, storage.y);

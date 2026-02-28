@@ -207,7 +207,7 @@ function canPlaceStructure(ctx, type, x, y, options = {}) {
   if (!inBounds(x, y)) return false;
   const id = idx(x, y);
   if (type !== STRUCTURES.ROAD) {
-    if (ctx.matrices.exitProximity[id] === 1) return false;
+    if (!options.allowExitProximity && ctx.matrices.exitProximity[id] === 1) return false;
     if (!options.ignoreReservation && ctx.reserved.has(key(x, y))) return false;
     if (type !== STRUCTURES.RAMPART && !options.allowOnRoad && ctx.roads.has(key(x, y))) return false;
     if (!options.allowOnBlocked && !isTileWalkableForPlacement(ctx, x, y)) return false;
@@ -1127,6 +1127,103 @@ function buildDefenseCutContext(ctx, storagePos) {
   };
 }
 
+function filterRampartLineByExitAwareness(ctx, line, options = {}) {
+  if (!Array.isArray(line) || line.length === 0) return [];
+  const maxExitSpread = Number.isFinite(options.maxExitSpread)
+    ? Math.max(2, Math.trunc(options.maxExitSpread))
+    : 6;
+  const hardMaxExitDistance = Number.isFinite(options.hardMaxExitDistance)
+    ? Math.max(6, Math.trunc(options.hardMaxExitDistance))
+    : 24;
+  const withDistance = [];
+  for (const rp of line) {
+    if (!rp || typeof rp.x !== 'number' || typeof rp.y !== 'number') continue;
+    if (!inBounds(rp.x, rp.y)) continue;
+    const dist = Number(ctx.matrices.exitDistance[idx(rp.x, rp.y)] || 0);
+    withDistance.push({ x: rp.x, y: rp.y, exitDistance: Math.max(0, dist) });
+  }
+  if (withDistance.length === 0) return [];
+  const minExitDistance = withDistance.reduce(
+    (minValue, tile) => Math.min(minValue, tile.exitDistance),
+    Infinity,
+  );
+  const softMaxExitDistance = Math.min(
+    hardMaxExitDistance,
+    Number.isFinite(minExitDistance) ? minExitDistance + maxExitSpread : hardMaxExitDistance,
+  );
+  const filtered = withDistance.filter((tile) => tile.exitDistance <= softMaxExitDistance);
+  const keep =
+    filtered.length >= Math.max(6, Math.floor(withDistance.length * 0.35))
+      ? filtered
+      : withDistance;
+  const unique = new Map();
+  for (const tile of keep) {
+    unique.set(key(tile.x, tile.y), { x: tile.x, y: tile.y });
+  }
+  return [...unique.values()];
+}
+
+function computeRampartOuterRoadTiles(ctx, rampartLine) {
+  if (!Array.isArray(rampartLine) || rampartLine.length === 0) return [];
+  const outerTiles = new Map();
+  for (const rp of rampartLine) {
+    if (!rp || typeof rp.x !== 'number' || typeof rp.y !== 'number') continue;
+    const currentExitDistance = Number(ctx.matrices.exitDistance[idx(rp.x, rp.y)] || 0);
+    const candidates = neighbors8(rp.x, rp.y)
+      .filter((n) => inBounds(n.x, n.y))
+      .filter((n) => ctx.matrices.walkableMatrix[idx(n.x, n.y)] === 1)
+      .filter((n) => ctx.matrices.staticBlocked[idx(n.x, n.y)] !== 1)
+      .map((n) => ({
+        x: n.x,
+        y: n.y,
+        exitDistance: Number(ctx.matrices.exitDistance[idx(n.x, n.y)] || 0),
+      }))
+      .filter((n) => n.exitDistance < currentExitDistance)
+      .sort((a, b) => a.exitDistance - b.exitDistance || manhattan(a, rp) - manhattan(b, rp));
+    if (!candidates.length) continue;
+    const selected = candidates[0];
+    outerTiles.set(key(selected.x, selected.y), { x: selected.x, y: selected.y });
+  }
+  return [...outerTiles.values()];
+}
+
+function normalizeRampartLinePlacements(ctx, rampartLine) {
+  if (!Array.isArray(rampartLine) || rampartLine.length === 0) return [];
+  const normalized = new Map();
+  for (const rp of rampartLine) {
+    if (!rp || typeof rp.x !== 'number' || typeof rp.y !== 'number') continue;
+    if (
+      canPlaceStructure(ctx, STRUCTURES.RAMPART, rp.x, rp.y, {
+        ignoreReservation: true,
+        allowExitProximity: true,
+      })
+    ) {
+      normalized.set(key(rp.x, rp.y), { x: rp.x, y: rp.y });
+      continue;
+    }
+    const rpExitDistance = Number(ctx.matrices.exitDistance[idx(rp.x, rp.y)] || 0);
+    const relocation = neighbors8(rp.x, rp.y)
+      .filter((n) => inBounds(n.x, n.y))
+      .filter((n) =>
+        canPlaceStructure(ctx, STRUCTURES.RAMPART, n.x, n.y, {
+          ignoreReservation: true,
+          allowExitProximity: true,
+        }),
+      )
+      .map((n) => ({
+        x: n.x,
+        y: n.y,
+        exitDistance: Number(ctx.matrices.exitDistance[idx(n.x, n.y)] || 0),
+      }))
+      .filter((n) => n.exitDistance <= rpExitDistance + 2)
+      .sort((a, b) => a.exitDistance - b.exitDistance || manhattan(a, rp) - manhattan(b, rp));
+    if (!relocation.length) continue;
+    const picked = relocation[0];
+    normalized.set(key(picked.x, picked.y), { x: picked.x, y: picked.y });
+  }
+  return [...normalized.values()];
+}
+
 function pickBestRampartCut(ctx, storagePos) {
   const defenseCtx = buildDefenseCutContext(ctx, storagePos);
   const defensePoints = [...defenseCtx.structuresByPos.keys()].map(parseKey);
@@ -1142,9 +1239,13 @@ function pickBestRampartCut(ctx, storagePos) {
   let best = null;
   for (let margin = 3; margin <= 8; margin++) {
     const cut = minCutAlgorithm.computeRampartCut(defenseCtx, { margin });
-    const line = cut.line && cut.line.length
+    const rawLine = cut.line && cut.line.length
       ? cut.line
       : estimateRampartEnvelopeFromPoints(defensePoints, margin);
+    const line = filterRampartLineByExitAwareness(ctx, rawLine, {
+      maxExitSpread: 6,
+      hardMaxExitDistance: 24,
+    });
     const standoff = computeMinRampartStandoff(ctx.placements, line, storagePos);
     let exitDistSum = 0;
     let exitDistMax = 0;
@@ -1593,8 +1694,8 @@ function buildCandidateSet(roomName, options = {}) {
   }
 
   const dt = ensureDistanceTransform(room);
-  const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
-  const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
+  const sources = findFirstNonEmpty(room, ['FIND_SOURCES', FIND_SOURCES_CONST, 1]);
+  const minerals = findFirstNonEmpty(room, ['FIND_MINERALS', FIND_MINERALS_CONST, 2]);
   const mineral = minerals.length > 0 ? minerals[0] : null;
 
   const matrices = buildTerrainMatrices(room);
@@ -2505,17 +2606,29 @@ function buildPlanForAnchor(room, input) {
   // Rampart line proxy + ramparts over critical structures + controller ring.
   let rampartTiles = [];
   const towers = [];
+  const rampartCut = pickBestRampartCut(ctx, storage);
+  const rampartLine = normalizeRampartLinePlacements(ctx, rampartCut.line || []);
+  const outerRampartRoadTiles = computeRampartOuterRoadTiles(ctx, rampartLine);
+  ctx.meta.rampartPreview = {
+    edge: rampartLine.map((p) => ({ x: p.x, y: p.y })),
+    outer: outerRampartRoadTiles.map((p) => ({ x: p.x, y: p.y })),
+    margin: rampartCut.margin,
+    standoff: rampartCut.standoff,
+    minCut: rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin },
+  };
   if (!foundationOnly) {
-    const rampartCut = pickBestRampartCut(ctx, storage);
-    const rampartLine = rampartCut.line || [];
     ctx.meta.rampartMargin = rampartCut.margin;
     ctx.meta.rampartStandoff = rampartCut.standoff;
     ctx.meta.minCut = rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin };
     for (const rp of rampartLine) {
       addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', {
-        allowOnBlocked: true,
+        allowExitProximity: true,
       });
     }
+    for (const outerRoad of outerRampartRoadTiles) {
+      addPlacement(ctx, STRUCTURES.RAMPART, outerRoad.x, outerRoad.y, 2, 'rampart.edge.outer');
+    }
+    ctx.meta.rampartOuterRoadTiles = outerRampartRoadTiles;
     for (const p of ctx.placements) {
       if (
         p.type === STRUCTURES.SPAWN ||
@@ -2756,6 +2869,10 @@ function buildPlanForAnchor(room, input) {
   };
   const protectedRoads = new Set();
   const preferredRoads = new Set();
+  for (const rp of rampartTiles) {
+    if (!rp || typeof rp.x !== 'number' || typeof rp.y !== 'number') continue;
+    protectedRoads.add(key(rp.x, rp.y));
+  }
   const sourceRoadAnchorById = new Map();
   for (const anchor of sourceRoadAnchors) {
     if (!anchor || !anchor.sourceId) continue;
@@ -3603,8 +3720,8 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
   if (!room || !room.controller || !room.controller.my) return null;
 
   const dt = ensureDistanceTransform(room);
-  const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
-  const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
+  const sources = findFirstNonEmpty(room, ['FIND_SOURCES', FIND_SOURCES_CONST, 1]);
+  const minerals = findFirstNonEmpty(room, ['FIND_MINERALS', FIND_MINERALS_CONST, 2]);
   const mineral = minerals.length > 0 ? minerals[0] : null;
 
   const matrices = buildTerrainMatrices(room);

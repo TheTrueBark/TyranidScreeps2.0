@@ -275,6 +275,32 @@ describe('layoutVisualizer.drawLayout', function() {
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Road + Rampart Overlap')).to.be.true;
   });
 
+  it('renders rampart preview tiles from planner debug even without matrix ramparts', function() {
+    Memory.rooms.W1N1.layout.matrix = {};
+    Memory.rooms.W1N1.basePlan = {
+      plannerDebug: {
+        rampartPreview: {
+          edge: [{ x: 21, y: 21 }],
+          outer: [{ x: 21, y: 20 }],
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 20.5 && d.args[1] === 20.5)).to.equal(true);
+    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 20.5 && d.args[1] === 19.5)).to.equal(true);
+    const hasRoadAtEdge = drawn.some(
+      d =>
+        d.type === 'line' &&
+        ((d.args[0] === 21 && d.args[1] === 21) || (d.args[2] === 21 && d.args[3] === 21)),
+    );
+    const hasRoadAtOuter = drawn.some(
+      d =>
+        d.type === 'line' &&
+        ((d.args[0] === 21 && d.args[1] === 20) || (d.args[2] === 21 && d.args[3] === 20)),
+    );
+    expect(hasRoadAtEdge || hasRoadAtOuter).to.equal(true);
+  });
+
   it('renders valid structure debug dots when planner debug positions exist', function() {
     Memory.rooms.W1N1.basePlan = Memory.rooms.W1N1.basePlan || {};
     Memory.rooms.W1N1.basePlan.plannerDebug = {
