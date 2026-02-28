@@ -28,6 +28,7 @@ const introspect = require('./debug.introspection');
 const savestate = require('./debug.savestate');
 const incidentDebug = require('./debug.incident');
 const layoutDumpDebug = require('./debug.layoutDump');
+const builderPreset = require('./debug.builderPreset');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const intentPipeline = require('./manager.intentPipeline');
@@ -362,6 +363,39 @@ function processPendingLayoutRecalculation() {
   if (intentPipeline.consumeLayoutRecalcRequest()) {
     statsConsole.log('Layout recalculation intents queued.', 2);
   }
+}
+
+function runHudPassForTick(tickCtx, profile = { parent: 'Main Loop', reason: 'hud-pass' }) {
+  const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+  const cpuBucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 10000;
+  const bucketFloorMet = cpuBucket >= 2000;
+  const shouldRunHudPass =
+    overlayMode !== 'off' &&
+    (
+      overlayMode === 'debug' ||
+      Boolean(Memory.settings && Memory.settings.enableVisuals) ||
+      Boolean(Memory.settings && Memory.settings.showHtmOverlay)
+    );
+
+  let hudPassCpu = 0;
+  if (shouldRunHudPass && bucketFloorMet) {
+    hudPassCpu = recordTickPhase(tickCtx, 'execution-hud', () => {
+      const hudStart = Game.cpu.getUsed();
+      for (const roomName in Game.rooms) {
+        const room = Game.rooms[roomName];
+        hudManager.createHUD(room);
+      }
+      return Game.cpu.getUsed() - hudStart;
+    });
+  } else {
+    tickCtx.phases['execution-hud'] = { cpu: 0, notes: shouldRunHudPass ? 'skipped-low-bucket' : 'skipped-overlay-off' };
+  }
+
+  logProfileEntry('Main Loop::HUD Pass', hudPassCpu, {
+    parent: profile.parent || 'Main Loop',
+    reason: profile.reason || 'hud-pass',
+  });
+  return hudPassCpu;
 }
 
 function drawAsciiConsole() {
@@ -1920,6 +1954,17 @@ global.visual = {
       );
     }
   },
+  builderDebugOn: function () {
+    const settings = builderPreset.enableBuilderDebugPreset();
+    const mode = String((settings && settings.runtimeMode) || 'unknown');
+    const paused = Boolean(settings && settings.pauseBot);
+    const pattern = String((settings && settings.layoutExtensionPattern) || 'parity');
+    statsConsole.log(
+      `Builder debug preset enabled (mode=${mode}, pause=${paused}, pattern=${pattern}).`,
+      2,
+    );
+    return settings;
+  },
   layoutLegend: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
     if (toggle === 1) {
@@ -2424,6 +2469,38 @@ global.visual = {
       `Layout candidate overlay index: ${resolvedIndex + 1}`,
       2,
     );
+  },
+  layoutTopCandidates: function (value = 'status') {
+    if (!Memory.settings) Memory.settings = {};
+    const current = Math.max(1, Math.floor(Number(Memory.settings.layoutPlanningTopCandidates) || 5));
+    if (value === 'status' || value === undefined || value === null || value === '') {
+      statsConsole.log(`Layout top candidates: ${current}`, 2);
+      return current;
+    }
+
+    let next = current;
+    const normalized = String(value).toLowerCase();
+    if (normalized === 'full') {
+      next = 5;
+    } else {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        statsConsole.log("Usage: visual.layoutTopCandidates('full'|<count>|'status')", 3);
+        return current;
+      }
+      next = Math.max(1, Math.min(5, Math.floor(parsed)));
+    }
+
+    Memory.settings.layoutPlanningTopCandidates = next;
+    const ownedRooms = Object.values(Game.rooms || {}).filter(
+      (room) => room && room.controller && room.controller.my,
+    );
+    for (const room of ownedRooms) {
+      intentPipeline.queuePlanStart(room.name, 'layout-top-candidates');
+      intentPipeline.queueOverlayRefresh(room.name, 'layout-top-candidates');
+    }
+    statsConsole.log(`Layout top candidates set to ${next} (${normalized === 'full' ? 'full' : 'custom'})`, 2);
+    return next;
   },
   layoutHudOffset: function (value = null) {
     if (!Memory.settings) Memory.settings = {};
@@ -3130,11 +3207,15 @@ function runMainLoop(loopStartCpu = 0) {
     tickCtx.phases['execution-room-managers'] = { cpu: 0, notes: 'skipped-idle' };
     tickCtx.phases['execution-creeps'] = { cpu: 0, notes: 'skipped-idle' };
     tickCtx.phases['execution-movement'] = { cpu: 0, notes: 'skipped-idle' };
-    tickCtx.phases['execution-hud'] = { cpu: 0, notes: 'skipped-idle' };
+    const idleHudCpu = runHudPassForTick(tickCtx, {
+      parent: 'Main Loop',
+      reason: 'idle-hud',
+    });
     const totalCPUUsage = Game.cpu.getUsed() - startCPU;
     myStats = [
       ["Mode", 1],
       ["State", 1],
+      ["HUD", idleHudCpu],
       ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
       ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
       ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
@@ -3188,6 +3269,10 @@ function runMainLoop(loopStartCpu = 0) {
       parent: 'Preview Pipeline',
       reason: 'preview',
     });
+    const hudPassCpu = runHudPassForTick(tickCtx, {
+      parent: 'Preview Pipeline',
+      reason: 'preview',
+    });
     if (Game.cpu.bucket >= 1000 && Game.time % 5 === 0) {
       const consoleStart = Game.cpu.getUsed();
       drawAsciiConsole();
@@ -3215,6 +3300,7 @@ function runMainLoop(loopStartCpu = 0) {
       ["Intent Sync", intentCpu.sync],
       ["Intent HUD", intentCpu.hud],
       ["Intent Other", intentCpu.other],
+      ["Preview HUD", hudPassCpu],
       ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
       ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
       ["MemHack", Memory.settings && Memory.settings.enableMemHack !== false ? 1 : 0],
@@ -3369,31 +3455,7 @@ function runMainLoop(loopStartCpu = 0) {
   });
 
   // Run late tick management
-  let hudPassCpu = 0;
-  const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
-  const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
-  const cpuBucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 10000;
-  const forceHudInTheoretical = runtimeMode === 'theoretical' && cpuBucket >= 2000;
-  const shouldRunHudPass =
-    overlayMode !== 'off' &&
-    (
-      overlayMode === 'debug' ||
-      Boolean(Memory.settings && Memory.settings.enableVisuals) ||
-      Boolean(Memory.settings && Memory.settings.showHtmOverlay)
-    );
-  if (shouldRunHudPass && (!tickPipeline.hardStopReached(tickCtx, 2) || forceHudInTheoretical)) {
-    hudPassCpu = recordTickPhase(tickCtx, 'execution-hud', () => {
-      const hudStart = Game.cpu.getUsed();
-      for (const roomName in Game.rooms) {
-        const room = Game.rooms[roomName];
-        hudManager.createHUD(room);
-      }
-      return Game.cpu.getUsed() - hudStart;
-    });
-  } else {
-    tickCtx.phases['execution-hud'] = { cpu: 0, notes: 'skipped-hard-stop' };
-  }
-  logProfileEntry('Main Loop::HUD Pass', hudPassCpu, {
+  const hudPassCpu = runHudPassForTick(tickCtx, {
     parent: 'Main Loop',
     reason: 'hud-pass',
   });

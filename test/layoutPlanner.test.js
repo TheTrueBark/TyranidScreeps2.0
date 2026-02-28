@@ -262,13 +262,9 @@ describe('layoutPlanner.plan', function() {
     layoutPlanner.buildTheoreticalLayout('W1N1');
     const current = Memory.rooms['W1N1'].layout.currentDisplayCandidateIndex;
     const candidates = Memory.rooms['W1N1'].layout.theoretical.candidates || [];
-    const indices = candidates.map((c) => c.index);
-    if (indices.includes(1)) {
-      expect(current).to.equal(1);
-    } else {
-      expect(current).to.be.a('number');
-      expect(indices.includes(current)).to.equal(true);
-    }
+    const sortedIndices = candidates.map((c) => c.index).sort((a, b) => a - b);
+    expect(sortedIndices.length).to.be.greaterThan(1);
+    expect(current).to.equal(sortedIndices[1]);
   });
 
   it('passes layout extension pattern setting to theoretical planner and enforces foundation stage', function() {

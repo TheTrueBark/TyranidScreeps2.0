@@ -136,6 +136,7 @@ Registration failures are captured in `Memory.stats.profilerRegistry` and do not
 Toggle in console:
 
 - `visual.runMode('live'|'theoretical'|'maintenance')` - switch runtime pipeline mode
+- `visual.builderDebugOn()` - one-command builder debug preset (theoretical + paused + cluster3 + overlay debug flags)
 - `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' })` - wipe memory and boot into theoretical planner mode with Harabi-style diagonal 2x2 road grid pattern
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging (Harabi stage is foundation-only at runtime)
@@ -144,6 +145,7 @@ Toggle in console:
 - Theoretical planner includes optional replay refinement between weighted evaluation and winner selection (Top-N seeds, local mutations, strict score-only acceptance).
 - `visual.layoutRefinement(1|0|'status')` - enable/disable replay refinement and inspect current budget/gate.
 - `visual.layoutRefinementBudget(generations, variants, minBucket)` - tune replay generations, variants per generation, and bucket gate.
+- `visual.layoutTopCandidates('full'|count|'status')` - set candidate breadth (`full` = top 5)
 - `Memory.settings.layoutPlanningMode = 'theoretical'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the 3x3-cluster theoretical planner with Harabi stamps via the Top-N candidate HTM pipeline (bucket-aware)
 - `visual.idleGating(1|0)` - enable/disable live idle fast-path
 - `visual.planningHeartbeat(1|0, ticks?)` - enable/disable planning heartbeat and optionally set cadence
@@ -163,6 +165,7 @@ Toggle in console:
 - `visual.profilingDump(tick?)` - print raw `Game.profiler.output(...)` snapshot to console
 - `visual.profilingExplain(tick?)` - print top raw profiler functions from `Memory.profiler.map`
 - `visual.htmLastLog(count?, tick?)` - print latest raw HTM profiling entries (`HTM::...`) for debugging
+- HUD/overlay rendering is decoupled from planning/execution and runs every tick when overlay is enabled and CPU bucket is at least 2000.
 
 Maintenance mode (`visual.runMode('maintenance')`) runs strict minimal runtime only:
 - no scheduler/live/planner/HTM execution

@@ -278,6 +278,9 @@ visual.layoutView('candidates')
 visual.layoutView('evaluation')
 visual.layoutCandidate('selected')
 visual.layoutCandidate(2)       // show candidate #2 in evaluation overlay (1-based command input)
+visual.layoutTopCandidates('full')      // full candidate set (top 5)
+visual.layoutTopCandidates(3)           // clamp theoretical set to top 3
+visual.layoutTopCandidates('status')    // show current top-N setting
 visual.layoutBatching('dynamic', 1, 25) // bucket-aware burst planning
 visual.layoutBatching('static', 2, 2)   // fixed candidate batch size
 visual.layoutPhaseWindow(4, 8)          // focus HUD/checklist on placement+evaluation phases
@@ -298,6 +301,7 @@ debug.showSchedule()   // print scheduler jobs
 debug.memoryStatus()   // print memory schema info
 debug.setSpawnLimit('W1N1', 'hauler', 3)
 debug.setSpawnLimit('W1N1', 'hauler', 'auto')
+visual.builderDebugOn() // recommended: theoretical + paused + cluster3 + debug overlay flags
 startFresh()
 startFresh(true)
 startFresh({ theoreticalBuildingMode: true })
@@ -317,6 +321,12 @@ can rebuild state from scratch.
 theoretical planning mode (`buildPreviewOnly`, layout overlay, legend, labels,
 theoretical planner mode + default plan view). It also schedules a full
 layout recalculation for all owned rooms on the next tick.
+
+Suggested quick command for builder debugging:
+
+```javascript
+startFresh({ theoreticalBuildingMode: true, pause: true, extensionPattern: 'cluster3' })
+```
 
 `startFresh({ ..., layoutPlanDumpDebug: true })` enables opt-in planner dump output support.
 After a plan is generated, run `layoutPlanDump('W1N1')` to print:
@@ -345,3 +355,6 @@ To keep visual debugging usable after a wipe, these settings are preserved and r
 - `layoutPlanningMaxCandidatesPerTick`
 - `layoutPlanningDynamicBatching`
 - `layoutPlanningReplanInterval`
+
+Note: HUD/overlay rendering is decoupled from planning/execution and runs every tick
+while overlay is enabled and `Game.cpu.bucket >= 2000`.

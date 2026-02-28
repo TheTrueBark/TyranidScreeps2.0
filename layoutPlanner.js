@@ -1109,8 +1109,13 @@ const layoutPlanner = {
         ? Memory.settings.layoutCandidateOverlayIndex
         : -1;
 
-    if (preferred >= 0 && available.includes(preferred)) {
-      return preferred;
+    if (preferred >= 0) {
+      if (preferred < available.length) {
+        return available[preferred];
+      }
+      if (available.includes(preferred)) {
+        return preferred;
+      }
     }
 
     const selected =

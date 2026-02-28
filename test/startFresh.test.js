@@ -126,6 +126,16 @@ describe('startFresh command', function() {
     expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
   });
 
+  it('supports quick paused theoretical cluster3 setup', function() {
+    startFresh({ theoreticalBuildingMode: true, pause: true, extensionPattern: 'cluster3' });
+    expect(Memory.settings.runtimeMode).to.equal('theoretical');
+    expect(Memory.settings.pauseBot).to.equal(true);
+    expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
+    expect(Memory.settings.showLayoutOverlay).to.equal(true);
+    expect(Memory.settings.showLayoutLegend).to.equal(true);
+    expect(Memory.settings.showLayoutOverlayLabels).to.equal(true);
+  });
+
   it('supports opt-in layout plan dump debug mode in theoretical mode', function() {
     startFresh({
       theoreticalBuildingMode: true,

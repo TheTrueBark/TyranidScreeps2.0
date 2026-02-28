@@ -98,7 +98,14 @@ function resolveCandidateIndex(theoretical, preferredIndex) {
     : [];
   if (!candidates.length) return null;
 
+  const sorted = candidates
+    .slice()
+    .sort((a, b) => Number(a.index || 0) - Number(b.index || 0));
+
   if (typeof preferredIndex === 'number' && Number.isFinite(preferredIndex) && preferredIndex >= 0) {
+    if (preferredIndex < sorted.length) {
+      return sorted[preferredIndex].index;
+    }
     const exact = candidates.find((c) => c.index === preferredIndex);
     if (exact) return preferredIndex;
   }
@@ -111,7 +118,7 @@ function resolveCandidateIndex(theoretical, preferredIndex) {
     return theoretical.selectedCandidateIndex;
   }
 
-  return candidates[0].index;
+  return sorted[0].index;
 }
 
 function stageIndicator(stage = {}) {

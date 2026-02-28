@@ -390,6 +390,51 @@ describe('build compendium planner', function () {
     }
   });
 
+  it('places a complete controller 3x3 stamp ring in cluster3 foundation stage', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    const placements = plan.placements || [];
+    const controllerRingRoads = placements.filter(
+      (p) => p.type === STRUCTURE_ROAD && p.tag === 'road.controllerStamp',
+    );
+    const controllerLink = placements.find((p) => p.tag === 'controller.link');
+    if (controllerLink) {
+      expect(controllerRingRoads.length).to.equal(8);
+      for (const road of controllerRingRoads) {
+        const range = Math.max(
+          Math.abs(road.x - Game.rooms.W1N1.controller.pos.x),
+          Math.abs(road.y - Game.rooms.W1N1.controller.pos.y),
+        );
+        expect(range).to.be.at.most(3);
+        expect(
+          Math.max(
+            Math.abs(road.x - controllerLink.x),
+            Math.abs(road.y - controllerLink.y),
+          ),
+        ).to.equal(1);
+      }
+    } else {
+      expect(controllerRingRoads.length).to.equal(0);
+      expect((plan.meta.validation || []).includes('controller-stamp-missing')).to.equal(true);
+    }
+  });
+
+  it('keeps source/resource logistics roads connected from storage', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    const logistics = plan.meta && plan.meta.logisticsRoutes ? plan.meta.logisticsRoutes : {};
+    expect(Number(logistics.required || 0)).to.be.at.least(1);
+    expect(Number(logistics.connected || 0)).to.equal(Number(logistics.required || 0));
+    expect(Array.isArray(logistics.missing) ? logistics.missing.length : 0).to.equal(0);
+    expect((plan.meta.validation || []).some((v) => String(v).startsWith('missing-logistics-route:'))).to.equal(false);
+  });
+
   it('computes a central 10-lab preview cluster with valid source-lab range constraints on foundation', function () {
     const plan = planner.generatePlan('W1N1', {
       topN: 3,
@@ -461,6 +506,10 @@ describe('build compendium planner', function () {
     expect(Number(ranking.extensionOrderTotal || 0)).to.be.at.least(extensionOrder.length);
     if (extensionOrder.length > 0) {
       expect(extensionOrder[0]).to.have.property('rank', 1);
+      expect(extensionOrder[0]).to.have.property('wallAffinity');
+      expect(extensionOrder[0]).to.have.property('openNeighbors');
+      expect(extensionOrder[0]).to.have.property('compactnessR2');
+      expect(extensionOrder[0]).to.have.property('edgeProximity');
     }
 
     const roadKeys = new Set(
@@ -516,6 +565,44 @@ describe('build compendium planner', function () {
     }
     for (const lab of Array.isArray(labPreview.reactionLabs) ? labPreview.reactionLabs : []) {
       occupied.add(`${lab.x}:${lab.y}`);
+    }
+    const bigCenters = plan.meta && plan.meta.stampStats && Array.isArray(plan.meta.stampStats.bigCenters)
+      ? plan.meta.stampStats.bigCenters
+      : [];
+    for (const center of bigCenters) {
+      const cross = [
+        `${center.x}:${center.y}`,
+        `${center.x}:${center.y - 1}`,
+        `${center.x - 1}:${center.y}`,
+        `${center.x + 1}:${center.y}`,
+        `${center.x}:${center.y + 1}`,
+      ];
+      expect(cross.some((k) => occupied.has(k))).to.equal(true);
+    }
+  });
+
+  it('prunes empty big/small road stamps against final foundation preview occupancy', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      extensionPattern: 'cluster3',
+      harabiStage: 'foundation',
+    });
+    const pruning = plan.meta && plan.meta.stampPruning ? plan.meta.stampPruning : {};
+    expect(pruning.enabled).to.equal(true);
+
+    const planning = plan.meta && plan.meta.structurePlanning ? plan.meta.structurePlanning : {};
+    const planningPlacements = Array.isArray(planning.placements) ? planning.placements : [];
+    const occupied = new Set(planningPlacements.map((p) => `${p.x}:${p.y}`));
+    for (const p of (plan.placements || [])) {
+      if (!p || p.type === STRUCTURE_ROAD || p.type === STRUCTURE_RAMPART) continue;
+      occupied.add(`${p.x}:${p.y}`);
+    }
+    const labPlanning = plan.meta && plan.meta.labPlanning ? plan.meta.labPlanning : {};
+    for (const lab of (Array.isArray(labPlanning.sourceLabs) ? labPlanning.sourceLabs : [])) {
+      if (lab && typeof lab.x === 'number' && typeof lab.y === 'number') occupied.add(`${lab.x}:${lab.y}`);
+    }
+    for (const lab of (Array.isArray(labPlanning.reactionLabs) ? labPlanning.reactionLabs : [])) {
+      if (lab && typeof lab.x === 'number' && typeof lab.y === 'number') occupied.add(`${lab.x}:${lab.y}`);
     }
     const bigCenters = plan.meta && plan.meta.stampStats && Array.isArray(plan.meta.stampStats.bigCenters)
       ? plan.meta.stampStats.bigCenters

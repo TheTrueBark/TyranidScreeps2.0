@@ -267,6 +267,21 @@ function countWalkableNeighbors(ctx, x, y) {
   return count;
 }
 
+function countWalkableInRadius(ctx, x, y, radius) {
+  let count = 0;
+  const r = Math.max(0, Math.trunc(radius));
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const px = x + dx;
+      const py = y + dy;
+      if (!inBounds(px, py)) continue;
+      if (isTileWalkableForPlacement(ctx, px, py)) count += 1;
+    }
+  }
+  return count;
+}
+
 function findBestByCandidates(candidates, scorer) {
   let best = null;
   let bestScore = -Infinity;
@@ -737,6 +752,7 @@ function planFoundationStructurePreview(
   const excludedKeys = options.excludedKeys instanceof Set ? options.excludedKeys : new Set();
   const depthLimit = Number.isFinite(options.depthLimit) ? Number(options.depthLimit) : 14;
   const slotOrderShift = Number.isFinite(options.slotOrderShift) ? Number(options.slotOrderShift) : 0;
+  const distanceTransform = Array.isArray(options.distanceTransform) ? options.distanceTransform : null;
   const spawnReference =
     options.spawnReference &&
     typeof options.spawnReference.x === 'number' &&
@@ -775,6 +791,25 @@ function planFoundationStructurePreview(
     if (patternType !== 'structure' && !centerOverrideKeys.has(k)) continue;
     if (!neighbors8(node.x, node.y).some((n) => ctx.roads.has(key(n.x, n.y)))) continue;
     if (!canPlaceStructure(ctx, STRUCTURES.EXTENSION, node.x, node.y)) continue;
+    const openNeighbors = countWalkableNeighbors(ctx, node.x, node.y);
+    const nearWallNeighbors = Math.max(0, 8 - openNeighbors);
+    const dtValue =
+      distanceTransform && Number.isFinite(Number(distanceTransform[idx(node.x, node.y)]))
+        ? Number(distanceTransform[idx(node.x, node.y)])
+        : 0;
+    const dtWallProximity = Math.max(0, 8 - Math.max(0, dtValue));
+    const exitDistance = Number(ctx.matrices.exitDistance[idx(node.x, node.y)] || 0);
+    const exitGuard = Math.max(0, Math.min(6, exitDistance));
+    const walkableRadius2 = countWalkableInRadius(ctx, node.x, node.y, 2);
+    const compactnessR2 = Math.max(0, 24 - walkableRadius2);
+    const edgeDistance = Math.min(node.x, 49 - node.x, node.y, 49 - node.y);
+    const edgeProximity = Math.max(0, 18 - edgeDistance);
+    const wallAffinity =
+      nearWallNeighbors * 8 +
+      dtWallProximity * 7 +
+      compactnessR2 * 3 +
+      edgeProximity * 2 +
+      Math.max(0, 4 - exitGuard);
     candidates.push({
       x: node.x,
       y: node.y,
@@ -782,6 +817,13 @@ function planFoundationStructurePreview(
       centerBonus: centerOverrideKeys.has(k) ? 1 : 0,
       stampBucket: crossSlotToBucket.get(k) || null,
       spawnDist: chebyshev(node, spawnReference),
+      openNeighbors,
+      wallAffinity,
+      dtWallProximity,
+      dtValue,
+      compactnessR2,
+      edgeProximity,
+      exitDistance,
     });
   }
 
@@ -795,6 +837,8 @@ function planFoundationStructurePreview(
         id: bucketId,
         candidates: [],
         minSpawnDist: Number(candidate && candidate.spawnDist ? candidate.spawnDist : 999),
+        maxWallAffinity: Number(candidate && candidate.wallAffinity ? candidate.wallAffinity : 0),
+        avgWallAffinity: 0,
       });
     }
     return bucketById.get(bucketId);
@@ -805,25 +849,41 @@ function planFoundationStructurePreview(
     const bucket = ensureBucket(bucketId, candidate);
     bucket.candidates.push(candidate);
     bucket.minSpawnDist = Math.min(bucket.minSpawnDist, Number(candidate.spawnDist || 999));
+    bucket.maxWallAffinity = Math.max(bucket.maxWallAffinity, Number(candidate.wallAffinity || 0));
   }
   for (const bucket of bucketById.values()) {
+    const affinitySum = bucket.candidates.reduce((sum, c) => sum + Number(c.wallAffinity || 0), 0);
+    bucket.avgWallAffinity = bucket.candidates.length > 0 ? affinitySum / bucket.candidates.length : 0;
     bucket.candidates.sort(
       (a, b) =>
+        Number(b.wallAffinity || 0) - Number(a.wallAffinity || 0) ||
+        Number(b.compactnessR2 || 0) - Number(a.compactnessR2 || 0) ||
+        Number(b.edgeProximity || 0) - Number(a.edgeProximity || 0) ||
+        Number(a.openNeighbors || 0) - Number(b.openNeighbors || 0) ||
+        a.d - b.d ||
         b.centerBonus - a.centerBonus ||
         a.spawnDist - b.spawnDist ||
-        a.d - b.d ||
         manhattan(a, storage) - manhattan(b, storage) ||
         deterministicJitter(a.x, a.y, slotOrderShift) - deterministicJitter(b.x, b.y, slotOrderShift),
     );
   }
-  const orderedBuckets = [...bucketById.values()].sort((a, b) => a.minSpawnDist - b.minSpawnDist);
+  const orderedBuckets = [...bucketById.values()].sort(
+    (a, b) =>
+      Number(b.maxWallAffinity || 0) - Number(a.maxWallAffinity || 0) ||
+      Number(b.avgWallAffinity || 0) - Number(a.avgWallAffinity || 0) ||
+      a.minSpawnDist - b.minSpawnDist,
+  );
   const allSorted = candidates
     .slice()
     .sort(
       (a, b) =>
+        Number(b.wallAffinity || 0) - Number(a.wallAffinity || 0) ||
+        Number(b.compactnessR2 || 0) - Number(a.compactnessR2 || 0) ||
+        Number(b.edgeProximity || 0) - Number(a.edgeProximity || 0) ||
+        Number(a.openNeighbors || 0) - Number(b.openNeighbors || 0) ||
+        a.d - b.d ||
         b.centerBonus - a.centerBonus ||
         a.spawnDist - b.spawnDist ||
-        a.d - b.d ||
         manhattan(a, storage) - manhattan(b, storage) ||
         deterministicJitter(a.x, a.y, slotOrderShift) - deterministicJitter(b.x, b.y, slotOrderShift),
     );
@@ -880,6 +940,11 @@ function planFoundationStructurePreview(
         y: candidate.y,
         bucket: bucket.id,
         spawnDist: Number(candidate.spawnDist || 0),
+        wallAffinity: Number(candidate.wallAffinity || 0),
+        openNeighbors: Number(candidate.openNeighbors || 0),
+        dtWallProximity: Number(candidate.dtWallProximity || 0),
+        compactnessR2: Number(candidate.compactnessR2 || 0),
+        edgeProximity: Number(candidate.edgeProximity || 0),
         center: candidate.centerBonus ? 1 : 0,
         selectedType: selected ? selected.type : null,
         selectedTag: selected ? selected.tag : null,
@@ -894,7 +959,7 @@ function planFoundationStructurePreview(
   return {
     mode: 'foundation-preview',
     computed: true,
-    strategy: 'special-first + spawn-closest-rank + bucket-fill',
+    strategy: 'special-first + wall-max-rank + compactness-r2 + bucket-fill',
     placements,
     counts,
     ranking: {
@@ -1702,6 +1767,8 @@ function buildPlanForAnchor(room, input) {
     }
   }
 
+  let upgraderSlots = null;
+
   // Storage near anchor (range 1), needs high access.
   const storageCandidates = [];
   const preferredStorage = coreSlotAbs('storage');
@@ -1874,7 +1941,9 @@ function buildPlanForAnchor(room, input) {
   }
 
   // Upgrader area + controller container/link.
-  const upgraderSlots = foundationOnly ? null : buildUpgraderArea(ctx, controllerPos, storage);
+  if (!useHarabi && !foundationOnly) {
+    upgraderSlots = buildUpgraderArea(ctx, controllerPos, storage);
+  }
   if (upgraderSlots && !foundationOnly && !useHarabi) {
     const ctrlContainerCandidates = neighbors8(controllerPos.x, controllerPos.y)
       .filter((p) => canPlaceStructure(ctx, STRUCTURES.CONTAINER, p.x, p.y))
@@ -1913,29 +1982,30 @@ function buildPlanForAnchor(room, input) {
         if (!inBounds(c.x, c.y)) continue;
         if (chebyshev(c, controllerPos) > 2) continue;
         if (coreStructureSlotKeys.has(key(c.x, c.y))) continue;
+        if (!canPlaceStructure(ctx, STRUCTURES.LINK, c.x, c.y)) continue;
         const ring = neighbors8(c.x, c.y);
-        if (!ring.every((p) => chebyshev(p, controllerPos) <= 3 && inBounds(p.x, p.y))) continue;
+        if (ring.some((p) => !inBounds(p.x, p.y))) continue;
+        if (ring.some((p) => chebyshev(p, controllerPos) > 3)) continue;
         if (ring.some((p) => coreStructureSlotKeys.has(key(p.x, p.y)))) continue;
+        if (ring.some((p) => !canPlaceStructure(ctx, STRUCTURES.ROAD, p.x, p.y))) continue;
         centers.push(c);
       }
     }
-    const stampCenter = findBestByCandidates(centers, (c) => {
-      if (!canPlaceStructure(ctx, STRUCTURES.LINK, c.x, c.y)) return -99999;
-      const open = neighbors8(c.x, c.y).reduce(
-        (sum, p) => sum + (canPlaceStructure(ctx, STRUCTURES.ROAD, p.x, p.y) ? 1 : 0),
-        0,
-      );
-      return 20 * open - manhattan(c, storage);
-    });
+    const stampCenter = findBestByCandidates(centers, (c) => -manhattan(c, storage));
     if (stampCenter) {
-      addPlacement(ctx, STRUCTURES.LINK, stampCenter.x, stampCenter.y, 8, 'controller.link');
-      for (const p of neighbors8(stampCenter.x, stampCenter.y)) {
-        if (chebyshev(p, controllerPos) > 3) continue;
-        addPlacement(ctx, STRUCTURES.ROAD, p.x, p.y, 2, 'road.controllerStamp');
+      const ring = neighbors8(stampCenter.x, stampCenter.y).filter((p) => chebyshev(p, controllerPos) <= 3);
+      if (ring.length === 8) {
+        addPlacement(ctx, STRUCTURES.LINK, stampCenter.x, stampCenter.y, 8, 'controller.link');
+        upgraderSlots = ring.map((p) => ({ x: p.x, y: p.y }));
+        ctx.meta.upgraderSlots = upgraderSlots;
+        for (const p of ring) {
+          addPlacement(ctx, STRUCTURES.ROAD, p.x, p.y, 2, 'road.controllerStamp');
+        }
+      } else {
+        ctx.meta.validation.push('controller-stamp-missing');
       }
-      ctx.meta.upgraderSlots = neighbors8(stampCenter.x, stampCenter.y)
-        .filter((p) => chebyshev(p, controllerPos) <= 3)
-        .map((p) => ({ x: p.x, y: p.y }));
+    } else {
+      ctx.meta.validation.push('controller-stamp-missing');
     }
   }
 
@@ -2635,6 +2705,7 @@ function buildPlanForAnchor(room, input) {
         depthLimit: 50,
         slotOrderShift: mutationOptions.slotOrderShift || 0,
         spawnReference: spawn1 || storage,
+        distanceTransform: dt,
         stampCenters:
           ctx.meta.stampStats && Array.isArray(ctx.meta.stampStats.bigCenters)
             ? ctx.meta.stampStats.bigCenters
@@ -2652,7 +2723,7 @@ function buildPlanForAnchor(room, input) {
 
   // Remove unused stamp geometry before generating logistics roads so we avoid
   // stamp/road feedback loops and keep structure candidates stable.
-  pruneUnusedRoadStamps(ctx, {
+  const firstStampPrune = pruneUnusedRoadStamps(ctx, {
     layoutPattern,
   });
 
@@ -2660,6 +2731,21 @@ function buildPlanForAnchor(room, input) {
     // Second pass after prune: ensure final preview uses only surviving stamp layout.
     ctx.meta.structurePlanning = computeFoundationStructurePreview();
     syncRoadBlockedByStructures();
+    const secondStampPrune = pruneUnusedRoadStamps(ctx, {
+      layoutPattern,
+    });
+    if (
+      secondStampPrune &&
+      (Number(secondStampPrune.removedRoadTiles || 0) > 0 ||
+        Number(secondStampPrune.prunedBig || 0) > 0 ||
+        Number(secondStampPrune.prunedSmall || 0) > 0)
+    ) {
+      // Final stabilization pass after second prune so preview reflects latest stamp geometry.
+      ctx.meta.structurePlanning = computeFoundationStructurePreview();
+      syncRoadBlockedByStructures();
+    }
+  } else if (firstStampPrune && typeof firstStampPrune === 'object') {
+    ctx.meta.stampPruning = firstStampPrune;
   }
 
   // Roads: highest-traffic paths first + checkerboard interior + rampart line roads.
@@ -2737,37 +2823,13 @@ function buildPlanForAnchor(room, input) {
       avoidSourceContainers: true,
     });
   }
-  // Prefer connecting logistics from already-planned foundation road lattice, not
-  // directly from storage/core center. This avoids carving straight cuts through
-  // the base interior just to reach remote sources/resources.
-  const routeOriginRoads = (ctx.placements || [])
-    .filter((p) => p && p.type === STRUCTURES.ROAD)
-    .filter((p) => {
-      const tag = String(p.tag || '');
-      return tag === 'road.stamp' || tag === 'road.controllerStamp' || tag === 'road.grid';
-    })
-    .map((p) => ({ x: p.x, y: p.y }));
-  const pickLogisticOrigin = (targetPos) => {
-    if (!targetPos || !routeOriginRoads.length) return storage;
-    let best = null;
-    let bestScore = Infinity;
-    for (const origin of routeOriginRoads) {
-      const baseCorePenalty = chebyshev(origin, storage) <= 2 ? 6 : 0;
-      const score = manhattan(origin, targetPos) + baseCorePenalty;
-      if (score < bestScore) {
-        bestScore = score;
-        best = origin;
-      }
-    }
-    return best || storage;
-  };
   logisticTargets.sort((a, b) => manhattan(storage, a.pos) - manhattan(storage, b.pos));
   let connectedLogistics = 0;
   const missingLogistics = [];
   for (const target of logisticTargets) {
     const avoidKeys = target.avoidSourceContainers ? new Set(sourceContainerKeys) : null;
     if (avoidKeys) avoidKeys.delete(key(target.pos.x, target.pos.y));
-    const routeOrigin = pickLogisticOrigin(target.pos);
+    const routeOrigin = storage;
     let path = pathRoads(ctx, routeOrigin, target.pos, {
       preferredRoads,
       avoidKeys,
@@ -2776,16 +2838,6 @@ function buildPlanForAnchor(room, input) {
     if (!path.length && avoidKeys) {
       path = pathRoads(ctx, routeOrigin, target.pos, { preferredRoads });
     }
-    if (
-      !path.length &&
-      (routeOrigin.x !== storage.x || routeOrigin.y !== storage.y)
-    ) {
-      path = pathRoads(ctx, storage, target.pos, {
-        preferredRoads,
-        avoidKeys,
-        avoidPenalty: 25,
-      });
-    }
     if (!path.length && chebyshev(storage, target.pos) > 1) {
       ctx.meta.validation.push(`missing-logistics-route:${target.id}`);
       missingLogistics.push(target.id);
@@ -2793,6 +2845,11 @@ function buildPlanForAnchor(room, input) {
     }
     connectedLogistics += 1;
     addRoutePath(path, target.weight, target.protect);
+  }
+  for (const anchor of sourceRoadAnchors) {
+    if (!anchor) continue;
+    const anchorPath = pathRoads(ctx, storage, { x: anchor.x, y: anchor.y }, { preferredRoads });
+    if (anchorPath.length > 0) addRoutePath(anchorPath, 4, true);
   }
   ctx.meta.logisticsRoutes = {
     required: logisticTargets.length,
