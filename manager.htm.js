@@ -42,6 +42,44 @@ function inferCostEst(domain, name) {
   return 'low';
 }
 
+function inferExpectedCpu(domain, name) {
+  const upper = String(name || '').toUpperCase();
+  if (upper === 'PLAN_LAYOUT_CANDIDATES') return 0.35;
+  if (upper === 'PLAN_LAYOUT_CANDIDATE') return 8;
+  if (upper === 'INTENT_SCAN_ROOM') return 1.4;
+  if (upper === 'INTENT_EVALUATE_ROOM_VALUE') return 1.2;
+  if (upper === 'INTENT_SYNC_OVERLAY') return 0.6;
+  if (upper === 'INTENT_RENDER_HUD') return 0.8;
+  const phaseMatch = upper.match(/^INTENT_PLAN_PHASE_(\d+)$/);
+  if (phaseMatch) {
+    const phase = Math.max(1, Math.min(10, Math.floor(Number(phaseMatch[1]) || 1)));
+    if (phase <= 2) return 1.5;
+    if (phase === 3) return 4;
+    if (phase >= 4 && phase <= 8) return 8.5;
+    if (phase === 9) return 6;
+    return 2;
+  }
+  if (domain === 'planner') return 4;
+  if (domain === 'build' || domain === 'scout') return 1.5;
+  return 0.5;
+}
+
+function isInternalPlannerQueueTask(name) {
+  const upper = String(name || '').toUpperCase();
+  return upper === 'PLAN_LAYOUT_CANDIDATES' || upper === 'PLAN_LAYOUT_CANDIDATE';
+}
+
+function resolveAllowedPipelines(mode = 'NORMAL', runtimeMode = 'live') {
+  const normalizedMode = String(mode || 'NORMAL').toUpperCase();
+  const normalizedRuntime = String(runtimeMode || 'live').toLowerCase();
+  if (normalizedMode === 'LOW_BUCKET') return ['critical', 'realtime'];
+  if (normalizedMode === 'BURST') return ['critical', 'realtime', 'background', 'burstOnly'];
+  // Theoretical preview uses burstOnly for phased planner work; excluding it in
+  // NORMAL mode stalls candidate progression after the first visible result.
+  if (normalizedRuntime === 'theoretical') return ['critical', 'realtime', 'background', 'burstOnly'];
+  return ['critical', 'realtime', 'background'];
+}
+
 const htm = {
   /** Ensure the HTM memory structure exists */
   init() {
@@ -110,6 +148,10 @@ const htm = {
     if (!this.handlers) this.handlers = {};
     if (!this.handlers[level]) this.handlers[level] = {};
     this.handlers[level][name] = handler;
+  },
+
+  resolveAllowedPipelines(mode = 'NORMAL', runtimeMode = 'live') {
+    return resolveAllowedPipelines(mode, runtimeMode);
   },
 
   /**
@@ -337,13 +379,12 @@ const htm = {
     }
 
     const mode = String(options.mode || 'NORMAL').toUpperCase();
+    const runtimeMode = String(
+      options.runtimeMode || (Memory.settings && Memory.settings.runtimeMode) || 'live',
+    ).toLowerCase();
     const allowedPipelines = Array.isArray(options.allowedPipelines) && options.allowedPipelines.length
       ? options.allowedPipelines.slice()
-      : mode === 'LOW_BUCKET'
-        ? ['critical', 'realtime']
-        : mode === 'BURST'
-          ? ['critical', 'realtime', 'background', 'burstOnly']
-          : ['critical', 'realtime', 'background'];
+      : resolveAllowedPipelines(mode, runtimeMode);
     const startCpu = Game.cpu.getUsed();
     const softBudget =
       typeof options.softBudget === 'number' && options.softBudget > 0
@@ -454,6 +495,7 @@ const htm = {
       if (!container || !Array.isArray(container.tasks)) return;
       for (const task of container.tasks) {
         if (!task || Number(task.amount || 0) <= 0) continue;
+        if (isInternalPlannerQueueTask(task.name)) continue;
         summary.totalActive += 1;
         if (typeof task.validUntil === 'number' && task.validUntil > 0 && Game.time > task.validUntil) continue;
         if (task.cooldownUntil && Game.time < Number(task.cooldownUntil || 0)) continue;
@@ -484,6 +526,10 @@ const htm = {
     const domain = inferTaskDomain(name);
     const pipelineBucket = inferPipelineBucket(domain, name);
     const costEst = inferCostEst(domain, name);
+    const expectedCpu =
+      options && Number.isFinite(Number(options.expectedCpu)) && Number(options.expectedCpu) > 0
+        ? Number(options.expectedCpu)
+        : inferExpectedCpu(domain, name);
     const priorityBase = Number(priority || 0);
     const priorityDyn =
       options && typeof options.priorityDyn === 'number' ? options.priorityDyn : 0;
@@ -512,6 +558,7 @@ const htm = {
           ? Math.floor(options.deadlineTick)
           : null,
       costEst,
+      expectedCpu,
       ttl,
       age: 0,
       amount,
@@ -577,6 +624,7 @@ const htm = {
     if (!container || !container.tasks || container.tasks.length === 0) return;
     this._ageAndPruneContainerTasks(level, id, container);
     for (const task of container.tasks) {
+      if (isInternalPlannerQueueTask(task.name)) continue;
       const taskId = String(task.taskId || task.id || `${task.name}:${id}`);
       task.taskId = taskId;
       htmQueueScheduler.enqueue({
@@ -596,6 +644,10 @@ const htm = {
         deadlineTick:
           typeof task.deadlineTick === 'number' ? Math.floor(task.deadlineTick) : undefined,
         costEst: task.costEst || inferCostEst(task.domain, task.name),
+        expectedCpu:
+          Number.isFinite(Number(task.expectedCpu)) && Number(task.expectedCpu) > 0
+            ? Number(task.expectedCpu)
+            : inferExpectedCpu(task.domain || inferTaskDomain(task.name), task.name),
         cooldownUntil: Number(task.cooldownUntil || 0),
         validUntil: Number(task.validUntil || 0),
       });
@@ -691,6 +743,7 @@ const htm = {
 
     // Execute tasks that are not claimed
     for (const task of container.tasks) {
+      if (isInternalPlannerQueueTask(task.name)) continue;
       if (task.cooldownUntil && Game.time < task.cooldownUntil) continue;
       if (Game.time < task.claimedUntil) continue;
       this._runTaskHandler(task, level, id);
@@ -768,5 +821,6 @@ const htm = {
 // expose constants for external modules
 htm.LEVELS = HTM_LEVELS;
 htm.DEFAULT_CLAIM_COOLDOWN = DEFAULT_CLAIM_COOLDOWN;
+htm.isInternalPlannerQueueTask = isInternalPlannerQueueTask;
 
 module.exports = htm;

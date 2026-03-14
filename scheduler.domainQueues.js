@@ -111,6 +111,11 @@ class DomainQueueScheduler {
         high: 0,
         total: 0,
       },
+      expectedCpu: {
+        total: 0,
+        count: 0,
+        deferred: 0,
+      },
       queues: {},
     };
     for (const pipeline of PIPELINES) {
@@ -140,6 +145,10 @@ class DomainQueueScheduler {
       domain,
       priorityBand: band,
       insertOrder: this._insertOrder++,
+      expectedCpu:
+        Number.isFinite(Number(task.expectedCpu)) && Number(task.expectedCpu) > 0
+          ? Number(task.expectedCpu)
+          : 0,
     });
     this._heaps[pipeline][domain][band].push(item);
     this._stats.push += 1;
@@ -148,6 +157,10 @@ class DomainQueueScheduler {
     else if (cost === 'medium') this._stats.costEst.medium += 1;
     else this._stats.costEst.low += 1;
     this._stats.costEst.total += 1;
+    if (item.expectedCpu > 0) {
+      this._stats.expectedCpu.total += item.expectedCpu;
+      this._stats.expectedCpu.count += 1;
+    }
     return true;
   }
 
@@ -182,6 +195,14 @@ class DomainQueueScheduler {
       if (maxCpu > 0 && nowCpu - startCpu >= maxCpu) break;
       const next = this._popNext(pipelines, domains);
       if (!next) break;
+      const expectedCpu = Math.max(0, Number(next.expectedCpu || 0));
+      if (maxCpu > 0 && executed > 0 && expectedCpu > 0) {
+        const usedCpu = nowCpu - startCpu;
+        if (usedCpu + expectedCpu > maxCpu) {
+          this._stats.expectedCpu.deferred += 1;
+          break;
+        }
+      }
       const id = String(next.taskId);
       if (this._invalid[id]) {
         this._stats.staleDrops += 1;
@@ -252,6 +273,10 @@ class DomainQueueScheduler {
     return Object.assign({}, this._stats, {
       queueSizes,
       avgCostEst: total > 0 ? Number((weighted / total).toFixed(4)) : 0,
+      avgExpectedCpu:
+        Number(this._stats.expectedCpu.count || 0) > 0
+          ? Number((Number(this._stats.expectedCpu.total || 0) / Number(this._stats.expectedCpu.count || 1)).toFixed(4))
+          : 0,
     });
   }
 }

@@ -718,6 +718,7 @@ module.exports = {
     const theoreticalMode =
       String(settings.layoutPlanningMode || 'theoretical').toLowerCase() === 'theoretical';
     const visualsEnabled = Boolean(visualizer.enabled);
+    const layoutOverlayEnabled = settings.showLayoutOverlay !== false;
 
     if (overlayMode === 'debug') {
       if (theoreticalMode) {
@@ -729,7 +730,12 @@ module.exports = {
       return;
     }
 
-    if (!visualsEnabled && settings.showHtmOverlay !== true) {
+    // IMPORTANT:
+    // Do not reduce this gate to only `visualsEnabled`.
+    // In theoretical planning we intentionally allow layout overlays even when
+    // generic visuals are disabled, otherwise the planner can compute plans but
+    // render nothing on screen (the regression we already hit).
+    if (!visualsEnabled && settings.showHtmOverlay !== true && !(theoreticalMode && layoutOverlayEnabled)) {
       return;
     }
 
@@ -739,7 +745,12 @@ module.exports = {
         let start = Game.cpu.getUsed();
         drawTheoreticalStatusHud(room);
         recordRenderSubtask(room.name, 'Status Overlay (Top Left)', Game.cpu.getUsed() - start);
-        start = Game.cpu.getUsed();
+      }
+      if (layoutOverlayEnabled) {
+        const start = Game.cpu.getUsed();
+        // Keep theoretical layout debug visible even when generic visuals are toggled off.
+        // This is coupled with the HUD pass gating in `main.js`; changing one side
+        // without the other can make overlays "flash once then disappear".
         layoutVisualizer.drawLayout(room.name);
         recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
       }

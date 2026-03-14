@@ -165,7 +165,24 @@ function inferStampGeometryFromPlacements(placements = [], maxCenters = 80) {
 
 function buildLayoutPlanDump(roomName) {
   const rooms = Memory && Memory.rooms ? Memory.rooms : {};
-  const fallbackRoom =
+  const hasPlanData = (name) => {
+    const rm = rooms[name] || {};
+    const layout = rm.layout || {};
+    return (
+      Boolean(rm.basePlan) ||
+      (layout.theoreticalCandidatePlans &&
+        typeof layout.theoreticalCandidatePlans === 'object' &&
+        Object.keys(layout.theoreticalCandidatePlans).length > 0)
+    );
+  };
+  const ownedVisibleRooms = Object.values(Game.rooms || {})
+    .filter((room) => room && room.controller && room.controller.my)
+    .map((room) => room.name);
+  // Prefer currently visible owned rooms first so diagnostics follow the room
+  // that is actually being planned/rendered now (instead of stale memory-only rooms).
+  const ownedWithPlan = ownedVisibleRooms.find((name) => hasPlanData(name)) || null;
+  const anyOwnedVisible = ownedVisibleRooms.length > 0 ? ownedVisibleRooms[0] : null;
+  const fallbackAnyMemory =
     Object.keys(rooms).find((name) => {
       const rm = rooms[name] || {};
       const layout = rm.layout || {};
@@ -176,6 +193,7 @@ function buildLayoutPlanDump(roomName) {
           Object.keys(layout.theoreticalCandidatePlans).length > 0)
       );
     }) || null;
+  const fallbackRoom = ownedWithPlan || anyOwnedVisible || fallbackAnyMemory || null;
   const targetRoom = roomName || fallbackRoom;
   if (!targetRoom || !rooms[targetRoom]) {
     return {
@@ -458,14 +476,29 @@ function formatLayoutPlanDump(payload, options = {}) {
     const extensionOrder = Array.isArray(ranking.extensionOrder) ? ranking.extensionOrder : [];
     if (extensionOrder.length > 0) {
       const total = Number(ranking.extensionOrderTotal || extensionOrder.length);
+      const distanceModel = String(ranking.distanceModel || ranking.rangeMode || 'n/a');
       lines.push(
-        `[layoutPlanDump] structurePlanning extensionOrder total=${total} shown=${extensionOrder.length}${ranking.extensionOrderTruncated ? '+' : ''}`,
+        `[layoutPlanDump] structurePlanning extensionOrder total=${total} shown=${extensionOrder.length}${ranking.extensionOrderTruncated ? '+' : ''} model=${distanceModel}`,
       );
+      const disconnected = extensionOrder.reduce(
+        (sum, entry) => sum + (String(entry && entry.distanceSource || '') === 'disconnected-fallback' ? 1 : 0),
+        0,
+      );
+      if (disconnected > 0) {
+        lines.push(`[layoutPlanDump] structurePlanning extensionOrder disconnectedFallback=${disconnected}`);
+      }
       const rows = extensionOrder.slice(0, Math.min(maxEntries, 80)).map((entry) => {
         const centerMark = Number(entry && entry.center) > 0 ? '*' : '';
         const selectedType = entry && entry.selectedType ? `->${entry.selectedType}` : '';
         const selectedTag = entry && entry.selectedTag ? `[${entry.selectedTag}]` : '';
-        return `${Number(entry && entry.rank || 0)}:${entry.x},${entry.y}${centerMark}${selectedType}${selectedTag}`;
+        const dist = Number.isFinite(Number(entry && entry.range)) ? Math.max(0, Math.trunc(Number(entry.range))) : null;
+        const level = Number.isFinite(Number(entry && entry.candidateRcl))
+          ? Math.max(1, Math.trunc(Number(entry.candidateRcl)))
+          : null;
+        const debugLabel = dist !== null || level !== null
+          ? ` D${dist !== null ? dist : '?'},C${level !== null ? level : '?'}`
+          : '';
+        return `${Number(entry && entry.rank || 0)}:${entry.x},${entry.y}${centerMark}${selectedType}${selectedTag}${debugLabel}`;
       });
       lines.push(`[layoutPlanDump] structurePlanning extensionOrder.rows=${rows.join(' | ')}`);
       if (total > rows.length) {
@@ -494,8 +527,10 @@ function formatLayoutPlanDump(payload, options = {}) {
   const validTotal = Number(valid.structureClear) || 0;
   const validCanPlace = Number(valid.canPlace) || 0;
   const validShown = Array.isArray(valid.positions) ? valid.positions.length : 0;
+  const validMode = String(valid.mode || 'n/a');
+  const validDistanceModel = String(valid.distanceModel || 'n/a');
   lines.push(
-    `[layoutPlanDump] validStructurePositions structureClear=${validTotal} canPlaceExtension=${validCanPlace} shown=${validShown}${valid.truncated ? '+' : ''}`,
+    `[layoutPlanDump] validStructurePositions mode=${validMode} distanceModel=${validDistanceModel} structureClear=${validTotal} canPlaceExtension=${validCanPlace} shown=${validShown}${valid.truncated ? '+' : ''}`,
   );
   if (validTotal > 0) {
     const counts = [

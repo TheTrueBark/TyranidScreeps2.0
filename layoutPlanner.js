@@ -32,6 +32,10 @@ const DEFAULT_REFINEMENT_TOP_SEEDS = 2;
 const DEFAULT_REFINEMENT_MAX_GENERATIONS = 8;
 const DEFAULT_REFINEMENT_VARIANTS_PER_GENERATION = 4;
 const DEFAULT_REFINEMENT_MIN_BUCKET = 3500;
+const EXPECTED_CPU_PARENT_TASK = 0.35;
+const EXPECTED_CPU_CANDIDATE_TASK = 8;
+const EXPECTED_CPU_FULL_PREVIEW = 6;
+const EXPECTED_CPU_REFINEMENT_VARIANT = 4;
 
 
 function mapBasePhaseToDebugWindow(baseFrom = 1, baseTo = 6) {
@@ -145,6 +149,10 @@ function persistBasePlan(roomName, generated, pipeline) {
       logisticsRoutes: generated && generated.meta ? generated.meta.logisticsRoutes || {} : {},
       labPlanning: generated && generated.meta ? generated.meta.labPlanning || {} : {},
       structurePlanning: generated && generated.meta ? generated.meta.structurePlanning || {} : {},
+      foundationSnapshot:
+        generated && generated.meta ? generated.meta.foundationSnapshot || null : null,
+      fullOptimization:
+        generated && generated.meta ? generated.meta.fullOptimization || null : null,
       refinementDebug: generated && generated.meta ? generated.meta.refinementDebug || {} : {},
       validStructurePositions:
         generated && generated.meta ? generated.meta.validStructurePositions || {} : {},
@@ -161,6 +169,17 @@ function persistBasePlan(roomName, generated, pipeline) {
     checkedAt: validation.checkedAt,
   };
   roomMem.basePlan.validationRecovery = basePlanValidation.handleValidationFailure(roomName, validation);
+}
+
+function refinementMutationKey(refinementInput) {
+  if (
+    !refinementInput ||
+    !refinementInput.mutation ||
+    typeof refinementInput.mutation !== 'object'
+  ) {
+    return '';
+  }
+  return JSON.stringify(refinementInput.mutation);
 }
 
 function readNumberSetting(path, fallback) {
@@ -321,20 +340,49 @@ function readLayoutPattern() {
   const value =
     Memory && Memory.settings && typeof Memory.settings.layoutExtensionPattern === 'string'
       ? Memory.settings.layoutExtensionPattern
-      : 'parity';
-  const normalized = String(value || 'parity').toLowerCase();
+      : 'cluster3';
+  const normalized = String(value || 'cluster3').toLowerCase();
   if (normalized === 'cluster3' || normalized === 'harabi' || normalized === 'diag2') {
     return 'cluster3';
   }
-  return 'parity';
+  return 'cluster3';
 }
 
 function readHarabiStage() {
-  // Harabi runtime is foundation-only by design.
-  if (Memory && Memory.settings && Memory.settings.layoutHarabiStage !== 'foundation') {
-    Memory.settings.layoutHarabiStage = 'foundation';
+  const raw =
+    Memory && Memory.settings && typeof Memory.settings.layoutHarabiStage === 'string'
+      ? Memory.settings.layoutHarabiStage
+      : 'full';
+  const normalized = String(raw || 'full').toLowerCase() === 'foundation' ? 'foundation' : 'full';
+  if (Memory && Memory.settings) {
+    Memory.settings.layoutHarabiStage = normalized;
   }
-  return 'foundation';
+  return normalized;
+}
+
+function readTheoreticalHarabiStages() {
+  const requested = readHarabiStage();
+  const pattern = readLayoutPattern();
+  const candidate = pattern === 'cluster3' && requested === 'full' ? 'foundation' : requested;
+  return {
+    requested,
+    candidate,
+    final: requested,
+  };
+}
+
+function readTheoreticalDefensePlanningMode() {
+  const explicit =
+    Memory && Memory.settings && typeof Memory.settings.layoutDefensePlanningMode === 'string'
+      ? String(Memory.settings.layoutDefensePlanningMode || '').toLowerCase()
+      : '';
+  if (explicit === 'full') return 'full';
+  if (explicit === 'estimate') return 'estimate';
+  const runtimeMode =
+    Memory && Memory.settings && typeof Memory.settings.runtimeMode === 'string'
+      ? String(Memory.settings.runtimeMode || 'live').toLowerCase()
+      : 'live';
+  return runtimeMode === 'theoretical' ? 'estimate' : 'full';
 }
 
 function isWalkable(room, x, y) {
@@ -968,7 +1016,7 @@ const layoutPlanner = {
         1,
         'layoutPlanner',
         { module: 'layoutPlanner' },
-        { allowDuplicate: true },
+        { allowDuplicate: true, expectedCpu: EXPECTED_CPU_PARENT_TASK },
       );
       for (const candidate of pipeline.candidates) {
         htm.addColonyTask(
@@ -980,7 +1028,12 @@ const layoutPlanner = {
           1,
           'layoutPlanner',
           { module: 'layoutPlanner' },
-          { parentTaskId: pipeline.runId, subOrder: candidate.index, allowDuplicate: true },
+          {
+            parentTaskId: pipeline.runId,
+            subOrder: candidate.index,
+            allowDuplicate: true,
+            expectedCpu: EXPECTED_CPU_CANDIDATE_TASK,
+          },
         );
       }
     }
@@ -1497,10 +1550,11 @@ const layoutPlanner = {
     const topN = normalizeTopN(
       readNumberSetting('layoutPlanningTopCandidates', DEFAULT_THEORETICAL_TOP_N),
     );
+    const harabiStages = readTheoreticalHarabiStages();
     const candidateSet = buildCompendium.buildCandidateSet(roomName, {
       topN,
       extensionPattern: readLayoutPattern(),
-      harabiStage: readHarabiStage(),
+      harabiStage: harabiStages.requested,
     });
     if (!candidateSet || !Array.isArray(candidateSet.candidates) || !candidateSet.candidates.length) {
       return null;
@@ -1526,6 +1580,9 @@ const layoutPlanner = {
       lastProgressTick: Game.time,
       lastResultsDone: 0,
       candidateCount: candidateSet.candidates.length,
+      requestedHarabiStage: harabiStages.requested,
+      candidateHarabiStage: harabiStages.candidate,
+      finalHarabiStage: harabiStages.final,
       stopAtPhase:
         manualRequest && typeof manualRequest.phaseTo === 'number'
           ? manualRequest.phaseTo
@@ -1537,6 +1594,9 @@ const layoutPlanner = {
         filteredCandidates: candidateSet.filteredCandidates,
         swampRatio: candidateSet.swampRatio,
         fallbackUsed: candidateSet.fallbackUsed,
+        requestedHarabiStage: harabiStages.requested,
+        candidateHarabiStage: harabiStages.candidate,
+        finalHarabiStage: harabiStages.final,
       },
       candidates: candidateSet.candidates.map((candidate) => ({
         index: candidate.index,
@@ -1561,6 +1621,12 @@ const layoutPlanner = {
         minBucket: refinementSettings.minBucket,
         topSeeds: refinementSettings.topSeeds,
         history: [],
+      },
+      expectedCpu: {
+        parentTask: EXPECTED_CPU_PARENT_TASK,
+        candidateTask: EXPECTED_CPU_CANDIDATE_TASK,
+        fullPreview: EXPECTED_CPU_FULL_PREVIEW,
+        refinementVariant: EXPECTED_CPU_REFINEMENT_VARIANT,
       },
     };
 
@@ -1610,7 +1676,7 @@ const layoutPlanner = {
       1,
       'layoutPlanner',
       { module: 'layoutPlanner' },
-      { allowDuplicate: true },
+      { allowDuplicate: true, expectedCpu: EXPECTED_CPU_PARENT_TASK },
     );
 
     for (const candidate of pipeline.candidates) {
@@ -1632,6 +1698,7 @@ const layoutPlanner = {
           parentTaskId: runId,
           subOrder: candidate.index,
           allowDuplicate: true,
+          expectedCpu: EXPECTED_CPU_CANDIDATE_TASK,
         },
       );
     }
@@ -1660,6 +1727,10 @@ const layoutPlanner = {
     const refinement = pipeline.refinement || null;
     if (!refinement || refinement.enabled !== true) return;
     if (refinement.status !== 'running') return;
+    const candidateHarabiStage =
+      pipeline && typeof pipeline.candidateHarabiStage === 'string'
+        ? pipeline.candidateHarabiStage
+        : readTheoreticalHarabiStages().candidate;
     const minBucket = Number(refinement.minBucket || DEFAULT_REFINEMENT_MIN_BUCKET);
     const bucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 0;
     if (bucket < minBucket) {
@@ -1694,7 +1765,7 @@ const layoutPlanner = {
           const generated = buildCompendium.generatePlanForAnchor(roomName, baseCandidate.anchor, {
             candidateMeta: baseCandidate,
             extensionPattern: readLayoutPattern(),
-            harabiStage: readHarabiStage(),
+            harabiStage: candidateHarabiStage,
             mutation,
           });
           if (!generated || !generated.evaluation) continue;
@@ -1728,6 +1799,14 @@ const layoutPlanner = {
               generated.meta && generated.meta.labPlanning ? generated.meta.labPlanning : {},
             structurePlanning:
               generated.meta && generated.meta.structurePlanning ? generated.meta.structurePlanning : {},
+            foundationSnapshot:
+              generated.meta && generated.meta.foundationSnapshot
+                ? generated.meta.foundationSnapshot
+                : null,
+            fullOptimization:
+              generated.meta && generated.meta.fullOptimization
+                ? generated.meta.fullOptimization
+                : null,
             refinementDebug: summarizeRefinement(refinement),
             validStructurePositions:
               generated.meta && generated.meta.validStructurePositions
@@ -1788,6 +1867,159 @@ const layoutPlanner = {
     }
   },
 
+  _materializeTheoreticalFullPreview(roomName, pipeline, mem, selectedCandidate, selectedResult, options = {}) {
+    if (!pipeline || !mem || !mem.layout || !selectedCandidate || !selectedCandidate.anchor) return false;
+    const requestedHarabiStage =
+      typeof pipeline.requestedHarabiStage === 'string' ? pipeline.requestedHarabiStage : 'foundation';
+    const candidateHarabiStage =
+      typeof pipeline.candidateHarabiStage === 'string' ? pipeline.candidateHarabiStage : requestedHarabiStage;
+    const finalHarabiStage =
+      typeof pipeline.finalHarabiStage === 'string' ? pipeline.finalHarabiStage : requestedHarabiStage;
+    if (
+      requestedHarabiStage !== 'full' ||
+      finalHarabiStage !== 'full' ||
+      candidateHarabiStage === finalHarabiStage
+    ) {
+      return false;
+    }
+    const refinementInput =
+      options.refinementInput && typeof options.refinementInput === 'object'
+        ? options.refinementInput
+        : null;
+    const defensePlanningMode = readTheoreticalDefensePlanningMode();
+    const mutationKey = refinementMutationKey(refinementInput);
+    if (
+      pipeline.fullPreviewCandidateIndex === selectedCandidate.index &&
+      String(pipeline.fullPreviewMutationKey || '') === mutationKey &&
+      String(pipeline.fullPreviewDefensePlanningMode || '') === defensePlanningMode
+    ) {
+      return false;
+    }
+
+    const generated = buildCompendium.generatePlanForAnchor(
+      roomName,
+      refinementInput && refinementInput.anchor ? refinementInput.anchor : selectedCandidate.anchor,
+      {
+        candidateMeta: selectedCandidate,
+        extensionPattern: readLayoutPattern(),
+        harabiStage: finalHarabiStage,
+        defensePlanningMode,
+        mutation: refinementInput ? refinementInput.mutation : null,
+      },
+    );
+    if (!generated) return false;
+    generated.meta = generated.meta || {};
+    generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
+    persistBasePlan(roomName, generated, pipeline);
+    const spawnCandidate = Array.isArray(generated.placements)
+      ? generated.placements.find((p) => p.type === SPAWN_TYPE)
+      : null;
+    const controllerContainer = Array.isArray(generated.placements)
+      ? generated.placements.find((p) => p.tag === 'controller.container')
+      : null;
+    const sourceContainers = Array.isArray(generated.placements)
+      ? generated.placements.filter((p) => p.tag && p.tag.startsWith('source.container.'))
+      : [];
+    const roadTiles = Array.isArray(generated.placements)
+      ? generated.placements
+          .filter((p) => p.type === ROAD_TYPE)
+          .map((p) => ({ x: p.x, y: p.y }))
+      : [];
+    mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
+    mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = {
+      index: selectedCandidate.index,
+      anchor: { x: generated.anchor.x, y: generated.anchor.y },
+      placements: generated.placements,
+      weightedScore:
+        selectedResult && typeof selectedResult.weightedScore === 'number'
+          ? selectedResult.weightedScore
+          : 0,
+      weightedMetrics:
+        selectedResult && selectedResult.weightedMetrics ? selectedResult.weightedMetrics : {},
+      weightedContributions:
+        selectedResult && selectedResult.weightedContributions
+          ? selectedResult.weightedContributions
+          : {},
+      validation: generated.meta.validation || [],
+      stampStats: generated.meta.stampStats || {},
+      stampPruning: generated.meta.stampPruning || {},
+      sourceLogistics: generated.meta.sourceLogistics || {},
+      foundationDebug: generated.meta.foundationDebug || {},
+      sourceResourceDebug: generated.meta.sourceResourceDebug || {},
+      logisticsRoutes: generated.meta.logisticsRoutes || {},
+      labPlanning: generated.meta.labPlanning || {},
+      structurePlanning: generated.meta.structurePlanning || {},
+      foundationSnapshot: generated.meta.foundationSnapshot || null,
+      fullOptimization: generated.meta.fullOptimization || null,
+      refinementDebug: generated.meta.refinementDebug || {},
+      validStructurePositions: generated.meta.validStructurePositions || {},
+      defenseScore:
+        generated.meta && typeof generated.meta.defenseScore === 'number'
+          ? generated.meta.defenseScore
+          : 0,
+      completedAt: Game.time,
+      refinementInput: refinementInput || null,
+    };
+    mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+      spawnCandidate: spawnCandidate
+        ? {
+            x: spawnCandidate.x,
+            y: spawnCandidate.y,
+            score: generated.anchor && typeof generated.anchor.score === 'number' ? generated.anchor.score : 0,
+          }
+        : null,
+      upgraderSlots: generated.meta.upgraderSlots || [],
+      controllerContainer: controllerContainer || null,
+      sourceContainers,
+      foundationDebug: generated.meta.foundationDebug || {},
+      sourceResourceDebug: generated.meta.sourceResourceDebug || {},
+      logisticsRoutes: generated.meta.logisticsRoutes || {},
+      labPlanning: generated.meta.labPlanning || {},
+      structurePlanning: generated.meta.structurePlanning || {},
+      refinementDebug: generated.meta.refinementDebug || {},
+      wallDistance: generated.analysis && generated.analysis.dt ? generated.analysis.dt : [],
+      controllerDistance:
+        generated.analysis && generated.analysis.controllerDistance
+          ? toArrayMap(generated.analysis.controllerDistance)
+          : [],
+      floodScore:
+        generated.analysis && Array.isArray(generated.analysis.flood)
+          ? generated.analysis.flood.length
+          : 0,
+      floodTiles:
+        generated.analysis && Array.isArray(generated.analysis.flood)
+          ? generated.analysis.flood.map((tile) => ({ x: tile.x, y: tile.y, d: tile.d }))
+          : [],
+      mincutProxy: Array.isArray(generated.placements)
+        ? generated.placements.filter((p) => p.type === RAMPART_TYPE).length
+        : 0,
+      roads: roadTiles,
+      validation: generated.meta.validation || [],
+      validStructurePositions: generated.meta.validStructurePositions || {},
+      selectedCandidateIndex: selectedCandidate.index,
+      selectedWeightedScore:
+        selectedResult && typeof selectedResult.weightedScore === 'number'
+          ? selectedResult.weightedScore
+          : 0,
+      selectedMetrics:
+        selectedResult && selectedResult.weightedMetrics ? selectedResult.weightedMetrics : {},
+      selectedContributions:
+        selectedResult && selectedResult.weightedContributions
+          ? selectedResult.weightedContributions
+          : {},
+      defensePlanningMode,
+      planningRunId: pipeline.runId,
+      planningStatus: pipeline.status || 'running',
+      generatedAt: Game.time,
+    });
+    pipeline.fullPreviewCandidateIndex = selectedCandidate.index;
+    pipeline.fullPreviewMutationKey = mutationKey;
+    pipeline.fullPreviewDefensePlanningMode = defensePlanningMode;
+    pipeline.fullPreviewCompletedAt = Game.time;
+    this._refreshTheoreticalDisplay(roomName);
+    return true;
+  },
+
   _processTheoreticalPipeline(roomName) {
     const room = Game.rooms[roomName];
     if (!room || !room.controller || !room.controller.my) return;
@@ -1818,6 +2050,18 @@ const layoutPlanner = {
     );
     const bucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 0;
     const cpuLimit = typeof Game.cpu.limit === 'number' ? Game.cpu.limit : 20;
+    const requestedHarabiStage =
+      typeof pipeline.requestedHarabiStage === 'string'
+        ? pipeline.requestedHarabiStage
+        : readTheoreticalHarabiStages().requested;
+    const candidateHarabiStage =
+      typeof pipeline.candidateHarabiStage === 'string'
+        ? pipeline.candidateHarabiStage
+        : readTheoreticalHarabiStages().candidate;
+    const finalHarabiStage =
+      typeof pipeline.finalHarabiStage === 'string'
+        ? pipeline.finalHarabiStage
+        : requestedHarabiStage;
     let burstMultiplier = 1;
     if (dynamicBatching) {
       if (bucket >= 9800) burstMultiplier = 8;
@@ -1831,9 +2075,23 @@ const layoutPlanner = {
       ? Math.max(0, Math.floor((bucket - 8500) / 18))
       : 0;
     const cpuCeiling = cpuLimit + Math.max(0, Math.min(130, extraCpuBudget));
+    const expectedCandidateCpu = Math.max(
+      1,
+      Number(
+        pipeline &&
+        pipeline.expectedCpu &&
+        Number.isFinite(Number(pipeline.expectedCpu.candidateTask))
+          ? pipeline.expectedCpu.candidateTask
+          : EXPECTED_CPU_CANDIDATE_TASK,
+      ),
+    );
+    const currentCpuUsed = typeof Game.cpu.getUsed === 'function' ? Game.cpu.getUsed() : 0;
+    const remainingCpuBudget = Math.max(0, cpuCeiling - currentCpuUsed);
+    const cpuSizedBatch = Math.max(1, Math.floor(remainingCpuBudget / expectedCandidateCpu));
+    const effectiveBatchSize = Math.max(1, Math.min(plannedBatchSize, cpuSizedBatch));
 
     let processed = 0;
-    while (processed < plannedBatchSize) {
+    while (processed < effectiveBatchSize) {
       if (typeof Game.cpu.getUsed === 'function' && Game.cpu.getUsed() >= cpuCeiling) break;
       const nextTask = container.tasks
         .filter(
@@ -1862,7 +2120,9 @@ const layoutPlanner = {
       const generated = buildCompendium.generatePlanForAnchor(roomName, candidate.anchor, {
         candidateMeta: candidate,
         extensionPattern: readLayoutPattern(),
-        harabiStage: readHarabiStage(),
+        // Candidate ranking stays on the stabilized foundation footprint; the
+        // expensive full materialization is deferred to the single winning plan.
+        harabiStage: candidateHarabiStage,
       });
       if (generated) {
         generated.meta = generated.meta || {};
@@ -1897,6 +2157,14 @@ const layoutPlanner = {
             generated.meta && generated.meta.labPlanning ? generated.meta.labPlanning : {},
           structurePlanning:
             generated.meta && generated.meta.structurePlanning ? generated.meta.structurePlanning : {},
+          foundationSnapshot:
+            generated.meta && generated.meta.foundationSnapshot
+              ? generated.meta.foundationSnapshot
+              : null,
+          fullOptimization:
+            generated.meta && generated.meta.fullOptimization
+              ? generated.meta.fullOptimization
+              : null,
           refinementDebug:
             generated.meta && generated.meta.refinementDebug ? generated.meta.refinementDebug : {},
           validStructurePositions:
@@ -1992,6 +2260,19 @@ const layoutPlanner = {
     );
     let best = ranked[0];
     if (!best) return;
+    const selectedCandidateBeforeRefinement = pipeline.candidates.find((c) => c.index === best.index);
+    if (
+      selectedCandidateBeforeRefinement &&
+      this._materializeTheoreticalFullPreview(
+        roomName,
+        pipeline,
+        mem,
+        selectedCandidateBeforeRefinement,
+        best,
+      )
+    ) {
+      return;
+    }
 
     this._initializeRefinementIfNeeded(pipeline, ranked);
     if (pipeline.refinement && pipeline.refinement.enabled === true) {
@@ -2001,6 +2282,32 @@ const layoutPlanner = {
       );
       best = ranked[0];
       if (!best) return;
+      const selectedPlanAfterRefinement =
+        mem.layout.theoreticalCandidatePlans &&
+        mem.layout.theoreticalCandidatePlans[String(best.index)]
+          ? mem.layout.theoreticalCandidatePlans[String(best.index)]
+          : null;
+      const refinementInput =
+        selectedPlanAfterRefinement &&
+        selectedPlanAfterRefinement.refinementInput &&
+        selectedPlanAfterRefinement.refinementInput.anchor &&
+        selectedPlanAfterRefinement.refinementInput.mutation
+          ? selectedPlanAfterRefinement.refinementInput
+          : null;
+      const selectedCandidateAfterRefinement = pipeline.candidates.find((c) => c.index === best.index);
+      if (
+        selectedCandidateAfterRefinement &&
+        this._materializeTheoreticalFullPreview(
+          roomName,
+          pipeline,
+          mem,
+          selectedCandidateAfterRefinement,
+          best,
+          { refinementInput },
+        )
+      ) {
+        return;
+      }
       if (String(pipeline.refinement.status || '') === 'running') {
         pipeline.updatedAt = Game.time;
         mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
@@ -2015,6 +2322,24 @@ const layoutPlanner = {
     pipeline.activeCandidate = null;
     pipeline.activeCandidateIndex = null;
     pipeline.bestCandidateIndex = best.index;
+    const deferFinalFullMaterialization =
+      requestedHarabiStage === 'full' &&
+      finalHarabiStage === 'full' &&
+      candidateHarabiStage !== finalHarabiStage &&
+      typeof Game.cpu.getUsed === 'function' &&
+      Game.cpu.getUsed() >= Math.max(cpuLimit * 0.75, cpuCeiling - 8);
+    if (deferFinalFullMaterialization) {
+      pipeline.updatedAt = Game.time;
+      mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+        selectedCandidateIndex: best.index,
+        selectedWeightedScore: best.weightedScore || 0,
+        refinementDebug: summarizeRefinement(pipeline.refinement),
+        planningStatus: pipeline.status,
+        generatedAt: Game.time,
+      });
+      this._refreshTheoreticalDisplay(roomName);
+      return;
+    }
     pipeline.status = stopAtPhase <= 10 ? 'paused_phase_10' : 'completed';
     pipeline.completedAt = Game.time;
 
@@ -2050,7 +2375,8 @@ const layoutPlanner = {
       {
         candidateMeta: selectedCandidate,
         extensionPattern: readLayoutPattern(),
-        harabiStage: readHarabiStage(),
+        harabiStage: finalHarabiStage,
+        defensePlanningMode: readTheoreticalDefensePlanningMode(),
         mutation: refinementInput ? refinementInput.mutation : null,
       },
     );

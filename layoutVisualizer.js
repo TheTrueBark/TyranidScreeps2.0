@@ -49,6 +49,10 @@ function getGlyph(type) {
 function getLabelForCell(cell = {}) {
   if (!cell || !cell.structureType) return '?';
   const type = cell.structureType;
+  if (type === TYPES.RAMPART) {
+    if (cell.overlapRoad) return 'AR';
+    return 'A';
+  }
   if (type === TYPES.SPAWN) {
     const tag = String(cell.tag || '');
     const match = tag.match(/^spawn\.(\d+)$/i);
@@ -81,6 +85,259 @@ function getColor(type) {
   return map[type] || '#ffffff';
 }
 
+function assignExtensionCandidateRcl(index) {
+  const idx = Math.max(0, Math.trunc(Number(index) || 0));
+  if (idx < 5) return 2;
+  if (idx < 10) return 3;
+  if (idx < 20) return 4;
+  if (idx < 30) return 5;
+  if (idx < 40) return 6;
+  if (idx < 50) return 7;
+  return 8;
+}
+
+function resolvePreviewDistanceOrigin(structurePlanning = null) {
+  const ranking =
+    structurePlanning &&
+    structurePlanning.ranking &&
+    typeof structurePlanning.ranking === 'object'
+      ? structurePlanning.ranking
+      : null;
+  if (!ranking) return null;
+  if (
+    ranking.spawnRef &&
+    Number.isFinite(ranking.spawnRef.x) &&
+    Number.isFinite(ranking.spawnRef.y)
+  ) {
+    // `spawnRef` is the authoritative origin for D<n> labels in the current
+    // foundation preview models. Keep this priority before legacy fallbacks.
+    return {
+      x: Number(ranking.spawnRef.x),
+      y: Number(ranking.spawnRef.y),
+    };
+  }
+  if (
+    ranking.spawnStampCenter &&
+    Number.isFinite(ranking.spawnStampCenter.x) &&
+    Number.isFinite(ranking.spawnStampCenter.y)
+  ) {
+    return {
+      x: Number(ranking.spawnStampCenter.x),
+      y: Number(ranking.spawnStampCenter.y),
+    };
+  }
+  return null;
+}
+
+function buildPreviewDebugLabelsByPos(structurePlanning = null, validStructureDebug = null) {
+  const result = new Map();
+  const hasStructurePlanning = structurePlanning && typeof structurePlanning === 'object';
+  if (!hasStructurePlanning && !(validStructureDebug && Array.isArray(validStructureDebug.positions))) {
+    return result;
+  }
+  const setDebug = (x, y, distValue, controllerLevelValue, priority = 0) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const k = `${x}:${y}`;
+    const current = result.get(k) || {
+      dist: null,
+      c: null,
+      distPriority: -1,
+      cPriority: -1,
+    };
+    let dist = current.dist;
+    let c = current.c;
+    let distPriority = current.distPriority;
+    let cPriority = current.cPriority;
+    if (Number.isFinite(distValue) && priority >= current.distPriority) {
+      dist = Math.max(0, Math.trunc(Number(distValue)));
+      distPriority = priority;
+    }
+    if (Number.isFinite(controllerLevelValue) && priority >= current.cPriority) {
+      c = Math.max(1, Math.trunc(Number(controllerLevelValue)));
+      cPriority = priority;
+    }
+    if (dist === null && c === null) return;
+    result.set(k, { dist, c, distPriority, cPriority });
+  };
+
+  const validPositions =
+    validStructureDebug && Array.isArray(validStructureDebug.positions)
+      ? validStructureDebug.positions
+      : [];
+
+  if (hasStructurePlanning && Array.isArray(structurePlanning.placements)) {
+    for (const placement of structurePlanning.placements) {
+      if (!placement || typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
+      setDebug(placement.x, placement.y, placement.range, placement.rcl, 3);
+    }
+  }
+
+  const ranking =
+    hasStructurePlanning &&
+    structurePlanning.ranking &&
+    Array.isArray(structurePlanning.ranking.extensionOrder)
+      ? structurePlanning.ranking.extensionOrder
+      : [];
+  let extensionCandidateCount = 0;
+  for (const row of ranking) {
+    if (!row || typeof row.x !== 'number' || typeof row.y !== 'number') continue;
+    const selectedType = String(row.selectedType || '');
+    if (selectedType && selectedType !== TYPES.EXTENSION) continue;
+    extensionCandidateCount += 1;
+    const cValue = Number.isFinite(row.selectedRcl) ? row.selectedRcl : row.candidateRcl;
+    setDebug(row.x, row.y, row.range, cValue, 1);
+  }
+
+  for (const pos of validPositions) {
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
+    const distValue = Number.isFinite(pos.dist) ? pos.dist : pos.range;
+    const cValue = Number.isFinite(pos.candidateRcl) ? pos.candidateRcl : null;
+    setDebug(pos.x, pos.y, distValue, cValue, 2);
+  }
+
+  if (validPositions.length > 0) {
+    const rankingMeta = hasStructurePlanning && structurePlanning.ranking ? structurePlanning.ranking : {};
+    const spawnStampCenter =
+      rankingMeta &&
+      rankingMeta.spawnStampCenter &&
+      Number.isFinite(rankingMeta.spawnStampCenter.x) &&
+      Number.isFinite(rankingMeta.spawnStampCenter.y)
+        ? rankingMeta.spawnStampCenter
+        : null;
+    const spawnRef =
+      rankingMeta &&
+      rankingMeta.spawnRef &&
+      Number.isFinite(rankingMeta.spawnRef.x) &&
+      Number.isFinite(rankingMeta.spawnRef.y)
+        ? rankingMeta.spawnRef
+        : spawnStampCenter;
+    const fallbackCandidates = [];
+    for (const pos of validPositions) {
+      if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
+      const k = `${pos.x}:${pos.y}`;
+      if (result.has(k)) continue;
+      const dist =
+        spawnRef
+          ? Math.max(Math.abs(pos.x - spawnRef.x), Math.abs(pos.y - spawnRef.y))
+          : 0;
+      fallbackCandidates.push({
+        x: pos.x,
+        y: pos.y,
+        dist,
+        spawnDist: dist,
+      });
+    }
+    fallbackCandidates.sort(
+      (a, b) =>
+        a.dist - b.dist ||
+        a.spawnDist - b.spawnDist ||
+        a.y - b.y ||
+        a.x - b.x,
+    );
+    for (let i = 0; i < fallbackCandidates.length; i++) {
+      const candidate = fallbackCandidates[i];
+      const candidateOrder = extensionCandidateCount + i;
+      setDebug(
+        candidate.x,
+        candidate.y,
+        candidate.dist,
+        assignExtensionCandidateRcl(candidateOrder),
+        0,
+      );
+    }
+  }
+
+  return result;
+}
+
+function resolveOriginFloodOverlay(structurePlanning = null) {
+  const ranking =
+    structurePlanning &&
+    structurePlanning.ranking &&
+    typeof structurePlanning.ranking === 'object'
+      ? structurePlanning.ranking
+      : null;
+  if (!ranking) return null;
+  const tiles = Array.isArray(ranking.originFloodTiles) ? ranking.originFloodTiles : [];
+  if (tiles.length === 0) return null;
+  const stats =
+    ranking.originFloodStats && typeof ranking.originFloodStats === 'object'
+      ? ranking.originFloodStats
+      : { reachableTiles: tiles.length, roadTiles: 0, candidateTiles: 0 };
+  return {
+    tiles,
+    stats,
+    origin: resolvePreviewDistanceOrigin(structurePlanning),
+    distanceModel: typeof ranking.distanceModel === 'string' ? ranking.distanceModel : 'spawn-origin-dual-v1',
+    rangeMode: typeof ranking.rangeMode === 'string' ? ranking.rangeMode : 'origin-flood-8way',
+    roadSelection: typeof ranking.roadSelection === 'string' ? ranking.roadSelection : 'foundation-road-net',
+  };
+}
+
+function drawOriginFloodOverlay(vis, overlay, overlayView = 'originflood') {
+  if (!vis || !overlay || !Array.isArray(overlay.tiles)) return;
+  const depthView = overlayView === 'originflooddepth';
+  for (const tile of overlay.tiles) {
+    if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+    const depth = Number.isFinite(tile.d) ? Math.max(0, Number(tile.d)) : 0;
+    let fill = '#8f8f8f';
+    if (tile.kind === 'road') fill = '#5db0ff';
+    if (tile.kind === 'candidate') fill = '#ffd166';
+    if (tile.kind === 'origin') fill = '#ffffff';
+    vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
+      fill,
+      opacity: depthView ? Math.max(0.08, 0.34 - depth * 0.01) : 0.2,
+      stroke: 'transparent',
+    });
+    if (depthView && depth <= 20) {
+      vis.text(String(Math.trunc(depth)), tile.x, tile.y + 0.12, {
+        color: tile.kind === 'origin' ? '#1f1f1f' : '#111111',
+        font: 0.34,
+        align: 'center',
+      });
+    }
+  }
+  if (overlay.origin && Number.isFinite(overlay.origin.x) && Number.isFinite(overlay.origin.y)) {
+    vis.circle(overlay.origin.x, overlay.origin.y, {
+      radius: 0.34,
+      stroke: '#ffffff',
+      fill: 'transparent',
+      opacity: 0.9,
+    });
+    vis.text('OF0', overlay.origin.x + 0.52, overlay.origin.y - 0.34, {
+      color: '#ffffff',
+      font: 0.3,
+      align: 'left',
+    });
+  }
+  vis.text(
+    `OriginFlood ${overlay.roadSelection} tiles=${overlay.stats.reachableTiles || 0} roads=${overlay.stats.roadTiles || 0} candidates=${overlay.stats.candidateTiles || 0}`,
+    2,
+    3,
+    { color: '#ffffff', font: 0.52, align: 'left' },
+  );
+  vis.text(
+    `Model=${overlay.distanceModel} mode=${overlay.rangeMode}`,
+    2,
+    3.7,
+    { color: '#d8d8d8', font: 0.42, align: 'left' },
+  );
+}
+
+function drawPreviewDebugLabels(vis, x, y, labels = {}) {
+  if (!vis || typeof vis.text !== 'function') return;
+  const dist = Number.isFinite(labels.dist) ? Math.max(0, Math.trunc(Number(labels.dist))) : null;
+  const c = Number.isFinite(labels.c) ? Math.max(1, Math.trunc(Number(labels.c))) : null;
+  if (dist === null && c === null) return;
+  const distPart = dist !== null ? `D${dist}` : 'D?';
+  const cPart = c !== null ? `C${c}` : 'C?';
+  vis.text(`${distPart},${cPart}`, x + 0.3, y + 0.38, {
+    color: '#d6b34d',
+    font: 0.23,
+    align: 'left',
+  });
+}
+
 function fmt(value, digits = 2) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a';
   return value.toFixed(digits);
@@ -90,6 +347,17 @@ function toPlannedCells(basePlan, type) {
   if (!basePlan || !basePlan.structures || !type) return [];
   const rows = Array.isArray(basePlan.structures[type]) ? basePlan.structures[type] : [];
   return rows.filter((row) => row && typeof row.x === 'number' && typeof row.y === 'number');
+}
+
+function toCandidatePlanCells(candidatePlan, type) {
+  if (!candidatePlan || !Array.isArray(candidatePlan.placements) || !type) return [];
+  return candidatePlan.placements.filter(
+    (placement) =>
+      placement &&
+      placement.type === type &&
+      typeof placement.x === 'number' &&
+      typeof placement.y === 'number',
+  );
 }
 
 function resolveCandidateIndex(theoretical, preferredIndex) {
@@ -359,6 +627,122 @@ const layoutVisualizer = {
       const activeCandidateIndex = overlayState.activeCandidateIndex;
       const activeCandidate = overlayState.activeCandidate;
       const hasFinalSpawnSelection = overlayState.hasFinalSpawnSelection;
+      const basePlan = room.memory.basePlan || null;
+      const candidatePlans =
+        room.memory.layout &&
+        room.memory.layout.theoreticalCandidatePlans &&
+        typeof room.memory.layout.theoreticalCandidatePlans === 'object'
+          ? room.memory.layout.theoreticalCandidatePlans
+          : {};
+      const selectedCandidateIndex =
+        theoretical && typeof theoretical.selectedCandidateIndex === 'number'
+          ? theoretical.selectedCandidateIndex
+          : theoreticalPipeline && typeof theoreticalPipeline.bestCandidateIndex === 'number'
+            ? theoreticalPipeline.bestCandidateIndex
+            : null;
+      const candidateKeys = Object.keys(candidatePlans);
+      const preferredCandidateIndex =
+        room.memory.layout && typeof room.memory.layout.currentDisplayCandidateIndex === 'number'
+          ? room.memory.layout.currentDisplayCandidateIndex
+          : theoretical && typeof theoretical.selectedCandidateIndex === 'number'
+            ? theoretical.selectedCandidateIndex
+            : candidateKeys.length > 0
+              ? Number(candidateKeys[0])
+              : null;
+      const activeCandidatePlan =
+        preferredCandidateIndex !== null &&
+        Object.prototype.hasOwnProperty.call(candidatePlans, String(preferredCandidateIndex))
+          ? candidatePlans[String(preferredCandidateIndex)]
+          : candidateKeys.length > 0
+            ? candidatePlans[candidateKeys[0]]
+            : null;
+      const preferBasePlanOverlay =
+        Boolean(
+          isTheoretical &&
+            basePlan &&
+            basePlan.plannerDebug &&
+            basePlan.plannerDebug.fullOptimization &&
+            typeof basePlan.plannerDebug.fullOptimization === 'object' &&
+            preferredCandidateIndex !== null &&
+            selectedCandidateIndex !== null &&
+            preferredCandidateIndex === selectedCandidateIndex,
+        );
+      const validStructureDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.validStructurePositions &&
+          typeof basePlan.plannerDebug.validStructurePositions === 'object'
+          ? basePlan.plannerDebug.validStructurePositions
+          : null) ||
+        (theoretical &&
+          theoretical.validStructurePositions &&
+          typeof theoretical.validStructurePositions === 'object'
+          ? theoretical.validStructurePositions
+          : null) ||
+        (!preferBasePlanOverlay &&
+          activeCandidatePlan &&
+          activeCandidatePlan.validStructurePositions &&
+          typeof activeCandidatePlan.validStructurePositions === 'object'
+          ? activeCandidatePlan.validStructurePositions
+          : null);
+      const labPlanningDebug =
+        (basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.labPlanning &&
+          typeof basePlan.plannerDebug.labPlanning === 'object'
+          ? basePlan.plannerDebug.labPlanning
+          : null) ||
+        (theoretical &&
+          theoretical.labPlanning &&
+          typeof theoretical.labPlanning === 'object'
+          ? theoretical.labPlanning
+          : null) ||
+        (!preferBasePlanOverlay &&
+          activeCandidatePlan &&
+          activeCandidatePlan.labPlanning &&
+          typeof activeCandidatePlan.labPlanning === 'object'
+          ? activeCandidatePlan.labPlanning
+          : null);
+      let structurePlanningDebug = null;
+      let structurePlanningDebugSource = null;
+      if (
+        basePlan &&
+        basePlan.plannerDebug &&
+        basePlan.plannerDebug.structurePlanning &&
+        typeof basePlan.plannerDebug.structurePlanning === 'object'
+      ) {
+        structurePlanningDebug = basePlan.plannerDebug.structurePlanning;
+        structurePlanningDebugSource = 'basePlan';
+      } else if (
+        theoretical &&
+        theoretical.structurePlanning &&
+        typeof theoretical.structurePlanning === 'object'
+      ) {
+        structurePlanningDebug = theoretical.structurePlanning;
+        structurePlanningDebugSource = 'theoretical';
+      } else if (
+        !preferBasePlanOverlay &&
+        activeCandidatePlan &&
+        activeCandidatePlan.structurePlanning &&
+        typeof activeCandidatePlan.structurePlanning === 'object'
+      ) {
+        structurePlanningDebug = activeCandidatePlan.structurePlanning;
+        structurePlanningDebugSource = 'candidate';
+      }
+      const hasFullOptimizationDebug =
+        (structurePlanningDebugSource === 'basePlan' &&
+          basePlan &&
+          basePlan.plannerDebug &&
+          basePlan.plannerDebug.fullOptimization &&
+          typeof basePlan.plannerDebug.fullOptimization === 'object') ||
+        (structurePlanningDebugSource === 'theoretical' &&
+          theoretical &&
+          theoretical.fullOptimization &&
+          typeof theoretical.fullOptimization === 'object') ||
+        (structurePlanningDebugSource === 'candidate' &&
+          activeCandidatePlan &&
+          activeCandidatePlan.fullOptimization &&
+          typeof activeCandidatePlan.fullOptimization === 'object');
 
       if (isTheoretical && overlayView !== 'plan') {
         const map =
@@ -366,6 +750,10 @@ const layoutVisualizer = {
             ? theoretical.wallDistance
             : overlayView === 'controllerdistance'
             ? theoretical.controllerDistance
+            : null;
+        const originFloodOverlay =
+          overlayView === 'originflood' || overlayView === 'originflooddepth'
+            ? resolveOriginFloodOverlay(structurePlanningDebug)
             : null;
         if (Array.isArray(map) && map.length >= 2500) {
           for (let y = 1; y <= 48; y++) {
@@ -416,6 +804,20 @@ const layoutVisualizer = {
             align: 'center',
           });
         }
+        if (originFloodOverlay) {
+          drawOriginFloodOverlay(vis, originFloodOverlay, overlayView);
+        }
+        if (overlayView === 'originflood' || overlayView === 'originflooddepth') {
+          if (!originFloodOverlay) {
+            vis.text('OriginFlood overlay unavailable', 2, 3, {
+              color: '#ffffff',
+              font: 0.52,
+              align: 'left',
+            });
+          }
+          recordRenderSubtask(roomName, 'LayoutOverlay', Game.cpu.getUsed() - start);
+          return;
+        }
       }
 
       const roadMap = new Map();
@@ -462,85 +864,24 @@ const layoutVisualizer = {
       }
 
       // Matrix cannot represent overlaps; enrich with persisted basePlan placements.
-      const basePlan = room.memory.basePlan || null;
-      const candidatePlans =
-        room.memory.layout &&
-        room.memory.layout.theoreticalCandidatePlans &&
-        typeof room.memory.layout.theoreticalCandidatePlans === 'object'
-          ? room.memory.layout.theoreticalCandidatePlans
-          : {};
-      const candidateKeys = Object.keys(candidatePlans);
-      const preferredCandidateIndex =
-        room.memory.layout && typeof room.memory.layout.currentDisplayCandidateIndex === 'number'
-          ? room.memory.layout.currentDisplayCandidateIndex
-          : theoretical && typeof theoretical.selectedCandidateIndex === 'number'
-            ? theoretical.selectedCandidateIndex
-            : candidateKeys.length > 0
-              ? Number(candidateKeys[0])
-              : null;
-      const activeCandidatePlan =
-        preferredCandidateIndex !== null &&
-        Object.prototype.hasOwnProperty.call(candidatePlans, String(preferredCandidateIndex))
-          ? candidatePlans[String(preferredCandidateIndex)]
-          : candidateKeys.length > 0
-            ? candidatePlans[candidateKeys[0]]
-            : null;
-      const validStructureDebug =
-        (basePlan &&
-          basePlan.plannerDebug &&
-          basePlan.plannerDebug.validStructurePositions &&
-          typeof basePlan.plannerDebug.validStructurePositions === 'object'
-          ? basePlan.plannerDebug.validStructurePositions
-          : null) ||
-        (theoretical &&
-          theoretical.validStructurePositions &&
-          typeof theoretical.validStructurePositions === 'object'
-          ? theoretical.validStructurePositions
-          : null) ||
-        (activeCandidatePlan &&
-          activeCandidatePlan.validStructurePositions &&
-          typeof activeCandidatePlan.validStructurePositions === 'object'
-          ? activeCandidatePlan.validStructurePositions
-          : null);
-      const labPlanningDebug =
-        (basePlan &&
-          basePlan.plannerDebug &&
-          basePlan.plannerDebug.labPlanning &&
-          typeof basePlan.plannerDebug.labPlanning === 'object'
-          ? basePlan.plannerDebug.labPlanning
-          : null) ||
-        (theoretical &&
-          theoretical.labPlanning &&
-          typeof theoretical.labPlanning === 'object'
-          ? theoretical.labPlanning
-          : null) ||
-        (activeCandidatePlan &&
-          activeCandidatePlan.labPlanning &&
-          typeof activeCandidatePlan.labPlanning === 'object'
-          ? activeCandidatePlan.labPlanning
-          : null);
-      const structurePlanningDebug =
-        (basePlan &&
-          basePlan.plannerDebug &&
-          basePlan.plannerDebug.structurePlanning &&
-          typeof basePlan.plannerDebug.structurePlanning === 'object'
-          ? basePlan.plannerDebug.structurePlanning
-          : null) ||
-        (theoretical &&
-          theoretical.structurePlanning &&
-          typeof theoretical.structurePlanning === 'object'
-          ? theoretical.structurePlanning
-          : null) ||
-        (activeCandidatePlan &&
-          activeCandidatePlan.structurePlanning &&
-          typeof activeCandidatePlan.structurePlanning === 'object'
-          ? activeCandidatePlan.structurePlanning
-          : null);
+      const previewDebugLabelsByPos = buildPreviewDebugLabelsByPos(
+        structurePlanningDebug,
+        validStructureDebug,
+      );
+      const previewDistanceOrigin = resolvePreviewDistanceOrigin(structurePlanningDebug);
       for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
         addRoadTile(tile.x, tile.y, tile.rcl || null);
       }
       for (const tile of toPlannedCells(basePlan, TYPES.RAMPART)) {
         addRampartTile(tile.x, tile.y);
+      }
+      if (!preferBasePlanOverlay) {
+        for (const tile of toCandidatePlanCells(activeCandidatePlan, TYPES.ROAD)) {
+          addRoadTile(tile.x, tile.y, tile.rcl || null);
+        }
+        for (const tile of toCandidatePlanCells(activeCandidatePlan, TYPES.RAMPART)) {
+          addRampartTile(tile.x, tile.y);
+        }
       }
       if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
         for (const type of Object.keys(basePlan.structures)) {
@@ -568,6 +909,32 @@ const layoutVisualizer = {
             }
             drawnStructureKeys.add(drawnKey);
           }
+        }
+      }
+      if (!preferBasePlanOverlay && activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
+        for (const placement of activeCandidatePlan.placements) {
+          if (!placement || !placement.type) continue;
+          if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
+          const drawnKey = `${placement.x}:${placement.y}:${placement.type}`;
+          if (drawnStructureKeys.has(drawnKey)) continue;
+          vis.text(
+            getLabelForCell({ structureType: placement.type, tag: placement.tag || null }),
+            placement.x,
+            placement.y + 0.1,
+            {
+              color: getColor(placement.type),
+              font: 0.52,
+              align: 'center',
+            },
+          );
+          if (placement.rcl) {
+            vis.text(String(placement.rcl), placement.x + 0.31, placement.y + 0.32, {
+              color: '#a9a9a9',
+              font: 0.33,
+              align: 'left',
+            });
+          }
+          drawnStructureKeys.add(drawnKey);
         }
       }
 
@@ -697,10 +1064,17 @@ const layoutVisualizer = {
       }
 
       for (const tile of rampartMap.values()) {
+        const overlapRoad = roadMap.has(`${tile.x}:${tile.y}`);
         vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
           fill: getColor(TYPES.RAMPART),
-          opacity: 0.14,
-          stroke: 'transparent',
+          opacity: overlapRoad ? 0.22 : 0.28,
+          stroke: getColor(TYPES.RAMPART),
+          strokeWidth: overlapRoad ? 0.06 : 0.08,
+        });
+        vis.text(getLabelForCell({ structureType: TYPES.RAMPART, overlapRoad }), tile.x, tile.y + 0.1, {
+          color: '#d9fff7',
+          font: overlapRoad ? 0.26 : 0.34,
+          align: 'center',
         });
       }
 
@@ -713,7 +1087,11 @@ const layoutVisualizer = {
           align: 'center',
         });
       }
-      if (structurePlanningDebug && Array.isArray(structurePlanningDebug.placements)) {
+      if (
+        !hasFullOptimizationDebug &&
+        structurePlanningDebug &&
+        Array.isArray(structurePlanningDebug.placements)
+      ) {
         for (const placement of structurePlanningDebug.placements) {
           if (!placement || !placement.type) continue;
           if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
@@ -728,6 +1106,10 @@ const layoutVisualizer = {
               align: 'center',
             },
           );
+          const debugLabels = previewDebugLabelsByPos.get(`${placement.x}:${placement.y}`) || null;
+          if (debugLabels) {
+            drawPreviewDebugLabels(vis, placement.x, placement.y, debugLabels);
+          }
         }
       }
 
@@ -754,7 +1136,7 @@ const layoutVisualizer = {
             }
           }
         }
-        if (activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
+        if (!preferBasePlanOverlay && activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
           for (const placement of activeCandidatePlan.placements) {
             if (!placement || !placement.type) continue;
             if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
@@ -771,7 +1153,11 @@ const layoutVisualizer = {
             markOccupied(pos && pos.x, pos && pos.y);
           }
         }
-        if (structurePlanningDebug && Array.isArray(structurePlanningDebug.placements)) {
+        if (
+          !hasFullOptimizationDebug &&
+          structurePlanningDebug &&
+          Array.isArray(structurePlanningDebug.placements)
+        ) {
           for (const pos of structurePlanningDebug.placements) {
             if (!pos || pos.type === TYPES.ROAD || pos.type === TYPES.RAMPART) continue;
             markOccupied(pos.x, pos.y);
@@ -789,6 +1175,10 @@ const layoutVisualizer = {
               stroke: 'transparent',
             });
             shownValidDots += 1;
+            const debugLabels = previewDebugLabelsByPos.get(`${pos.x}:${pos.y}`) || null;
+            if (debugLabels) {
+              drawPreviewDebugLabels(vis, pos.x, pos.y, debugLabels);
+            }
           }
         }
         vis.text(
@@ -801,6 +1191,23 @@ const layoutVisualizer = {
             align: 'left',
           },
         );
+      }
+      if (previewDistanceOrigin) {
+        // Mark the exact DT/range origin used for preview distance evaluation.
+        if (typeof vis.circle === 'function') {
+          vis.circle(previewDistanceOrigin.x, previewDistanceOrigin.y, {
+            radius: 0.34,
+            fill: 'transparent',
+            stroke: '#ffd166',
+            strokeWidth: 0.08,
+            opacity: 0.95,
+          });
+        }
+        vis.text('DT0', previewDistanceOrigin.x + 0.52, previewDistanceOrigin.y - 0.34, {
+          color: '#ffd166',
+          font: 0.4,
+          align: 'left',
+        });
       }
 
       if (isTheoretical) {
@@ -1011,7 +1418,7 @@ const layoutVisualizer = {
             [TYPES.NUKER, 'Planned Nuker'],
             [TYPES.EXTRACTOR, 'Planned Extractor'],
             [TYPES.RAMPART, 'Planned Rampart'],
-            [TYPES.RAMPART, 'Road + Rampart Overlap'],
+            [{ structureType: TYPES.RAMPART, overlapRoad: true }, 'Road + Rampart Overlap'],
             [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ]
         : [
@@ -1026,7 +1433,7 @@ const layoutVisualizer = {
             [TYPES.LAB, 'Lab'],
             [TYPES.POWER_SPAWN, 'Power Spawn (PS)'],
             [TYPES.RAMPART, 'Rampart'],
-            [TYPES.RAMPART, 'Road + Rampart Overlap'],
+            [{ structureType: TYPES.RAMPART, overlapRoad: true }, 'Road + Rampart Overlap'],
             [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ];
       const baseX = 2;
@@ -1049,15 +1456,20 @@ const layoutVisualizer = {
         });
       }
       for (let i = 0; i < legend.length; i++) {
-        const [type, label] = legend[i];
+        const [typeOrCell, label] = legend[i];
         const y = baseY + i * rowStep;
+        const legendCell =
+          typeOrCell && typeof typeOrCell === 'object' && typeOrCell.structureType
+            ? typeOrCell
+            : { structureType: typeOrCell };
+        const type = legendCell.structureType;
         const color = getColor(type);
         const glyph =
           type === TYPES.ROAD
             ? '─'
             : type === TYPES.POWER_SPAWN
             ? 'PS'
-            : getGlyph(type);
+            : getLabelForCell(legendCell);
         vis.text(glyph, baseX, y + 0.08, {
           color,
           font: 0.52,

@@ -266,6 +266,8 @@ function syncOverlayModeSettings() {
   if (!Memory.settings) Memory.settings = {};
   const mode = String(Memory.settings.overlayMode || 'normal').toLowerCase();
   if (mode === 'off') {
+    // Global hard-off switch: this intentionally clears layout/HUD overlays too.
+    // If theoretical planning visuals are expected, do not set overlayMode=off.
     Memory.settings.enableVisuals = false;
     Memory.settings.alwaysShowHud = false;
     Memory.settings.showSpawnQueueHud = false;
@@ -276,6 +278,8 @@ function syncOverlayModeSettings() {
     return mode;
   }
   if (mode === 'debug') {
+    // Debug mode is HTM/profiler focused and deliberately hides layout overlays.
+    // Keep this as-is to avoid mixed debug stacks fighting for render space.
     Memory.settings.enableVisuals = false;
     Memory.settings.alwaysShowHud = false;
     Memory.settings.showSpawnQueueHud = false;
@@ -306,6 +310,8 @@ function applyRuntimeMode(mode, options = {}) {
     Memory.settings.enableBaseBuilderPlanning = true;
     Memory.settings.showLayoutOverlay = true;
     Memory.settings.showLayoutLegend = true;
+    // Keep generic visuals enabled by default here to provide a safe baseline
+    // (status HUD + structure overlay + legend). Users can disable parts later.
     Memory.settings.enableVisuals = true;
     Memory.settings.alwaysShowHud = true;
     Memory.settings.buildPreviewOnly = true;
@@ -780,11 +786,11 @@ function queueDomainEvents(ctx, options = {}) {
 
 function runDomainPlanning(ctx) {
   const maxBudget = Math.max(0, Number(ctx && ctx.softBudget ? ctx.softBudget : Game.cpu.tickLimit) * 0.12);
-  const basePipelines = ctx && ctx.flags && ctx.flags.LOW_BUCKET
-    ? ['critical', 'realtime']
-    : ctx && ctx.flags && ctx.flags.BURST
-    ? ['critical', 'realtime', 'background', 'burstOnly']
-    : ['critical', 'realtime', 'background'];
+  const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+  const basePipelines = htm.resolveAllowedPipelines(
+    ctx && ctx.mode ? ctx.mode : 'NORMAL',
+    runtimeMode,
+  );
   const pipelines = filterPipelinesByBucket(basePipelines);
   if (!pipelines.length) return;
   const result = domainQueueScheduler.runPhase(
@@ -859,7 +865,9 @@ function runDomainPlanning(ctx) {
     staleDrops: Number(rawStats.staleDrops || 0),
     blockedSkips: Number(rawStats.blockedSkips || 0),
     avgCostEst: Number(rawStats.avgCostEst || 0),
+    avgExpectedCpu: Number(rawStats.avgExpectedCpu || 0),
     costEst: rawStats.costEst || { low: 0, medium: 0, high: 0, total: 0 },
+    expectedCpu: rawStats.expectedCpu || { total: 0, count: 0, deferred: 0 },
   };
   if (Memory.settings && Memory.settings.debugDomainScheduler === true) {
     compactStats.queueSizes = rawStats.queueSizes || {};
@@ -945,12 +953,7 @@ function executeHtmPhase(tickCtx, reason) {
 
   if (!result && preferPipeline && typeof htm.runScheduled === 'function') {
     const mode = tickCtx && tickCtx.mode ? tickCtx.mode : 'NORMAL';
-    const basePipelines =
-      mode === 'LOW_BUCKET'
-        ? ['critical', 'realtime']
-        : mode === 'BURST'
-          ? ['critical', 'realtime', 'background', 'burstOnly']
-          : ['critical', 'realtime', 'background'];
+    const basePipelines = htm.resolveAllowedPipelines(mode, runtimeMode);
     const allowedPipelines = filterPipelinesByBucket(basePipelines);
     if (!allowedPipelines.length) {
       result = {
@@ -964,6 +967,7 @@ function executeHtmPhase(tickCtx, reason) {
     } else {
       result = htm.runScheduled({
         mode,
+        runtimeMode,
         softBudget,
         reserveCpu: reason === 'preview' ? 1.2 : 2,
         includeQueueSizes: Boolean(Memory.settings && Memory.settings.debugDomainScheduler === true),
@@ -2371,6 +2375,8 @@ global.visual = {
       'plan',
       'walldistance',
       'controllerdistance',
+      'originflood',
+      'originflooddepth',
       'flood',
       'flooddepth',
       'spawnscore',
@@ -2379,7 +2385,7 @@ global.visual = {
     ];
     if (!allowed.includes(normalized)) {
       statsConsole.log(
-        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'flood'|'floodDepth'|'spawnScore'|'candidates'|'evaluation')",
+        "Usage: visual.layoutView('plan'|'wallDistance'|'controllerDistance'|'originFlood'|'originFloodDepth'|'flood'|'floodDepth'|'spawnScore'|'candidates'|'evaluation')",
         3,
       );
       return;
@@ -2608,6 +2614,75 @@ global.visual = {
       2,
     );
     return true;
+  },
+  layoutDiag: function (roomName = null) {
+    const ownedRooms = Object.values(Game.rooms || {}).filter(
+      (room) => room && room.controller && room.controller.my,
+    );
+    const targets = roomName
+      ? ownedRooms.filter((room) => room.name === roomName)
+      : ownedRooms;
+    const rooms = targets.map((room) => {
+      const roomMem = (Memory.rooms && Memory.rooms[room.name]) || {};
+      const layout = roomMem.layout || {};
+      const matrix = layout.matrix && typeof layout.matrix === 'object' ? layout.matrix : {};
+      const matrixCols = Object.keys(matrix).length;
+      const candidatePlans =
+        layout.theoreticalCandidatePlans && typeof layout.theoreticalCandidatePlans === 'object'
+          ? layout.theoreticalCandidatePlans
+          : {};
+      const intentState = roomMem.intentState || {};
+      const container = htm._getContainer(htm.LEVELS.COLONY, room.name);
+      const intentTasks =
+        container && Array.isArray(container.tasks)
+          ? container.tasks.filter((task) => task && task.manager === 'intentPipeline')
+          : [];
+      const planTasks =
+        container && Array.isArray(container.tasks)
+          ? container.tasks.filter(
+              (task) =>
+                task &&
+                (task.name === 'PLAN_LAYOUT_CANDIDATES' || task.name === 'PLAN_LAYOUT_CANDIDATE'),
+            )
+          : [];
+      return {
+        room: room.name,
+        layout: Boolean(roomMem.layout),
+        rebuildLayout: Boolean(layout.rebuildLayout),
+        matrixCols,
+        candidatePlans: Object.keys(candidatePlans).length,
+        theoreticalGeneratedAt:
+          layout.theoretical && Number.isFinite(Number(layout.theoretical.generatedAt))
+            ? Number(layout.theoretical.generatedAt)
+            : null,
+        pipelineStatus:
+          layout.theoreticalPipeline && layout.theoreticalPipeline.status
+            ? String(layout.theoreticalPipeline.status)
+            : null,
+        activeRunId: intentState.activeRunId || null,
+        intentTasks: intentTasks.length,
+        planTasks: planTasks.length,
+      };
+    });
+    const payload = {
+      settings: {
+        runtimeMode: Memory.settings && Memory.settings.runtimeMode ? Memory.settings.runtimeMode : null,
+        overlayMode: Memory.settings && Memory.settings.overlayMode ? Memory.settings.overlayMode : null,
+        buildPreviewOnly: Boolean(Memory.settings && Memory.settings.buildPreviewOnly),
+        pauseBot: Boolean(Memory.settings && Memory.settings.pauseBot),
+        enableVisuals: Boolean(Memory.settings && Memory.settings.enableVisuals),
+        showLayoutOverlay: Memory.settings ? Memory.settings.showLayoutOverlay !== false : false,
+        showHtmOverlay: Boolean(Memory.settings && Memory.settings.showHtmOverlay),
+        layoutOverlayView: Memory.settings && Memory.settings.layoutOverlayView ? Memory.settings.layoutOverlayView : null,
+        layoutRecalculateRequested:
+          Memory.settings && Memory.settings.layoutRecalculateRequested
+            ? Memory.settings.layoutRecalculateRequested
+            : null,
+      },
+      rooms,
+    };
+    console.log(JSON.stringify(payload));
+    return payload;
   },
   theoreticalPlanning: function (toggle) {
     if (!Memory.settings) Memory.settings = {};
@@ -3188,6 +3263,38 @@ function runMainLoop(loopStartCpu = 0) {
       parent: 'Preview Pipeline',
       reason: 'preview',
     });
+    const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
+    const previewRuntimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+    const theoreticalLayoutOverlayEnabled =
+      previewRuntimeMode === 'theoretical' &&
+      Memory.settings &&
+      Memory.settings.showLayoutOverlay !== false;
+    // IMPORTANT:
+    // Keep `theoreticalLayoutOverlayEnabled` in this gate. Preview mode can run
+    // with generic visuals disabled; without this explicit condition the planner
+    // still computes but no layout overlay is rendered.
+    const shouldRunHudPass =
+      overlayMode !== 'off' &&
+      (
+        overlayMode === 'debug' ||
+        Boolean(Memory.settings && Memory.settings.enableVisuals) ||
+        Boolean(Memory.settings && Memory.settings.showHtmOverlay) ||
+        Boolean(theoreticalLayoutOverlayEnabled)
+      );
+    const previewHudCpu = shouldRunHudPass
+      ? recordTickPhase(tickCtx, 'execution-hud', () => {
+          const hudStart = Game.cpu.getUsed();
+          for (const roomName in Game.rooms) {
+            const room = Game.rooms[roomName];
+            hudManager.createHUD(room);
+          }
+          return Game.cpu.getUsed() - hudStart;
+        })
+      : 0;
+    logProfileEntry('Preview Pipeline::HUD Pass', previewHudCpu, {
+      parent: 'Preview Pipeline',
+      reason: 'preview',
+    });
     if (Game.cpu.bucket >= 1000 && Game.time % 5 === 0) {
       const consoleStart = Game.cpu.getUsed();
       drawAsciiConsole();
@@ -3214,6 +3321,7 @@ function runMainLoop(loopStartCpu = 0) {
       ["Intent Plan", intentCpu.plan],
       ["Intent Sync", intentCpu.sync],
       ["Intent HUD", intentCpu.hud],
+      ["Preview HUD", previewHudCpu],
       ["Intent Other", intentCpu.other],
       ["PreLoop", Number(tickCtx.preLoopCpu || 0)],
       ["Memory Bytes", Number((Memory.stats && Memory.stats.runtime && Memory.stats.runtime.memoryBytes) || 0)],
@@ -3372,6 +3480,10 @@ function runMainLoop(loopStartCpu = 0) {
   let hudPassCpu = 0;
   const overlayMode = String((Memory.settings && Memory.settings.overlayMode) || 'normal').toLowerCase();
   const runtimeMode = String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase();
+  const theoreticalLayoutOverlayEnabled =
+    runtimeMode === 'theoretical' &&
+    Memory.settings &&
+    Memory.settings.showLayoutOverlay !== false;
   const cpuBucket = typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 10000;
   const forceHudInTheoretical = runtimeMode === 'theoretical' && cpuBucket >= 2000;
   const shouldRunHudPass =
@@ -3379,7 +3491,10 @@ function runMainLoop(loopStartCpu = 0) {
     (
       overlayMode === 'debug' ||
       Boolean(Memory.settings && Memory.settings.enableVisuals) ||
-      Boolean(Memory.settings && Memory.settings.showHtmOverlay)
+      Boolean(Memory.settings && Memory.settings.showHtmOverlay) ||
+      // Mirror preview-mode behavior: theoretical layout overlays must keep HUD
+      // pass alive even if standard visuals are disabled.
+      Boolean(theoreticalLayoutOverlayEnabled)
     );
   if (shouldRunHudPass && (!tickPipeline.hardStopReached(tickCtx, 2) || forceHudInTheoretical)) {
     hudPassCpu = recordTickPhase(tickCtx, 'execution-hud', () => {

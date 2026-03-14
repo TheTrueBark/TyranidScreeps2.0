@@ -333,5 +333,6 @@ function computeRampartCut(ctx, options = {}) {
 }
 
 module.exports = {
+  connectBarrier,
   computeRampartCut,
 };

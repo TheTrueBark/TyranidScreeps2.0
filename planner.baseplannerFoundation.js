@@ -118,7 +118,7 @@ function buildTerrainMatrices(room) {
 
 function ensureDistanceTransform(room) {
   if (!room.memory) room.memory = {};
-  if (!Array.isArray(room.memory.distanceTransform)) {
+  if (!Array.isArray(room.memory.distanceTransform) || room.memory.distanceTransform.length !== 2500) {
     distanceTransform.distanceTransform(room);
   }
   const dt = Array.isArray(room.memory.distanceTransform) ? room.memory.distanceTransform.slice() : [];

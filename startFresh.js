@@ -20,14 +20,21 @@ function startFresh(options = {}) {
       ? String(
           options.extensionPattern ||
             options.layoutExtensionPattern ||
-            (options.cluster3Mode ? 'cluster3' : 'parity'),
+            'cluster3',
         ).toLowerCase()
-      : 'parity';
+      : 'cluster3';
   const normalizedExtensionPattern =
     extensionPattern === 'cluster3' || extensionPattern === 'harabi' || extensionPattern === 'diag2'
       ? 'cluster3'
-      : 'parity';
-  const normalizedHarabiStage = 'foundation';
+      : 'cluster3';
+  const requestedHarabiStage =
+    typeof options === 'object' && options !== null
+      ? String(options.harabiStage || options.layoutHarabiStage || '').toLowerCase()
+      : '';
+  const normalizedHarabiStage =
+    requestedHarabiStage === 'foundation'
+      ? 'foundation'
+      : 'full';
   const layoutPlanDumpDebug =
     typeof options === 'object' && options !== null
       ? Boolean(options.layoutPlanDumpDebug || options.plannerDumpDebug || options.debugPlanDump)

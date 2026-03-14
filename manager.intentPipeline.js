@@ -44,11 +44,14 @@ const PHASE_MIN_BUCKET = {
   1: 2000,
   2: 2000,
   3: 2000,
-  4: 3500,
-  5: 3500,
-  6: 3500,
-  7: 3500,
-  8: 3500,
+  // Phase 4+ now ranks foundation candidates and only materializes `full` on the
+  // current winner, so the old high bucket gate would stall theoretical runs at
+  // 1/N after the first candidate.
+  4: 2000,
+  5: 2000,
+  6: 2000,
+  7: 2000,
+  8: 2000,
   9: 1000,
   10: 1000,
 };
@@ -58,6 +61,12 @@ const MAX_BACKOFF = 25;
 const PHASE4_STUCK_TIMEOUT = 50;
 const TOPOLOGY_MIN_INTERVAL = 100;
 const VALUE_EVAL_MIN_INTERVAL = 200;
+const INTENT_EXPECTED_CPU = {
+  [INTENTS.SCAN_ROOM]: 1.4,
+  [INTENTS.EVALUATE_ROOM_VALUE]: 1.2,
+  [INTENTS.SYNC_OVERLAY]: 0.6,
+  [INTENTS.RENDER_HUD]: 0.8,
+};
 
 function ensureRoomMemory(roomName) {
   if (!Memory.rooms) Memory.rooms = {};
@@ -115,14 +124,35 @@ function checkBudget(task, minBucket = 0, softCpuLimit = SOFT_CPU) {
   if (typeof Game.cpu.bucket === 'number' && Game.cpu.bucket < minBucket) {
     return { defer: nextBackoff(task), reason: 'bucket' };
   }
-  if (softCpuLimit > 0 && typeof Game.cpu.getUsed === 'function' && Game.cpu.getUsed() > softCpuLimit) {
-    return { defer: nextBackoff(task), reason: 'cpu' };
+  if (softCpuLimit > 0 && typeof Game.cpu.getUsed === 'function') {
+    const used = Game.cpu.getUsed();
+    const expectedCpu = Math.max(0, Number(task && task.expectedCpu ? task.expectedCpu : 0));
+    const expectedGuard = Math.max(0.35, Math.min(2.5, expectedCpu * 0.18));
+    const forecastCpu = Math.min(expectedCpu, softCpuLimit * 0.7);
+    if (used > softCpuLimit || (used > softCpuLimit * 0.25 && used + forecastCpu + expectedGuard > softCpuLimit)) {
+      return { defer: nextBackoff(task), reason: 'cpu' };
+    }
   }
   if (data.retryAtTick) {
     delete data.retryAtTick;
     data.retryCount = 0;
   }
   return null;
+}
+
+function resolveIntentExpectedCpu(intentName, data = {}) {
+  const explicit = data && Number.isFinite(Number(data.expectedCpu)) ? Number(data.expectedCpu) : null;
+  if (explicit !== null && explicit > 0) return explicit;
+  if (INTENT_EXPECTED_CPU[intentName]) return INTENT_EXPECTED_CPU[intentName];
+  const phase = PHASE_BY_INTENT[intentName];
+  if (phase) {
+    if (phase <= 2) return 1.5;
+    if (phase === 3) return 4;
+    if (phase >= 4 && phase <= 8) return 8.5;
+    if (phase === 9) return 6;
+    return 2;
+  }
+  return 1;
 }
 
 function signature(intentName, data = {}) {
@@ -176,6 +206,7 @@ function enqueueIntent(roomName, intentName, data = {}, options = {}) {
   if (dedupeIntent(roomName, intentName, payload.signature)) return false;
   const priority = typeof options.priority === 'number' ? options.priority : 1;
   const ttl = typeof options.ttl === 'number' ? options.ttl : 200;
+  const expectedCpu = resolveIntentExpectedCpu(intentName, payload);
   htm.addColonyTask(
     roomName,
     intentName,
@@ -185,7 +216,7 @@ function enqueueIntent(roomName, intentName, data = {}, options = {}) {
     1,
     'intentPipeline',
     { module: 'intentPipeline' },
-    { allowDuplicate: true },
+    { allowDuplicate: true, expectedCpu },
   );
   roomMem.intentState.pendingIntents[payload.signature] = {
     intent: intentName,
@@ -210,7 +241,7 @@ function queuePhase(roomName, runId, phase, reason = 'follow-up') {
   return enqueueIntent(
     roomName,
     intentName,
-    { runId, phase, reason, key: `${runId}:${phase}` },
+    { runId, phase, reason, key: `${runId}:${phase}`, expectedCpu: resolveIntentExpectedCpu(intentName, { phase }) },
     { priority: 1, ttl: 400 },
   );
 }
@@ -739,11 +770,23 @@ const intentPipeline = {
     const ownedRooms = Object.values(Game.rooms || {}).filter(
       (room) => room && room.controller && room.controller.my,
     );
+    const markRebuild = (roomName) => {
+      if (!Memory.rooms) Memory.rooms = {};
+      if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+      const roomMem = Memory.rooms[roomName];
+      if (!roomMem.layout || typeof roomMem.layout !== 'object') roomMem.layout = {};
+      // Force theoretical planner to discard fresh-cache plans and rebuild with
+      // latest algorithm/settings. Removing this flag causes stale overlays
+      // after recalc commands (planner data exists, but old candidate output remains).
+      roomMem.layout.rebuildLayout = true;
+    };
     if (pending === 'all') {
       for (const room of ownedRooms) {
+        markRebuild(room.name);
         this.queuePlanStart(room.name, 'recalculate-all');
       }
     } else if (typeof pending === 'string' && Game.rooms[pending]) {
+      markRebuild(pending);
       this.queuePlanStart(pending, 'recalculate-room');
     }
     delete Memory.settings.layoutRecalculateRequested;
