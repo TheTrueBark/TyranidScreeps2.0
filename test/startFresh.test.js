@@ -143,4 +143,31 @@ describe('startFresh command', function() {
     expect(Memory.settings.runtimeMode).to.equal('theoretical');
     expect(Memory.settings.layoutPlanDumpDebug).to.equal(true);
   });
+
+  it('supports standalone rampart mincut debug mode', function() {
+    startFresh({ rampartMincutMode: true });
+    expect(Memory.settings).to.include({
+      runtimeMode: 'theoretical',
+      overlayMode: 'normal',
+      enableVisuals: true,
+      buildPreviewOnly: true,
+      enableBaseBuilderPlanning: false,
+      showLayoutOverlay: true,
+      showLayoutLegend: true,
+      showLayoutOverlayLabels: true,
+      layoutPlanningMode: 'theoretical',
+      layoutOverlayView: 'plan',
+      layoutCandidateOverlayIndex: -1,
+      layoutPlanningTopCandidates: 1,
+      layoutPlanningCandidatesPerTick: 1,
+      layoutPlanningMaxCandidatesPerTick: 1,
+      layoutPlanningDynamicBatching: false,
+      layoutPlanningReplanInterval: 1000,
+      enableMemHack: true,
+      memHackDebug: false,
+      pauseBot: false,
+    });
+    expect(Memory.settings).to.not.have.property('layoutRecalculateRequested');
+    expect(Memory.settings).to.not.have.property('layoutRecalculateMode');
+  });
 });

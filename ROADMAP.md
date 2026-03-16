@@ -39,6 +39,7 @@
 - [ ] **Prio 5**: `manager.building` an `basePlan.buildQueue` anbinden (RCL-Gates, Priority-Order, Reserved-Tiles).
 - [ ] **Prio 4**: Memory/HUD/Visual Overlay für Planqualität, Build-Fortschritt, Validation-Warnungen vervollständigen.
 - [ ] **Prio 4**: Validation & Fallback-Strategien (Lab-Constraint, Rampart-Konnektivität, Boundary-Regeln) produktionsreif machen.
+- [x] **Prio 4**: Standalone-Rampart-Mincut-Debugpfad für eine einzelne Schutzkoordinate mit Overlay, Dragon Teeth und Ranged-NoGo-Zone ergänzen.
 
 ### 🧩 Re-Gruppierung bestehender Roadmap-Punkte
 - [ ] Auto-Layout-Aufgaben werden als **Legacy/Transition** geführt und in den Baseplanner-Phasen absorbiert statt parallel erweitert.

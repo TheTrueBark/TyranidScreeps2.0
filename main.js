@@ -28,6 +28,8 @@ const introspect = require('./debug.introspection');
 const savestate = require('./debug.savestate');
 const incidentDebug = require('./debug.incident');
 const layoutDumpDebug = require('./debug.layoutDump');
+const rampartMincutCommand = require('./debug.rampartMincutCommand');
+const rampartMincutPlanner = require('./planner.rampartMincut');
 require('./taskDefinitions');
 const htm = require("manager.htm");
 const intentPipeline = require('./manager.intentPipeline');
@@ -3137,6 +3139,22 @@ const startFresh = require('./startFresh');
 global.startFresh = startFresh;
 global.layoutPlanDump = function(roomName = null, options = {}) {
   return layoutDumpDebug.dump(roomName, options);
+};
+global.rampartMincut = function(roomName, targetInput, yInput = undefined, options = {}) {
+  return rampartMincutCommand.run(roomName, targetInput, yInput, options);
+};
+global.planRampartMincut = function(roomName, targetInput, yInput = undefined, options = {}) {
+  const result = rampartMincutPlanner.planRoomTarget(roomName, targetInput, yInput, options);
+  return rampartMincutPlanner.summarizePlan(result);
+};
+global.clearRampartMincut = function(roomName) {
+  return rampartMincutPlanner.clearRoomPlan(roomName);
+};
+global.inspectRampartMincut = function(roomName) {
+  return rampartMincutPlanner.getRoomPlan(roomName);
+};
+global.dumpRampartMincut = function(roomName, options = {}) {
+  return rampartMincutPlanner.dumpRoomPlan(roomName, options);
 };
 intentPipeline.registerHandlers();
 

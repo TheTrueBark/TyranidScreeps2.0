@@ -139,6 +139,11 @@ Toggle in console:
 - `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' })` - wipe memory and boot into theoretical planner mode with Harabi-style diagonal 2x2 road grid pattern
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging
+- `startFresh({ rampartMincutMode: true })` - wipe memory and boot into a standalone rampart-debug overlay mode without the theoretical builder pipeline
+- `rampartMincut('W1N1', '25,25')` - one-command version: boot standalone rampart mincut debug mode and immediately plan the protected XY
+- `planRampartMincut('W1N1', '25,25')` - plan a min-cut rampart shell for one protected XY, visualize the protected point, checkerboard dragon teeth, and the interior ranged-creep no-go zone
+- `inspectRampartMincut('W1N1')` / `clearRampartMincut('W1N1')` - inspect or clear the standalone rampart debug payload
+- `dumpRampartMincut('W1N1')` - print a paste-friendly debug dump with exit regions, exit-approach seeds, raw/canonical cut, final ramparts, dragon teeth, and no-go zone
 - `startFresh({ wipe: 'all' })` - explicit full top-level Memory wipe (no preserved settings)
 - In Harabi `foundation` runtime, the `plan` overlay uses `RoomVisual` silhouettes for labs, ramparts, and late structure previews; ramparts use a filled outline with diagonal connectors, and green valid dots plus distance labels only appear when `Memory.settings.debugVisuals` is enabled.
 - `layoutPlanDump('W1N1')` - print planner debug dump (big/small stamp counts, structure totals, and buildQueue entries) when debug flag is enabled

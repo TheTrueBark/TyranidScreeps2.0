@@ -9,6 +9,7 @@ global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
 global.STRUCTURE_ROAD = 'road';
 global.STRUCTURE_RAMPART = 'rampart';
+global.STRUCTURE_WALL = 'constructedWall';
 global.STRUCTURE_LAB = 'lab';
 global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
 global.FIND_SOURCES = 2;
@@ -112,6 +113,35 @@ describe('layoutVisualizer.drawLayout', function() {
         d => d.type === 'text' && d.args[0] === 'A' && d.args[1] === 20 && d.args[2] > 20 && d.args[2] < 20.3,
       ),
     ).to.be.false;
+  });
+
+  it('renders standalone rampart mincut debug overlays with target marker, no-go zone, and dragon teeth', function() {
+    Memory.rooms.W1N1.layout.rampartMincut = {
+      ok: true,
+      target: { x: 25, y: 25 },
+      ramparts: [{ x: 22, y: 25, tag: 'rampart.edge' }],
+      displayRoads: [{ x: 22, y: 25, rcl: 2, tag: 'road.rampart' }],
+      dragonTeeth: [{ x: 21, y: 25, type: STRUCTURE_WALL, tag: 'wall.dragonTooth' }],
+      noGoZone: [{ x: 24, y: 25 }],
+      meta: { boundaryCount: 1, dragonToothCount: 1, noGoCount: 1 },
+    };
+
+    visualizer.drawLayout('W1N1');
+
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 25 && d.args[1] === 25)).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'PROTECT')).to.be.true;
+    expect(
+      drawn.some(
+        d =>
+          d.type === 'rect' &&
+          d.args[0] === 23.5 &&
+          d.args[1] === 24.5 &&
+          d.args[2] === 1 &&
+          d.args[3] === 1,
+      ),
+    ).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_WALL)).to.be.true;
+    expect(drawn.some(d => d.type === 'connectRoads')).to.be.true;
   });
 
   it('draws theoretical spawn marker when theoretical mode is active', function() {

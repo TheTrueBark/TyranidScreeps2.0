@@ -388,6 +388,13 @@ function toCandidatePlanCells(candidatePlan, type) {
   );
 }
 
+function getRampartMincutDebug(layout) {
+  if (!layout || typeof layout !== 'object') return null;
+  const debug = layout.rampartMincut;
+  if (!debug || debug.ok !== true) return null;
+  return debug;
+}
+
 function hasRenderableDebugPositions(debug) {
   return Boolean(debug && Array.isArray(debug.positions) && debug.positions.length > 0);
 }
@@ -677,6 +684,7 @@ const layoutVisualizer = {
       const overlayState = getTheoreticalOverlayState(roomName, room.memory.layout || {}, Memory.settings || {});
       const theoretical = overlayState.theoretical;
       const theoreticalPipeline = overlayState.theoreticalPipeline;
+      const rampartMincutDebug = getRampartMincutDebug(room.memory.layout || {});
       const candidateRows = overlayState.candidateRows;
       const activeCandidateIndex = overlayState.activeCandidateIndex;
       const activeCandidate = overlayState.activeCandidate;
@@ -861,6 +869,7 @@ const layoutVisualizer = {
       const roadMap = new Map();
       const rampartMap = new Map();
       const roadSet = {};
+      const dragonToothMap = new Map();
       const planStructurePlacements = [];
       const queuedPlanStructureKeys = new Set();
       const drawnStructureKeys = new Set();
@@ -945,6 +954,18 @@ const layoutVisualizer = {
           addRampartTile(tile.x, tile.y);
         }
       }
+      if (rampartMincutDebug) {
+        for (const tile of Array.isArray(rampartMincutDebug.displayRoads) ? rampartMincutDebug.displayRoads : []) {
+          addRoadTile(tile.x, tile.y, tile.rcl || null);
+        }
+        for (const tile of Array.isArray(rampartMincutDebug.ramparts) ? rampartMincutDebug.ramparts : []) {
+          addRampartTile(tile.x, tile.y);
+        }
+        for (const tile of Array.isArray(rampartMincutDebug.dragonTeeth) ? rampartMincutDebug.dragonTeeth : []) {
+          const toothKey = `${tile.x}:${tile.y}`;
+          if (!dragonToothMap.has(toothKey)) dragonToothMap.set(toothKey, tile);
+        }
+      }
       for (const type of getPlannedStructureTypes(basePlan)) {
         if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
         const tiles = toPlannedCells(basePlan, type);
@@ -1006,12 +1027,89 @@ const layoutVisualizer = {
             rampartStrokeWidth: overlapRoad ? 0.1 : 0.12,
           });
         }
+        for (const tile of dragonToothMap.values()) {
+          queuePlanStructurePlacement(TYPES.WALL, tile.x, tile.y, { opacity: 0.45 });
+        }
         for (const k of labKeys) {
           const [lx, ly] = k.split(':').map(Number);
           if (!Number.isFinite(lx) || !Number.isFinite(ly)) continue;
           queuePlanStructurePlacement(TYPES.LAB, lx, ly, { opacity: 0.55 });
         }
         structureVisualizer.drawStructurePlacements(planStructurePlacements, { opacity: 0.5 });
+      }
+
+      if (rampartMincutDebug && Array.isArray(rampartMincutDebug.noGoZone)) {
+        for (const tile of rampartMincutDebug.noGoZone) {
+          if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+          vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
+            fill: '#ff5a5a',
+            opacity: 0.12,
+            stroke: 'transparent',
+          });
+        }
+      }
+      if (showPlannerDebug && rampartMincutDebug && rampartMincutDebug.debug) {
+        const debug = rampartMincutDebug.debug;
+        const exitRegions = debug.exits && Array.isArray(debug.exits.regions) ? debug.exits.regions : [];
+        for (const region of exitRegions) {
+          const coords = region && region.coords && Array.isArray(region.coords.shown) ? region.coords.shown : [];
+          for (const tile of coords) {
+            if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+            vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
+              fill: '#4fc3f7',
+              opacity: 0.18,
+              stroke: '#4fc3f7',
+              strokeWidth: 0.03,
+            });
+          }
+          if (coords[0]) {
+            vis.text(`EX${Number(region.id) + 1}`, coords[0].x + 0.45, coords[0].y + 0.2, {
+              color: '#81d4fa',
+              font: 0.34,
+              align: 'left',
+            });
+          }
+        }
+        const approachTargets =
+          debug.exits && debug.exits.approachTargets && Array.isArray(debug.exits.approachTargets.shown)
+            ? debug.exits.approachTargets.shown
+            : [];
+        for (const tile of approachTargets) {
+          if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+          vis.rect(tile.x - 0.3, tile.y - 0.3, 0.6, 0.6, {
+            fill: '#00e5ff',
+            opacity: 0.28,
+            stroke: 'transparent',
+          });
+        }
+        const rawCut =
+          debug.mincut && debug.mincut.rawCut && Array.isArray(debug.mincut.rawCut.shown)
+            ? debug.mincut.rawCut.shown
+            : [];
+        for (const tile of rawCut) {
+          if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+          if (typeof vis.circle === 'function') {
+            vis.circle(tile.x, tile.y, {
+              radius: 0.12,
+              fill: '#ffd54f',
+              opacity: 0.55,
+              stroke: 'transparent',
+            });
+          }
+        }
+        const outerBand =
+          debug.mincut && debug.mincut.outerBand && Array.isArray(debug.mincut.outerBand.shown)
+            ? debug.mincut.outerBand.shown
+            : [];
+        for (const tile of outerBand) {
+          if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+          vis.rect(tile.x - 0.45, tile.y - 0.45, 0.9, 0.9, {
+            fill: 'transparent',
+            opacity: 0.75,
+            stroke: '#ffca28',
+            strokeWidth: 0.04,
+          });
+        }
       }
 
       const roadTiles = [...roadMap.values()];
@@ -1120,6 +1218,17 @@ const layoutVisualizer = {
           vis.text(getLabelForCell({ structureType: TYPES.RAMPART, overlapRoad }), tile.x, tile.y + 0.1, {
             color: '#d9fff7',
             font: overlapRoad ? 0.26 : 0.34,
+            align: 'center',
+          });
+        }
+      }
+
+      if (!useStructureRenderer) {
+        for (const tile of dragonToothMap.values()) {
+          if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+          vis.text('W', tile.x, tile.y + 0.1, {
+            color: getColor(TYPES.WALL),
+            font: 0.5,
             align: 'center',
           });
         }
@@ -1279,6 +1388,39 @@ const layoutVisualizer = {
           font: 0.4,
           align: 'left',
         });
+      }
+
+      if (rampartMincutDebug && rampartMincutDebug.target) {
+        const target = rampartMincutDebug.target;
+        if (typeof vis.circle === 'function') {
+          vis.circle(target.x, target.y, {
+            radius: 0.36,
+            fill: 'transparent',
+            stroke: '#ff9f43',
+            strokeWidth: 0.08,
+            opacity: 0.95,
+          });
+        }
+        vis.text('PROTECT', target.x, target.y - 0.42, {
+          color: '#ffcf8b',
+          font: 0.42,
+          align: 'center',
+        });
+        vis.text(`${target.x},${target.y}`, target.x + 0.55, target.y + 0.32, {
+          color: '#ffe0b2',
+          font: 0.38,
+          align: 'left',
+        });
+        vis.text(
+          `RampartMincut r=${Number((rampartMincutDebug.meta && rampartMincutDebug.meta.boundaryCount) || 0)} dt=${Number((rampartMincutDebug.meta && rampartMincutDebug.meta.dragonToothCount) || 0)} nogo=${Number((rampartMincutDebug.meta && rampartMincutDebug.meta.noGoCount) || 0)}`,
+          2,
+          3.1 + planningHudYOffset,
+          {
+            color: '#ffcf8b',
+            font: 0.46,
+            align: 'left',
+          },
+        );
       }
 
       if (isTheoretical) {

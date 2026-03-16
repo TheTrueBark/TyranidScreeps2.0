@@ -483,36 +483,11 @@ const getTheoreticalStatusRowsCached = (room) => {
 
 const drawTheoreticalStatusHud = (room) => {
   const rows = getTheoreticalStatusRowsCached(room);
-  if (typeof RoomVisual !== 'function') {
-    visualizer.showInfo(
-      rows.map((row) => row.text),
-      { room, pos: new RoomPosition(SPAWN_PANEL_POS.x, SPAWN_PANEL_POS.y, room.name) },
-      PANEL_FONT,
-    );
-    return;
-  }
-  const vis = new RoomVisual(room.name);
-  if (!vis || typeof vis.rect !== 'function' || typeof vis.text !== 'function') {
-    visualizer.showInfo(
-      rows.map((row) => row.text),
-      { room, pos: new RoomPosition(SPAWN_PANEL_POS.x, SPAWN_PANEL_POS.y, room.name) },
-      PANEL_FONT,
-    );
-    return;
-  }
-  const x = SPAWN_PANEL_POS.x - 0.6;
-  const y = SPAWN_PANEL_POS.y - 1.0;
-  const rowHeight = 0.72;
-
-  let cy = y + 0.65;
-  for (const row of rows) {
-    vis.text(row.text, x + 0.5, cy + 0.55, {
-      align: 'left',
-      color: row.color || '#dddddd',
-      font: row.font || 0.45,
-    });
-    cy += rowHeight;
-  }
+  visualizer.showInfo(
+    rows.map((row) => row.text),
+    { room, pos: new RoomPosition(SPAWN_PANEL_POS.x, SPAWN_PANEL_POS.y, room.name) },
+    PANEL_FONT,
+  );
 };
 
 const buildLegacyHtmOverlayRows = () => {
@@ -730,12 +705,7 @@ module.exports = {
       return;
     }
 
-    // IMPORTANT:
-    // Do not reduce this gate to only `visualsEnabled`.
-    // In theoretical planning we intentionally allow layout overlays even when
-    // generic visuals are disabled, otherwise the planner can compute plans but
-    // render nothing on screen (the regression we already hit).
-    if (!visualsEnabled && settings.showHtmOverlay !== true && !(theoreticalMode && layoutOverlayEnabled)) {
+    if (!visualsEnabled && settings.showHtmOverlay !== true) {
       return;
     }
 
@@ -748,9 +718,6 @@ module.exports = {
       }
       if (layoutOverlayEnabled) {
         const start = Game.cpu.getUsed();
-        // Keep theoretical layout debug visible even when generic visuals are toggled off.
-        // This is coupled with the HUD pass gating in `main.js`; changing one side
-        // without the other can make overlays "flash once then disappear".
         layoutVisualizer.drawLayout(room.name);
         recordRenderSubtask(room.name, 'Structure Overlay', Game.cpu.getUsed() - start);
       }

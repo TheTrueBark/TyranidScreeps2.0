@@ -3875,7 +3875,10 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
 }
 
 function pickBestRampartCut(ctx, storagePos, options = {}) {
-  const defenseCtx = buildDefenseCutContext(ctx, storagePos);
+  const defenseCtx =
+    options && options.defenseCtx && typeof options.defenseCtx === 'object'
+      ? options.defenseCtx
+      : buildDefenseCutContext(ctx, storagePos);
   const defensePoints = [...defenseCtx.structuresByPos.keys()].map(parseKey);
   const defensePlanningMode =
     String(
@@ -7731,6 +7734,7 @@ module.exports = {
     buildDefenseCutContext,
     buildExitApproachTargets,
     canPlaceStructure,
+    pickBestRampartCut,
     canonicalizeRampartBoundaryTiles,
     collectHarabiStampCapacityKeys,
     connectDisconnectedBaseRoadComponents,

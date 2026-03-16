@@ -118,8 +118,12 @@ function buildTerrainMatrices(room) {
 
 function ensureDistanceTransform(room) {
   if (!room.memory) room.memory = {};
+  const shouldUseStaticFallback =
+    Array.isArray(room.memory.distanceTransform) && room.memory.distanceTransform.length === 0;
   if (!Array.isArray(room.memory.distanceTransform) || room.memory.distanceTransform.length !== 2500) {
-    distanceTransform.distanceTransform(room);
+    if (!shouldUseStaticFallback) {
+      distanceTransform.distanceTransform(room);
+    }
   }
   const dt = Array.isArray(room.memory.distanceTransform) ? room.memory.distanceTransform.slice() : [];
   if (dt.length !== 2500) {

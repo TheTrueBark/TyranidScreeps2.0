@@ -27,32 +27,34 @@ function startFresh(options = {}) {
     typeof options === 'object' && options !== null
       ? Boolean(options.maintenanceMode)
       : false;
+  const rampartMincutMode =
+    typeof options === 'object' && options !== null
+      ? Boolean(options.rampartMincutMode || options.rampartOnlyMode)
+      : false;
   const extensionPattern =
     typeof options === 'object' && options !== null
       ? String(
           options.extensionPattern ||
             options.layoutExtensionPattern ||
-            'cluster3',
+            'parity',
         ).toLowerCase()
-      : 'cluster3';
+      : 'parity';
   const normalizedExtensionPattern =
     extensionPattern === 'cluster3' || extensionPattern === 'harabi' || extensionPattern === 'diag2'
       ? 'cluster3'
-      : 'cluster3';
+      : 'parity';
   const requestedHarabiStage =
     typeof options === 'object' && options !== null
       ? String(options.harabiStage || options.layoutHarabiStage || '').toLowerCase()
       : '';
-  const normalizedHarabiStage =
-    requestedHarabiStage === 'foundation'
-      ? 'foundation'
-      : 'full';
+  const normalizedHarabiStage = 'foundation';
   const layoutPlanDumpDebug =
     typeof options === 'object' && options !== null
       ? Boolean(options.layoutPlanDumpDebug || options.plannerDumpDebug || options.debugPlanDump)
       : false;
   const useMaintenanceMode = maintenanceMode;
-  const useTheoreticalMode = theoreticalMode && !useMaintenanceMode;
+  const useRampartMincutMode = rampartMincutMode && !useMaintenanceMode;
+  const useTheoreticalMode = theoreticalMode && !useMaintenanceMode && !useRampartMincutMode;
   const previousSettings = Memory.settings || {};
   const preservedSettings = {};
   if (normalizedWipeMode !== 'all') {
@@ -112,6 +114,7 @@ function startFresh(options = {}) {
     Object.keys(preservedSettings).length > 0 ||
     shouldPause ||
     useTheoreticalMode ||
+    useRampartMincutMode ||
     useMaintenanceMode
   ) {
     Memory.settings = preservedSettings;
@@ -121,6 +124,14 @@ function startFresh(options = {}) {
     if (!Memory.stats) Memory.stats = {};
     statsConsole.log(
       'startFresh: maintenanceMode + theoreticalBuildingMode requested; maintenanceMode takes priority.',
+      3,
+    );
+  }
+
+  if (useMaintenanceMode && rampartMincutMode) {
+    if (!Memory.stats) Memory.stats = {};
+    statsConsole.log(
+      'startFresh: maintenanceMode + rampartMincutMode requested; maintenanceMode takes priority.',
       3,
     );
   }
@@ -164,6 +175,41 @@ function startFresh(options = {}) {
         2,
       );
     }
+  }
+
+  if (useRampartMincutMode) {
+    if (!Memory.settings) Memory.settings = {};
+    if (!Memory.stats) Memory.stats = {};
+    Memory.settings.runtimeMode = 'theoretical';
+    Memory.settings.overlayMode = 'normal';
+    Memory.settings.pauseBot = false;
+    Memory.settings.enableVisuals = true;
+    Memory.settings.alwaysShowHud = true;
+    Memory.settings.showLayoutOverlay = true;
+    Memory.settings.showLayoutLegend = true;
+    Memory.settings.showLayoutOverlayLabels = true;
+    Memory.settings.enableBaseBuilderPlanning = false;
+    Memory.settings.buildPreviewOnly = true;
+    Memory.settings.layoutPlanningMode = 'theoretical';
+    Memory.settings.layoutOverlayView = 'plan';
+    Memory.settings.layoutCandidateOverlayIndex = -1;
+    Memory.settings.layoutPlanningTopCandidates = 1;
+    Memory.settings.layoutPlanningCandidatesPerTick = 1;
+    Memory.settings.layoutPlanningMaxCandidatesPerTick = 1;
+    Memory.settings.layoutPlanningDynamicBatching = false;
+    Memory.settings.layoutPlanningReplanInterval = 1000;
+    Memory.settings.layoutExtensionPattern = normalizedExtensionPattern;
+    Memory.settings.layoutHarabiStage = 'foundation';
+    Memory.settings.layoutPlanDumpDebug = false;
+    delete Memory.settings.layoutRecalculateRequested;
+    delete Memory.settings.layoutRecalculateMode;
+    Memory.settings.enableTaskProfiling = false;
+    Memory.settings.enableMemHack = true;
+    Memory.settings.memHackDebug = false;
+    statsConsole.log(
+      'Rampart mincut debug mode enabled. Use planRampartMincut(roomName, "x,y") to preview a single protected coordinate.',
+      2,
+    );
   }
 
   if (useMaintenanceMode) {

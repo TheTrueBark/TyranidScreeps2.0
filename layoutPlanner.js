@@ -1096,7 +1096,6 @@ const layoutPlanner = {
       !mem.layout ||
       mem.layout.planVersion !== 2 ||
       mem.layout.mode !== 'theoretical' ||
-      pipelineActive ||
       mem.layout.rebuildLayout ||
       mem.layout.manualPhaseRequest ||
       explicitRecalcRequested ||
