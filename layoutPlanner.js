@@ -581,6 +581,15 @@ function readTheoreticalDefensePlanningMode() {
   return runtimeMode === 'theoretical' ? 'estimate' : 'full';
 }
 
+function readFullSelectionRerankDefensePlanningMode() {
+  const explicit =
+    Memory && Memory.settings && typeof Memory.settings.layoutDefensePlanningMode === 'string'
+      ? String(Memory.settings.layoutDefensePlanningMode || '').toLowerCase()
+      : '';
+  if (explicit === 'full' || explicit === 'estimate') return explicit;
+  return DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE;
+}
+
 function isWalkable(room, x, y) {
   if (!room || !inBounds(x, y)) return false;
   const terrain = room.getTerrain();
@@ -2395,7 +2404,7 @@ const layoutPlanner = {
     // The finalist rerank is only a selection pass. Keep it on the cheap estimate-defense
     // path so we can compare practical candidates without running full minCut smoothing
     // multiple times in a single theoretical tick.
-    const defensePlanningMode = DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE;
+    const defensePlanningMode = readFullSelectionRerankDefensePlanningMode();
     mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
     const rerankedCandidates = [];
 
@@ -2672,6 +2681,135 @@ const layoutPlanner = {
     return true;
   },
 
+  _canReuseMaterializedFullPreview(pipeline, selectedCandidate, selectedPlan, refinementInput = null) {
+    if (!pipeline || !selectedCandidate || typeof selectedCandidate.index !== 'number') return false;
+    const requestedHarabiStage =
+      typeof pipeline.requestedHarabiStage === 'string' ? pipeline.requestedHarabiStage : 'foundation';
+    const candidateHarabiStage =
+      typeof pipeline.candidateHarabiStage === 'string' ? pipeline.candidateHarabiStage : requestedHarabiStage;
+    const finalHarabiStage =
+      typeof pipeline.finalHarabiStage === 'string' ? pipeline.finalHarabiStage : requestedHarabiStage;
+    if (
+      requestedHarabiStage !== 'full' ||
+      finalHarabiStage !== 'full' ||
+      candidateHarabiStage === finalHarabiStage
+    ) {
+      return false;
+    }
+    if (!selectedPlan || !Array.isArray(selectedPlan.placements) || selectedPlan.placements.length === 0) {
+      return false;
+    }
+    if (
+      !selectedPlan.fullOptimization ||
+      typeof selectedPlan.fullOptimization !== 'object'
+    ) {
+      return false;
+    }
+    const mutationKey = refinementMutationKey(refinementInput);
+    const defensePlanningMode = readTheoreticalDefensePlanningMode();
+    return (
+      pipeline.fullPreviewCandidateIndex === selectedCandidate.index &&
+      String(pipeline.fullPreviewMutationKey || '') === mutationKey &&
+      String(pipeline.fullPreviewDefensePlanningMode || '') === defensePlanningMode
+    );
+  },
+
+  _finalizeTheoreticalFromMaterializedFullPreview(room, pipeline, mem, selectedCandidate, selectedPlan) {
+    if (!room || !pipeline || !mem || !mem.layout || !selectedCandidate || !selectedPlan) return false;
+    const selectedResult =
+      pipeline.results && typeof selectedCandidate.index === 'number'
+        ? pipeline.results[selectedCandidate.index] || null
+        : null;
+    const candidateRows = (pipeline.candidates || []).map((candidate) => {
+      const result = pipeline.results && pipeline.results[candidate.index];
+      return {
+        index: candidate.index,
+        anchor: candidate.anchor,
+        initialScore: candidate.initialScore,
+        initialMetrics: candidate.initialMetrics,
+        initialContributions: candidate.initialContributions,
+        weightedScore: result ? result.weightedScore : null,
+        weightedMetrics: result ? result.weightedMetrics : null,
+        weightedContributions: result ? result.weightedContributions : null,
+        selectionRejected: result ? result.selectionRejected === true : false,
+        hardRejectFlags: result ? result.hardRejectFlags || [] : [],
+        validation: result ? result.validation : [],
+        defenseScore: result ? result.defenseScore : 0,
+        completedAt: result ? result.completedAt : null,
+        selected: result ? result.index === pipeline.bestCandidateIndex : false,
+      };
+    });
+    const checklist = this._buildTheoreticalChecklist(
+      room.name,
+      pipeline,
+      pipeline.candidates || [],
+      { persisted: true },
+    );
+    mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
+    mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = Object.assign({}, selectedPlan, {
+      weightedScore:
+        selectedResult && typeof selectedResult.weightedScore === 'number'
+          ? selectedResult.weightedScore
+          : Number(selectedPlan.weightedScore || 0),
+      rawWeightedScore:
+        selectedResult && typeof selectedResult.rawWeightedScore === 'number'
+          ? selectedResult.rawWeightedScore
+          : Number(selectedPlan.rawWeightedScore || selectedPlan.weightedScore || 0),
+      selectionPenalty:
+        selectedResult && typeof selectedResult.selectionPenalty === 'number'
+          ? Number(selectedResult.selectionPenalty || 0)
+          : Number(selectedPlan.selectionPenalty || 0),
+      weightedMetrics:
+        selectedResult && selectedResult.weightedMetrics ? selectedResult.weightedMetrics : selectedPlan.weightedMetrics || {},
+      weightedContributions:
+        selectedResult && selectedResult.weightedContributions
+          ? selectedResult.weightedContributions
+          : selectedPlan.weightedContributions || {},
+      completedAt: Game.time,
+    });
+    this._applyTheoreticalPlacements(
+      mem.layout,
+      {
+        anchor: selectedPlan.anchor || selectedCandidate.anchor,
+        placements: selectedPlan.placements,
+      },
+      {
+        candidateIndex: selectedCandidate.index,
+        mode: 'theoretical',
+      },
+    );
+    mem.layout.theoretical = compactCompletedTheoreticalState(
+      Object.assign({}, mem.layout.theoretical || {}, {
+        candidates: candidateRows,
+        checklist,
+        selectedCandidateIndex: selectedCandidate.index,
+        selectedWeightedScore:
+          selectedResult && typeof selectedResult.weightedScore === 'number'
+            ? selectedResult.weightedScore
+            : Number(selectedPlan.weightedScore || 0),
+        selectedMetrics:
+          selectedResult && selectedResult.weightedMetrics ? selectedResult.weightedMetrics : selectedPlan.weightedMetrics || {},
+        selectedContributions:
+          selectedResult && selectedResult.weightedContributions
+            ? selectedResult.weightedContributions
+            : selectedPlan.weightedContributions || {},
+        refinementDebug: summarizeRefinement(pipeline.refinement),
+        fullSelectionRerank: pipeline.fullSelectionRerank || {},
+        planningRunId: pipeline.runId,
+        planningStatus: pipeline.status || 'completed',
+        generatedAt: Game.time,
+      }),
+    );
+    mem.layout.theoretical.currentlyViewingCandidate =
+      typeof mem.layout.currentDisplayCandidateIndex === 'number'
+        ? mem.layout.currentDisplayCandidateIndex
+        : selectedCandidate.index;
+    mem.layout.planVersion = 2;
+    mem.layout.mode = 'theoretical';
+    this._refreshTheoreticalDisplay(room.name, true);
+    return true;
+  },
+
   _processTheoreticalPipeline(roomName) {
     const room = Game.rooms[roomName];
     if (!room || !room.controller || !room.controller.my) return;
@@ -2929,8 +3067,20 @@ const layoutPlanner = {
       return;
     }
     const selectedCandidateBeforeRefinement = pipeline.candidates.find((c) => c.index === best.index);
+    const selectedPreviewPlanBeforeRefinement =
+      selectedCandidateBeforeRefinement &&
+      mem.layout.theoreticalCandidatePlans &&
+      mem.layout.theoreticalCandidatePlans[String(selectedCandidateBeforeRefinement.index)]
+        ? mem.layout.theoreticalCandidatePlans[String(selectedCandidateBeforeRefinement.index)]
+        : null;
     if (
       selectedCandidateBeforeRefinement &&
+      !this._canReuseMaterializedFullPreview(
+        pipeline,
+        selectedCandidateBeforeRefinement,
+        selectedPreviewPlanBeforeRefinement,
+        null,
+      ) &&
       this._materializeTheoreticalFullPreview(
         roomName,
         pipeline,
@@ -3064,6 +3214,28 @@ const layoutPlanner = {
       selectedPlan.refinementInput.mutation
         ? selectedPlan.refinementInput
         : null;
+    if (
+      this._canReuseMaterializedFullPreview(
+        pipeline,
+        selectedCandidate,
+        selectedPlan,
+        refinementInput,
+      )
+    ) {
+      // Reuse the already materialized full preview so phase-10 overlay output
+      // and the persisted final plan stay identical instead of re-pathing again.
+      this._finalizeTheoreticalFromMaterializedFullPreview(
+        room,
+        pipeline,
+        mem,
+        selectedCandidate,
+        selectedPlan,
+      );
+      this._pruneTheoreticalMemory(roomName, { runId: pipeline.runId, reason: 'completed' });
+      this._clearTheoreticalPlanningTasks(roomName, pipeline.runId);
+      statsConsole.run([['layoutPlanner.theoretical', Game.cpu.getUsed()]]);
+      return;
+    }
     const generated = buildCompendium.generatePlanForAnchor(
       roomName,
       refinementInput ? refinementInput.anchor : selectedCandidate.anchor,

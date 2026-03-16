@@ -68,6 +68,9 @@ const DEFAULT_FINAL_WEIGHTS = {
 const RAMPART_TARGET_STANDOFF = 4;
 const RAMPART_EXIT_APPROACH_DEPTH = 7;
 const RAMPART_DRAGONTOOTH_RESERVE_RADIUS = 1;
+const DEFAULT_RAMPART_MINCUT_THICKNESS = 2;
+const DEFAULT_RAMPART_MINCUT_NO_GO_DEPTH = 2;
+const DEFAULT_RAMPART_MINCUT_DRAGON_TEETH_THICKNESS = 1;
 
 function key(x, y) {
   return `${x}:${y}`;
@@ -2457,17 +2460,20 @@ function buildExitApproachTargets(ctx, storagePos, options = {}) {
   return [...targets.values()];
 }
 
-function buildDefenseCutContext(ctx, storagePos) {
+function buildDefenseCutContext(ctx, storagePos, options = {}) {
   const defenseMap = new Map();
   const corePoints = [];
+  const includeExitApproachTargets = options.includeExitApproachTargets !== false;
   for (const placement of ctx.placements || []) {
     if (!isCoreDefenseStructure(placement, storagePos)) continue;
     defenseMap.set(key(placement.x, placement.y), placement.type);
     corePoints.push({ x: placement.x, y: placement.y });
   }
   const exitApproachTargets = buildExitApproachTargets(ctx, storagePos);
-  for (const target of exitApproachTargets) {
-    defenseMap.set(key(target.x, target.y), 'fortify.exitApproach');
+  if (includeExitApproachTargets) {
+    for (const target of exitApproachTargets) {
+      defenseMap.set(key(target.x, target.y), 'fortify.exitApproach');
+    }
   }
   return {
     structuresByPos: defenseMap,
@@ -2497,6 +2503,206 @@ function findRelocationPosition(ctx, placement, storagePos, layoutPattern, prefe
     return { x: candidate.x, y: candidate.y };
   }
   return null;
+}
+
+function resolveRampartMincutBuilderOptions(input = {}) {
+  const source =
+    input &&
+    typeof input === 'object' &&
+    input.rampartMincut &&
+    typeof input.rampartMincut === 'object'
+      ? input.rampartMincut
+      : input && typeof input === 'object'
+      ? input
+      : {};
+  const rampartThickness = Number.isFinite(source.rampartThickness)
+    ? Math.max(1, Math.trunc(Number(source.rampartThickness)))
+    : DEFAULT_RAMPART_MINCUT_THICKNESS;
+  const noGoDepth = Number.isFinite(source.noGoDepth)
+    ? Math.max(0, Math.trunc(Number(source.noGoDepth)))
+    : DEFAULT_RAMPART_MINCUT_NO_GO_DEPTH;
+  const dragonTeethThickness = Number.isFinite(source.dragonTeethThickness)
+    ? Math.max(0, Math.trunc(Number(source.dragonTeethThickness)))
+    : DEFAULT_RAMPART_MINCUT_DRAGON_TEETH_THICKNESS;
+  return Object.assign({}, source, {
+    rampartThickness,
+    noGoDepth,
+    dragonTeethThickness,
+  });
+}
+
+function assessRampartMincutPlanResult(plan) {
+  if (!plan || plan.ok !== true) {
+    return { usable: false, reason: 'missing-plan' };
+  }
+  const meta = plan.meta && typeof plan.meta === 'object' ? plan.meta : {};
+  const minCut = meta.minCut && typeof meta.minCut === 'object' ? meta.minCut : {};
+  const minCutLineMetrics =
+    minCut.lineMetrics && typeof minCut.lineMetrics === 'object' ? minCut.lineMetrics : {};
+  const lineMetrics = meta.lineMetrics && typeof meta.lineMetrics === 'object' ? meta.lineMetrics : {};
+  if (Number(meta.boundaryCount || 0) <= 0 || Number(meta.primaryBoundaryCount || 0) <= 0) {
+    return { usable: false, reason: 'empty-boundary' };
+  }
+  if (minCutLineMetrics.touchesBorder === true || lineMetrics.touchesBorder === true) {
+    return { usable: false, reason: 'touches-border' };
+  }
+  if (Number(meta.standoff || 0) > 0 && Number(meta.standoff || 0) < RAMPART_TARGET_STANDOFF) {
+    return { usable: false, reason: 'standoff-too-low' };
+  }
+  if (Number(meta.noGoCount || 0) > 500) {
+    return { usable: false, reason: 'nogo-too-large' };
+  }
+  return { usable: true, reason: 'accepted' };
+}
+
+function isRelocatableNoGoPlacement(placement) {
+  if (!placement) return false;
+  if (
+    placement.type === STRUCTURES.ROAD ||
+    placement.type === STRUCTURES.RAMPART ||
+    placement.type === STRUCTURES.WALL ||
+    placement.type === STRUCTURES.STORAGE ||
+    placement.type === STRUCTURES.TERMINAL ||
+    placement.type === STRUCTURES.LINK ||
+    placement.type === STRUCTURES.CONTAINER
+  ) {
+    return false;
+  }
+  const tag = String(placement.tag || '');
+  if (
+    tag === 'spawn.1' ||
+    tag === 'spawn.2' ||
+    tag === 'spawn.3' ||
+    tag === 'core.storage' ||
+    tag === 'core.terminal' ||
+    tag === 'link.sink' ||
+    tag === 'controller.link' ||
+    tag.startsWith('source.container.') ||
+    tag.startsWith('source.link.') ||
+    tag.startsWith('lab.source.') ||
+    tag.startsWith('lab.reaction.') ||
+    tag.startsWith('controller.') ||
+    tag.startsWith('extractor')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function countStructureConflictsInZone(ctx, tiles) {
+  if (!ctx || !Array.isArray(ctx.placements)) return 0;
+  const zoneKeys = new Set(
+    (Array.isArray(tiles) ? tiles : [])
+      .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  if (zoneKeys.size === 0) return 0;
+  return ctx.placements.filter((placement) => {
+    if (!placement || !zoneKeys.has(key(placement.x, placement.y))) return false;
+    return (
+      placement.type !== STRUCTURES.ROAD &&
+      placement.type !== STRUCTURES.RAMPART &&
+      placement.type !== STRUCTURES.WALL
+    );
+  }).length;
+}
+
+function relocatePlacementsOutOfNoGoZone(
+  ctx,
+  noGoTiles,
+  storagePos,
+  layoutPattern,
+  preferredParity,
+  candidates,
+  options = {},
+) {
+  const zoneKeys = new Set(
+    (Array.isArray(noGoTiles) ? noGoTiles : [])
+      .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  if (!ctx || !Array.isArray(ctx.placements) || zoneKeys.size === 0) {
+    return { attempted: 0, relocated: 0, skipped: 0, remaining: 0 };
+  }
+  const avoidKeys = options.avoidKeys instanceof Set ? new Set(options.avoidKeys) : new Set();
+  for (const zoneKey of zoneKeys) avoidKeys.add(zoneKey);
+  const onRelocated = typeof options.onRelocated === 'function' ? options.onRelocated : null;
+  const conflicts = ctx.placements
+    .filter((placement) => placement && zoneKeys.has(key(placement.x, placement.y)))
+    .filter((placement) => isRelocatableNoGoPlacement(placement))
+    .sort((left, right) => {
+      const leftType = String(left.type || '');
+      const rightType = String(right.type || '');
+      const leftPriority = leftType === STRUCTURES.EXTENSION ? 0 : leftType === STRUCTURES.TOWER ? 1 : 2;
+      const rightPriority = rightType === STRUCTURES.EXTENSION ? 0 : rightType === STRUCTURES.TOWER ? 1 : 2;
+      return leftPriority - rightPriority || String(left.tag || '').localeCompare(String(right.tag || ''));
+    });
+  let relocated = 0;
+  let skipped = 0;
+  for (const placement of conflicts) {
+    const previous = removePlacementAt(
+      ctx,
+      placement.x,
+      placement.y,
+      (row) =>
+        row &&
+        row.type === placement.type &&
+        row.x === placement.x &&
+        row.y === placement.y &&
+        row.tag === placement.tag,
+    );
+    if (!previous) {
+      skipped += 1;
+      continue;
+    }
+    const relocation = findRelocationPosition(
+      ctx,
+      previous,
+      storagePos,
+      layoutPattern,
+      preferredParity,
+      candidates,
+      { avoidKeys },
+    );
+    if (!relocation) {
+      addPlacement(ctx, previous.type, previous.x, previous.y, previous.rcl, previous.tag);
+      skipped += 1;
+      continue;
+    }
+    addPlacement(ctx, previous.type, relocation.x, relocation.y, previous.rcl, previous.tag);
+    relocated += 1;
+    if (onRelocated) {
+      onRelocated(previous, relocation);
+    }
+  }
+  return {
+    attempted: conflicts.length,
+    relocated,
+    skipped,
+    remaining: countStructureConflictsInZone(ctx, noGoTiles),
+  };
+}
+
+function addRampartsOnRoadsInNoGoZone(ctx, noGoTiles) {
+  if (!ctx || !Array.isArray(ctx.placements)) return { added: 0 };
+  const zoneKeys = new Set(
+    (Array.isArray(noGoTiles) ? noGoTiles : [])
+      .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  if (zoneKeys.size === 0) return { added: 0 };
+  let added = 0;
+  for (const placement of ctx.placements.slice()) {
+    if (!placement || placement.type !== STRUCTURES.ROAD) continue;
+    const placementKey = key(placement.x, placement.y);
+    if (!zoneKeys.has(placementKey) || ctx.ramparts.has(placementKey)) continue;
+    if (addPlacement(ctx, STRUCTURES.RAMPART, placement.x, placement.y, 2, 'rampart.accessRoad', {
+      allowOnBlocked: true,
+    })) {
+      added += 1;
+    }
+  }
+  return { added };
 }
 
 function computeRampartInteriorMetrics(ctx, rampartLine, storagePos, options = {}) {
@@ -3737,7 +3943,7 @@ function analyzeRampartEnclosure(ctx, storagePos, options = {}) {
   };
 }
 
-function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
+function finalizeFullRampartPlacements(ctx, rampartLine, storagePos, options = {}) {
   if (!ctx || !Array.isArray(ctx.placements)) {
     return {
       boundaryPlacedCount: 0,
@@ -3763,17 +3969,33 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
       rogueCorridorCount: 0,
       rogueSupportCount: 0,
       connectedRoadKeys: new Set(),
+      accessRoadRampartsAdded: 0,
     };
   }
-  const desiredLine = canonicalizeRampartBoundaryTiles(ctx, rampartLine, storagePos);
-  const desiredEdgeKeys = new Set(desiredLine.map((tile) => key(tile.x, tile.y)));
+  const desiredBoundaryRamparts = normalizeRampartBoundaryTiles(
+    ctx,
+    Array.isArray(options.desiredRamparts) && options.desiredRamparts.length > 0
+      ? options.desiredRamparts
+      : canonicalizeRampartBoundaryTiles(ctx, rampartLine, storagePos).map((tile) => ({
+          x: tile.x,
+          y: tile.y,
+          tag: tile.tag || 'rampart.edge',
+        })),
+  );
+  const desiredEdgeKeys = new Set(desiredBoundaryRamparts.map((tile) => key(tile.x, tile.y)));
+  const desiredPrimaryLine = normalizeRampartBoundaryTiles(
+    ctx,
+    Array.isArray(options.primaryBoundary) && options.primaryBoundary.length > 0
+      ? options.primaryBoundary
+      : rampartLine,
+  );
   let removedLegacyBoundaryRamparts = 0;
   let removedLegacyCorridors = 0;
   let removedOtherRamparts = 0;
   ctx.placements = ctx.placements.filter((placement) => {
     if (!placement || placement.type !== STRUCTURES.RAMPART) return true;
     const placementKey = key(placement.x, placement.y);
-    if (placement.tag === 'rampart.edge') {
+    if (isBoundaryRampartTag(placement.tag)) {
       if (desiredEdgeKeys.has(placementKey)) return true;
       ctx.ramparts.delete(placementKey);
       removedLegacyBoundaryRamparts += 1;
@@ -3803,17 +4025,28 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
   });
 
   let boundaryPlacedCount = 0;
-  for (const rp of desiredLine) {
-    if (addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', { allowOnBlocked: true })) {
+  for (const rp of desiredBoundaryRamparts) {
+    if (addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, rp.tag || 'rampart.edge', { allowOnBlocked: true })) {
       boundaryPlacedCount += 1;
     }
   }
   const placedBoundaryRamparts = ctx.placements.filter(
+    (placement) => placement && placement.type === STRUCTURES.RAMPART && isBoundaryRampartTag(placement.tag),
+  );
+  const placedPrimaryRamparts = ctx.placements.filter(
     (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.edge',
   );
   boundaryPlacedCount = placedBoundaryRamparts.length;
-  addRampartSupportBand(ctx, placedBoundaryRamparts, storagePos);
-  ensureBoundaryRoadSupports(ctx, placedBoundaryRamparts, storagePos);
+  addRampartSupportBand(
+    ctx,
+    placedPrimaryRamparts.length > 0 ? placedPrimaryRamparts : desiredPrimaryLine,
+    storagePos,
+  );
+  ensureBoundaryRoadSupports(
+    ctx,
+    placedPrimaryRamparts.length > 0 ? placedPrimaryRamparts : desiredPrimaryLine,
+    storagePos,
+  );
   const placedSupportRamparts = ctx.placements.filter(
     (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.support',
   );
@@ -3835,6 +4068,7 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
     seedKeys: buildMainRoadSeedKeys(ctx, storagePos),
     storagePos,
   });
+  const accessRoadRamparts = addRampartsOnRoadsInNoGoZone(ctx, options.noGoZone);
   const strayInnerRamparts = pruneStrayInnerRamparts(ctx);
   const rogueEdges = pruneRogueEdgeRamparts(ctx, finalConnectivity.connectedRoadKeys);
   const analysis = analyzeRampartEnclosure(ctx, storagePos, {
@@ -3871,6 +4105,7 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
     sealed: analysis.sealed,
     connectedRoadKeys: analysis.connectedRoadKeys,
     seededCorridorCount: corridorRamparts.length,
+    accessRoadRampartsAdded: accessRoadRamparts.added,
   };
 }
 
@@ -6632,34 +6867,161 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     }
   }
 
-  const rampartCut = pickBestRampartCut(ctx, storage, {
-    strategy: defensePlanningMode,
-  });
-  const rampartLine = Array.isArray(rampartCut.line) ? rampartCut.line : [];
-  ctx.meta.rampartMargin = rampartCut.margin;
-  ctx.meta.rampartStandoff = rampartCut.standoff;
-  ctx.meta.minCut = rampartCut.minCutMeta || { method: 'flow-mincut', margin: rampartCut.margin };
+  const rampartMincutOptions = resolveRampartMincutBuilderOptions(input);
+  let rampartMincutPlanResult = null;
+  let rampartMincutAssessment = { usable: false, reason: 'not-attempted' };
+  try {
+    const rampartMincutPlanner = require('./planner.rampartMincut');
+    if (
+      rampartMincutPlanner &&
+      rampartMincutPlanner._helpers &&
+      typeof rampartMincutPlanner._helpers.planContextTarget === 'function'
+    ) {
+      rampartMincutPlanResult = rampartMincutPlanner._helpers.planContextTarget(
+        ctx,
+        storage,
+        Object.assign({}, rampartMincutOptions, {
+          roomName: room.name,
+          strategy: defensePlanningMode,
+          defenseCtx: buildDefenseCutContext(ctx, storage, {
+            includeExitApproachTargets: false,
+          }),
+        }),
+      );
+      rampartMincutAssessment = assessRampartMincutPlanResult(rampartMincutPlanResult);
+      if (rampartMincutAssessment.usable !== true) {
+        rampartMincutPlanResult = null;
+      }
+    }
+  } catch (err) {
+    rampartMincutPlanResult = null;
+    rampartMincutAssessment = { usable: false, reason: 'module-error' };
+  }
+  const fallbackRampartCut =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? null
+      : pickBestRampartCut(ctx, storage, {
+          strategy: defensePlanningMode,
+        });
+  const rampartLine =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? (Array.isArray(rampartMincutPlanResult.primaryRamparts) ? rampartMincutPlanResult.primaryRamparts : [])
+      : Array.isArray(fallbackRampartCut.line)
+      ? fallbackRampartCut.line
+      : [];
+  const desiredRampartPlacements =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? (Array.isArray(rampartMincutPlanResult.ramparts) ? rampartMincutPlanResult.ramparts : [])
+      : rampartLine.map((tile) => ({
+          type: STRUCTURES.RAMPART,
+          x: tile.x,
+          y: tile.y,
+          rcl: 2,
+          tag: tile.tag || 'rampart.edge',
+        }));
+  const dragonTeethPlacements =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? (Array.isArray(rampartMincutPlanResult.dragonTeeth) ? rampartMincutPlanResult.dragonTeeth : [])
+      : [];
+  const noGoZone =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? (Array.isArray(rampartMincutPlanResult.noGoZone) ? rampartMincutPlanResult.noGoZone : [])
+      : [];
+  const reservedDefenseKeys = new Set(
+    desiredRampartPlacements
+      .concat(dragonTeethPlacements)
+      .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  let noGoRelocation = {
+    attempted: 0,
+    relocated: 0,
+    skipped: 0,
+    remaining: countStructureConflictsInZone(ctx, noGoZone),
+  };
+  const rampartMargin =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.margin || 0)
+      : fallbackRampartCut.margin;
+  const rampartStandoff =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.standoff || 0)
+      : fallbackRampartCut.standoff;
+  ctx.meta.rampartMargin = rampartMargin;
+  ctx.meta.rampartStandoff = rampartStandoff;
+  ctx.meta.minCut =
+    rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+      ? cloneSerializable(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.minCut ? rampartMincutPlanResult.meta.minCut : null)
+      : fallbackRampartCut.minCutMeta || { method: 'flow-mincut', margin: fallbackRampartCut.margin };
   ctx.meta.rampartPlanning = {
     objective: 'protect-core-with-mincut-v1',
     mode: defensePlanningMode,
+    source: rampartMincutPlanResult && rampartMincutPlanResult.ok === true ? 'rampartMincut-module' : 'legacy-rampart-cut',
+    moduleAttempted: rampartMincutAssessment.reason !== 'not-attempted',
+    moduleAccepted: Boolean(rampartMincutPlanResult && rampartMincutPlanResult.ok === true),
+    moduleFallbackReason:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? null
+        : rampartMincutAssessment.reason,
     foundationSeeded: true,
-    boundaryCount: rampartLine.length,
-    filteredBoundaryTiles: Number(rampartCut.filteredTiles || 0),
-    margin: rampartCut.margin,
-    standoff: rampartCut.standoff,
+    boundaryCount: desiredRampartPlacements.length,
+    primaryBoundaryCount:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.primaryBoundaryCount || rampartLine.length)
+        : rampartLine.length,
+    outerBandCount:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.outerBandCount || 0)
+        : 0,
+    dragonToothCount:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.dragonToothCount || 0)
+        : 0,
+    noGoCount:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.noGoCount || 0)
+        : 0,
+    rampartThickness:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.rampartThickness || rampartMincutOptions.rampartThickness)
+        : 1,
+    noGoDepth:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.noGoDepth || rampartMincutOptions.noGoDepth)
+        : 0,
+    dragonTeethThickness:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.dragonTeethThickness || rampartMincutOptions.dragonTeethThickness)
+        : 0,
+    noGoRelocationsAttempted: Number(noGoRelocation.attempted || 0),
+    noGoRelocationsApplied: Number(noGoRelocation.relocated || 0),
+    noGoRelocationsRemaining: Number(noGoRelocation.remaining || 0),
+    filteredBoundaryTiles:
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? Number(rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.filteredTiles || 0)
+        : Number(fallbackRampartCut.filteredTiles || 0),
+    margin: rampartMargin,
+    standoff: rampartStandoff,
     targetStandoff: RAMPART_TARGET_STANDOFF,
     minCut: ctx.meta.minCut,
     lineMetrics:
-      ctx.meta.minCut && ctx.meta.minCut.lineMetrics ? cloneSerializable(ctx.meta.minCut.lineMetrics) : null,
+      rampartMincutPlanResult && rampartMincutPlanResult.ok === true
+        ? cloneSerializable(
+            rampartMincutPlanResult.meta && rampartMincutPlanResult.meta.lineMetrics
+              ? rampartMincutPlanResult.meta.lineMetrics
+              : null,
+          )
+        : ctx.meta.minCut && ctx.meta.minCut.lineMetrics
+        ? cloneSerializable(ctx.meta.minCut.lineMetrics)
+        : null,
     controllerProtected: false,
   };
   let addedEdgeRamparts = 0;
-  for (const rp of rampartLine) {
-    if (addPlacement(ctx, STRUCTURES.RAMPART, rp.x, rp.y, 2, 'rampart.edge', { allowOnBlocked: true })) {
-      addedEdgeRamparts += 1;
-    }
-  }
-  const rampartTiles = buildRampartCoverageTargets(ctx.placements);
+  const rampartTiles = desiredRampartPlacements.map((placement) => ({
+    x: placement.x,
+    y: placement.y,
+    tag: placement.tag || null,
+  }));
   const towerCoverage = computeTowerCoverageStats(rampartTiles, towers, matrices.exitDistance);
   ctx.meta.towerPlanning = {
     objective: towerPlan.objective,
@@ -6739,6 +7101,7 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     keepTags: [
       'road.rampart',
       'road.protected',
+      'road.flow',
       'road.full',
       'road.stamp',
       'road.stampHalo',
@@ -6754,7 +7117,61 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     storagePos: storage,
   });
   ctx.meta.roadPruning = pruning;
-  const rampartFinalization = finalizeFullRampartPlacements(ctx, rampartLine, storage);
+  noGoRelocation = relocatePlacementsOutOfNoGoZone(
+    ctx,
+    noGoZone,
+    storage,
+    layoutPattern,
+    parity,
+    orderedCandidates,
+    {
+      avoidKeys: reservedDefenseKeys,
+      onRelocated: (previous, relocation) => {
+        const previousKey = key(previous.x, previous.y);
+        const relocationKey = key(relocation.x, relocation.y);
+        const tracked = selectedByKey.get(previousKey);
+        if (tracked) {
+          selectedByKey.delete(previousKey);
+          const previousCandidate = candidateByKey.get(previousKey);
+          if (previousCandidate) {
+            selectedCountsByBucket.set(
+              previousCandidate.bucketId,
+              Math.max(0, Number(selectedCountsByBucket.get(previousCandidate.bucketId) || 0) - 1),
+            );
+          }
+        }
+        const relocationCandidate = candidateByKey.get(relocationKey);
+        if (relocationCandidate) {
+          selectedByKey.set(relocationKey, {
+            type: previous.type,
+            tag: previous.tag,
+            ...(Number.isFinite(previous.rcl) ? { rcl: previous.rcl } : {}),
+          });
+          selectedCountsByBucket.set(
+            relocationCandidate.bucketId,
+            Number(selectedCountsByBucket.get(relocationCandidate.bucketId) || 0) + 1,
+          );
+        }
+      },
+    },
+  );
+  if (ctx.meta.rampartPlanning) {
+    ctx.meta.rampartPlanning.noGoRelocationsAttempted = Number(noGoRelocation.attempted || 0);
+    ctx.meta.rampartPlanning.noGoRelocationsApplied = Number(noGoRelocation.relocated || 0);
+    ctx.meta.rampartPlanning.noGoRelocationsRemaining = Number(noGoRelocation.remaining || 0);
+  }
+  rebuildRoadBlockedByStructures(ctx, {
+    labPlanning: { sourceLabs: [], reactionLabs: [] },
+    structurePlanning: { placements: [] },
+  });
+  const rampartFinalization = finalizeFullRampartPlacements(ctx, rampartLine, storage, {
+    desiredRamparts: desiredRampartPlacements,
+    primaryBoundary: rampartLine,
+    noGoZone,
+  });
+  for (const tooth of dragonTeethPlacements) {
+    addPlacement(ctx, STRUCTURES.WALL, tooth.x, tooth.y, tooth.rcl || 2, tooth.tag || 'wall.dragonTooth');
+  }
   if (Number(rampartFinalization.ensuredBoundaryRoads || 0) > 0) {
     addedRampartRoads += Number(rampartFinalization.ensuredBoundaryRoads || 0);
   }
@@ -6784,6 +7201,8 @@ function buildHarabiFullPlanFromFoundation(room, input) {
       Number(rampartFinalization.missingRoadUnderRamparts || 0);
     ctx.meta.rampartPlanning.accessRoadsAdded =
       Number(rampartFinalization.accessRoadsAdded || 0);
+    ctx.meta.rampartPlanning.accessRoadRampartsAdded =
+      Number(rampartFinalization.accessRoadRampartsAdded || 0);
     ctx.meta.rampartPlanning.skippedBoundaryRoadOverlays =
       Number(rampartFinalization.skippedBoundaryRoadOverlays || 0);
     ctx.meta.rampartPlanning.diagonalGapCount = Number(rampartFinalization.diagonalGapCount || 0);
@@ -6860,9 +7279,15 @@ function buildHarabiFullPlanFromFoundation(room, input) {
       edgeCount: Number(rampartFinalization.boundaryPlacedCount || addedEdgeRamparts),
       corridorCount: finalCorridorCount,
       controllerProtected: false,
+      source: ctx.meta.rampartPlanning ? ctx.meta.rampartPlanning.source : 'legacy-rampart-cut',
+      dragonToothCount: dragonTeethPlacements.length,
+      noGoCount: noGoZone.length,
+      noGoRelocationsApplied: Number(noGoRelocation.relocated || 0),
+      noGoRelocationsRemaining: Number(noGoRelocation.remaining || 0),
       disconnectedRampartRoadsRemoved: Number(rampartFinalization.disconnectedRampartRoadsRemoved || 0),
       disconnectedCorridorsRemoved: Number(rampartFinalization.disconnectedCorridorsRemoved || 0),
       missingRoadUnderRamparts: Number(rampartFinalization.missingRoadUnderRamparts || 0),
+      accessRoadRampartsAdded: Number(rampartFinalization.accessRoadRampartsAdded || 0),
       skippedBoundaryRoadOverlays: Number(rampartFinalization.skippedBoundaryRoadOverlays || 0),
       diagonalGapCount: Number(rampartFinalization.diagonalGapCount || 0),
       rogueEdgeCount: Number(rampartFinalization.rogueEdgeCount || 0),
@@ -7044,6 +7469,9 @@ function buildHarabiFullPlanFromFoundation(room, input) {
   }
   if (Number(rampartPlanning.disconnectedRampartRoadsRemoved || 0) > 0) {
     validation.push(`rampart-road-disconnected:${Number(rampartPlanning.disconnectedRampartRoadsRemoved || 0)}`);
+  }
+  if (Number(rampartPlanning.noGoRelocationsRemaining || 0) > 0) {
+    validation.push(`rampart-nogo-conflict:${Number(rampartPlanning.noGoRelocationsRemaining || 0)}`);
   }
   let defenseScore = Infinity;
   for (const rampart of rampartTiles) {
@@ -7746,6 +8174,7 @@ module.exports = {
     buildRampartCoverageTargets,
     computeTowerDamage,
     computeTowerCoverageStats,
+    countStructureConflictsInZone,
     buildTerrainMatrices,
     buildConnectedRoadKeys,
     buildFoundationPreviewRanking,
@@ -7753,6 +8182,7 @@ module.exports = {
     computeLocalTransitPenalty,
     computeRampartInteriorMetrics,
     isSourceRoadAnchored,
+    isRelocatableNoGoPlacement,
     evaluateHarabiStampSlots,
     getHarabiStampPlacementSlots,
     pickRoadOriginFromNetwork,
@@ -7762,10 +8192,13 @@ module.exports = {
     pruneRoadPlacements,
     pruneStrayInnerRamparts,
     pruneDisconnectedRampartRoadPlacements,
+    relocatePlacementsOutOfNoGoZone,
+    resolveRampartMincutBuilderOptions,
     rankFoundationSelectableCandidates,
     scoreRampartLineCandidate,
     scoreCandidate,
     scoreSourceLinkCandidate,
+    addRampartsOnRoadsInNoGoZone,
     detectCandidateDtThreshold,
   },
 };

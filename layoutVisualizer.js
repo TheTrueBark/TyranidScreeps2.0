@@ -719,17 +719,35 @@ const layoutVisualizer = {
           : candidateKeys.length > 0
             ? candidatePlans[candidateKeys[0]]
             : null;
+      const hasPersistedBasePlan =
+        Boolean(
+          basePlan &&
+            typeof basePlan === 'object' &&
+            ((basePlan.structures && typeof basePlan.structures === 'object') || Array.isArray(basePlan.buildQueue)),
+        );
+      const hasTransientTheoreticalSpawnPreview =
+        Boolean(
+          isTheoretical &&
+            theoretical &&
+            theoretical.spawnCandidate &&
+            (!theoreticalPipeline ||
+              (!Number.isFinite(theoreticalPipeline.bestCandidateIndex) &&
+                (!theoreticalPipeline.results || Object.keys(theoreticalPipeline.results).length === 0))),
+        );
       const preferBasePlanOverlay =
         Boolean(
           isTheoretical &&
-            basePlan &&
-            basePlan.plannerDebug &&
-            basePlan.plannerDebug.fullOptimization &&
-            typeof basePlan.plannerDebug.fullOptimization === 'object' &&
-            preferredCandidateIndex !== null &&
-            selectedCandidateIndex !== null &&
-            preferredCandidateIndex === selectedCandidateIndex,
+            !hasTransientTheoreticalSpawnPreview &&
+            (hasPersistedBasePlan ||
+              (basePlan &&
+                basePlan.plannerDebug &&
+                basePlan.plannerDebug.fullOptimization &&
+                typeof basePlan.plannerDebug.fullOptimization === 'object' &&
+                preferredCandidateIndex !== null &&
+                selectedCandidateIndex !== null &&
+                preferredCandidateIndex === selectedCandidateIndex)),
         );
+      const hidePersistedPlanOverlay = hasTransientTheoreticalSpawnPreview;
       const debugSources = [
         {
           source: 'basePlan',
@@ -940,13 +958,15 @@ const layoutVisualizer = {
         validStructureDebug,
       );
       const previewDistanceOrigin = resolvePreviewDistanceOrigin(structurePlanningDebug);
-      for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
-        addRoadTile(tile.x, tile.y, tile.rcl || null);
+      if (!hidePersistedPlanOverlay) {
+        for (const tile of toPlannedCells(basePlan, TYPES.ROAD)) {
+          addRoadTile(tile.x, tile.y, tile.rcl || null);
+        }
+        for (const tile of toPlannedCells(basePlan, TYPES.RAMPART)) {
+          addRampartTile(tile.x, tile.y);
+        }
       }
-      for (const tile of toPlannedCells(basePlan, TYPES.RAMPART)) {
-        addRampartTile(tile.x, tile.y);
-      }
-      if (!preferBasePlanOverlay) {
+      if (!preferBasePlanOverlay && !hidePersistedPlanOverlay) {
         for (const tile of toCandidatePlanCells(activeCandidatePlan, TYPES.ROAD)) {
           addRoadTile(tile.x, tile.y, tile.rcl || null);
         }
@@ -966,17 +986,24 @@ const layoutVisualizer = {
           if (!dragonToothMap.has(toothKey)) dragonToothMap.set(toothKey, tile);
         }
       }
-      for (const type of getPlannedStructureTypes(basePlan)) {
-        if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
-        const tiles = toPlannedCells(basePlan, type);
-        for (const tile of tiles) {
-          const drawnKey = `${tile.x}:${tile.y}:${type}`;
-          if (drawnStructureKeys.has(drawnKey)) continue;
-          drawStructureTile({ structureType: type, tag: tile.tag || null }, tile.x, tile.y, tile.rcl);
-          drawnStructureKeys.add(drawnKey);
+      if (!hidePersistedPlanOverlay) {
+        for (const type of getPlannedStructureTypes(basePlan)) {
+          if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
+          const tiles = toPlannedCells(basePlan, type);
+          for (const tile of tiles) {
+            const drawnKey = `${tile.x}:${tile.y}:${type}`;
+            if (drawnStructureKeys.has(drawnKey)) continue;
+            drawStructureTile({ structureType: type, tag: tile.tag || null }, tile.x, tile.y, tile.rcl);
+            drawnStructureKeys.add(drawnKey);
+          }
         }
       }
-      if (!preferBasePlanOverlay && activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
+      if (
+        !preferBasePlanOverlay &&
+        !hidePersistedPlanOverlay &&
+        activeCandidatePlan &&
+        Array.isArray(activeCandidatePlan.placements)
+      ) {
         for (const placement of activeCandidatePlan.placements) {
           if (!placement || !placement.type) continue;
           if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
@@ -1003,8 +1030,10 @@ const layoutVisualizer = {
           labKeys.add(`${px}:${py}`);
         }
       }
-      for (const tile of toPlannedCells(basePlan, TYPES.LAB)) {
-        labKeys.add(`${tile.x}:${tile.y}`);
+      if (!hidePersistedPlanOverlay) {
+        for (const tile of toPlannedCells(basePlan, TYPES.LAB)) {
+          labKeys.add(`${tile.x}:${tile.y}`);
+        }
       }
       if (labPlanningDebug && Array.isArray(labPlanningDebug.sourceLabs)) {
         for (const pos of labPlanningDebug.sourceLabs) {

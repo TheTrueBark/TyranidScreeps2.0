@@ -581,6 +581,60 @@ describe('layoutPlanner.plan', function() {
     }
   });
 
+  it('uses explicit full defense mode during full-plan rerank when configured', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'full',
+      layoutDefensePlanningMode: 'full',
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+    const pipeline = {
+      runId: 'test:full-rerank-mode',
+      requestedHarabiStage: 'full',
+      candidateHarabiStage: 'foundation',
+      finalHarabiStage: 'full',
+      candidates: [{ index: 0, anchor: { x: 25, y: 25 } }],
+      results: {
+        0: { index: 0, weightedScore: 0.95, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: false,
+        status: 'disabled',
+      },
+    };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      expect(options.defensePlanningMode).to.equal('full');
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [{ type: 'spawn', x: anchorInput.x, y: anchorInput.y }],
+        evaluation: { weightedScore: 0.98, metrics: {}, contributions: {} },
+        meta: {
+          validation: [],
+          defenseScore: 2400,
+          validStructurePositions: {},
+          fullOptimization: { mode: 'foundation-derived-full-v1' },
+        },
+      };
+    };
+
+    try {
+      const ranked = layoutPlanner._rankPipelineResults(pipeline.results);
+      layoutPlanner._rerankTopCandidatesWithFullPlans(
+        'W1N1',
+        pipeline,
+        Memory.rooms.W1N1,
+        ranked,
+      );
+      expect(pipeline.fullSelectionRerank.defensePlanningMode).to.equal('full');
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+  });
+
   it('demotes foundation candidates with hard validation failures before winner selection', function() {
     Memory.settings = {
       runtimeMode: 'theoretical',
@@ -651,6 +705,134 @@ describe('layoutPlanner.plan', function() {
     } finally {
       buildCompendium.generatePlanForAnchor = original;
     }
+  });
+
+  it('reuses materialized full preview instead of regenerating the final full plan', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'full',
+      layoutDefensePlanningMode: 'full',
+    };
+    Memory.rooms.W1N1.basePlan = {
+      buildQueue: [{ type: 'spawn', pos: { x: 25, y: 25 }, rcl: 1 }],
+      plannerDebug: { fullOptimization: { mode: 'foundation-derived-full-v1' } },
+    };
+    Memory.rooms.W1N1.layout = {
+      mode: 'theoretical',
+      theoretical: {
+        candidates: [{ index: 0, anchor: { x: 25, y: 25 }, weightedScore: 0.8 }],
+        selectedCandidateIndex: 0,
+        selectedWeightedScore: 0.8,
+        planningStatus: 'running',
+      },
+      theoreticalCandidatePlans: {
+        0: {
+          index: 0,
+          anchor: { x: 25, y: 25 },
+          placements: [
+            { type: 'spawn', x: 25, y: 25, tag: 'spawn.1' },
+            { type: 'road', x: 24, y: 25, tag: 'road.full' },
+            { type: 'rampart', x: 24, y: 24, tag: 'rampart.edge' },
+          ],
+          weightedScore: 0.8,
+          rawWeightedScore: 0.8,
+          selectionPenalty: 0,
+          weightedMetrics: { roadCount: 1 },
+          weightedContributions: { roadEff: { contribution: 0.1 } },
+          validation: [],
+          defenseScore: 2200,
+          fullOptimization: { mode: 'foundation-derived-full-v1' },
+        },
+      },
+      theoreticalPipeline: {
+        runId: 'test:reuse-preview',
+        status: 'running',
+        candidateCount: 1,
+        requestedHarabiStage: 'full',
+        candidateHarabiStage: 'foundation',
+        finalHarabiStage: 'full',
+        candidates: [{ index: 0, anchor: { x: 25, y: 25 }, initialScore: 0.8 }],
+        results: {
+          0: {
+            index: 0,
+            weightedScore: 0.8,
+            rawWeightedScore: 0.92,
+            selectionPenalty: 0.12,
+            weightedMetrics: { roadCount: 1 },
+            weightedContributions: { roadEff: { contribution: 0.1 } },
+            validation: [],
+            defenseScore: 2200,
+            completedAt: Game.time,
+          },
+        },
+        refinement: {
+          enabled: false,
+          status: 'done',
+        },
+        fullSelectionRerank: {
+          enabled: true,
+          rerankedCount: 1,
+          topN: 1,
+          selectedIndex: 0,
+          candidates: [],
+        },
+        fullPreviewCandidateIndex: 0,
+        fullPreviewMutationKey: '',
+        fullPreviewDefensePlanningMode: 'full',
+      },
+    };
+    htm.init();
+    expect(
+      layoutPlanner._canReuseMaterializedFullPreview(
+        Memory.rooms.W1N1.layout.theoreticalPipeline,
+        Memory.rooms.W1N1.layout.theoreticalPipeline.candidates[0],
+        Memory.rooms.W1N1.layout.theoreticalCandidatePlans[0],
+        null,
+      ),
+    ).to.equal(true);
+
+    const original = buildCompendium.generatePlanForAnchor;
+    const originalMaterializeFullPreview = layoutPlanner._materializeTheoreticalFullPreview;
+    const originalRerankTopCandidates = layoutPlanner._rerankTopCandidatesWithFullPlans;
+    const originalGetContainer = htm._getContainer;
+    buildCompendium.generatePlanForAnchor = function () {
+      throw new Error('final full plan should reuse the existing preview');
+    };
+    layoutPlanner._materializeTheoreticalFullPreview = function () {
+      return false;
+    };
+    layoutPlanner._rerankTopCandidatesWithFullPlans = function (_roomName, localPipeline, _mem, ranked) {
+      localPipeline.fullSelectionRerank = {
+        enabled: true,
+        rerankedCount: 0,
+        topN: 0,
+        selectedIndex: 0,
+        candidates: [],
+      };
+      return ranked;
+    };
+    htm._getContainer = function () {
+      return { tasks: [] };
+    };
+
+    try {
+      layoutPlanner._processTheoreticalPipeline('W1N1');
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+      layoutPlanner._materializeTheoreticalFullPreview = originalMaterializeFullPreview;
+      layoutPlanner._rerankTopCandidatesWithFullPlans = originalRerankTopCandidates;
+      htm._getContainer = originalGetContainer;
+    }
+
+    const layout = Memory.rooms.W1N1.layout;
+    expect(layout.theoretical.planningStatus).to.equal('completed');
+    expect(layout.theoretical.selectedCandidateIndex).to.equal(0);
+    expect(layout.currentDisplayCandidateIndex).to.equal(0);
+    expect(layout.matrix[25][25].structureType).to.equal('spawn');
+    expect(layout.matrix[24][25].structureType).to.equal('road');
+    expect(layout.theoreticalPipeline.status).to.equal('completed');
   });
 
   it('persists full-plan rerank score into the final theoretical layout', function() {

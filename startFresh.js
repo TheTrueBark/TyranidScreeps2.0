@@ -47,7 +47,8 @@ function startFresh(options = {}) {
     typeof options === 'object' && options !== null
       ? String(options.harabiStage || options.layoutHarabiStage || '').toLowerCase()
       : '';
-  const normalizedHarabiStage = 'foundation';
+  const normalizedHarabiStage =
+    requestedHarabiStage === 'foundation' ? 'foundation' : 'full';
   const layoutPlanDumpDebug =
     typeof options === 'object' && options !== null
       ? Boolean(options.layoutPlanDumpDebug || options.plannerDumpDebug || options.debugPlanDump)
@@ -78,6 +79,7 @@ function startFresh(options = {}) {
       'layoutPlanningReplanInterval',
       'layoutExtensionPattern',
       'layoutHarabiStage',
+      'layoutDefensePlanningMode',
       'layoutPlanDumpDebug',
       'enableTaskProfiling',
       'enableMemHack',
@@ -159,6 +161,7 @@ function startFresh(options = {}) {
     Memory.settings.layoutPlanningReplanInterval = 1000;
     Memory.settings.layoutExtensionPattern = normalizedExtensionPattern;
     Memory.settings.layoutHarabiStage = normalizedHarabiStage;
+    Memory.settings.layoutDefensePlanningMode = 'full';
     Memory.settings.layoutPlanDumpDebug = layoutPlanDumpDebug;
     Memory.settings.layoutRecalculateRequested = 'all';
     Memory.settings.layoutRecalculateMode = 'theoretical';
@@ -200,6 +203,7 @@ function startFresh(options = {}) {
     Memory.settings.layoutPlanningReplanInterval = 1000;
     Memory.settings.layoutExtensionPattern = normalizedExtensionPattern;
     Memory.settings.layoutHarabiStage = 'foundation';
+    Memory.settings.layoutDefensePlanningMode = 'full';
     Memory.settings.layoutPlanDumpDebug = false;
     delete Memory.settings.layoutRecalculateRequested;
     delete Memory.settings.layoutRecalculateMode;

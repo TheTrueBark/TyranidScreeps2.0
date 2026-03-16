@@ -40,6 +40,31 @@ describe('planner.rampartMincut', function() {
     expect(result.meta.noGoCount).to.equal(result.noGoZone.length);
   });
 
+  it('supports configurable shell thickness, no-go depth, and dragon teeth depth', function() {
+    const planner = require('../planner.rampartMincut');
+    const shallow = planner.planRoomTarget('W1N1', '25,25', {
+      rampartThickness: 2,
+      noGoDepth: 1,
+      dragonTeethThickness: 1,
+    });
+    const deep = planner.planRoomTarget('W1N1', '25,25', {
+      rampartThickness: 3,
+      noGoDepth: 3,
+      dragonTeethThickness: 2,
+    });
+
+    expect(shallow.ok).to.equal(true);
+    expect(deep.ok).to.equal(true);
+    expect(deep.meta.rampartThickness).to.equal(3);
+    expect(deep.meta.noGoDepth).to.equal(3);
+    expect(deep.meta.dragonTeethThickness).to.equal(2);
+    expect(deep.outerBandRamparts).to.have.length(deep.meta.outerBandCount);
+    expect(deep.primaryRamparts).to.have.length(deep.meta.primaryBoundaryCount);
+    expect(deep.meta.outerBandCount).to.be.at.least(shallow.meta.outerBandCount);
+    expect(deep.meta.noGoCount).to.be.at.least(shallow.meta.noGoCount);
+    expect(deep.meta.dragonToothCount).to.be.at.least(shallow.meta.dragonToothCount);
+  });
+
   it('seeds defense planning from multiple separated exits instead of a single opening only', function() {
     const planner = require('../planner.rampartMincut');
     Game.rooms.W1N1.getTerrain = () => ({

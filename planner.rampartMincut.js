@@ -1,6 +1,5 @@
 const statsConsole = require('console.console');
 const checkerboard = require('./algorithm.checkerboard');
-const buildCompendium = require('./planner.buildCompendium');
 const foundation = require('./planner.baseplannerFoundation');
 
 /**
@@ -13,13 +12,20 @@ const foundation = require('./planner.baseplannerFoundation');
 
 const RAMPART_TYPE = typeof STRUCTURE_RAMPART !== 'undefined' ? STRUCTURE_RAMPART : 'rampart';
 const WALL_TYPE = typeof STRUCTURE_WALL !== 'undefined' ? STRUCTURE_WALL : 'constructedWall';
-const helpers = buildCompendium._helpers || {};
+const DEFAULT_RAMPART_THICKNESS = 2;
+const DEFAULT_NO_GO_DEPTH = 2;
+const DEFAULT_DRAGON_TEETH_THICKNESS = 1;
 const {
   inBounds,
   idx,
   chebyshev,
   neighbors8,
 } = foundation;
+
+function getBuildCompendiumHelpers() {
+  const buildCompendium = require('./planner.buildCompendium');
+  return buildCompendium && buildCompendium._helpers ? buildCompendium._helpers : {};
+}
 
 function key(x, y) {
   return `${x}:${y}`;
@@ -66,6 +72,7 @@ function normalizeTargetCoordinate(targetInput, yInput) {
 }
 
 function buildPlannerContext(room, target) {
+  const helpers = getBuildCompendiumHelpers();
   const buildTerrainMatrices =
     typeof helpers.buildTerrainMatrices === 'function'
       ? helpers.buildTerrainMatrices
@@ -184,6 +191,7 @@ function collectExitRegions(matrices) {
 }
 
 function buildStandaloneDefenseContext(ctx, target, options = {}) {
+  const helpers = getBuildCompendiumHelpers();
   const buildExitApproachTargets =
     helpers && typeof helpers.buildExitApproachTargets === 'function'
       ? helpers.buildExitApproachTargets
@@ -346,34 +354,59 @@ function buildExitFacingOuterBand(ctx, target, boundaryTiles, outsideKeys, optio
   return added;
 }
 
-function buildDragonTeeth(ctx, target, boundaryTiles, outsideKeys) {
+function buildDragonTeeth(ctx, target, boundaryTiles, outsideKeys, options = {}) {
   if (!ctx || !target || !Array.isArray(boundaryTiles) || boundaryTiles.length === 0) return [];
+  const forwardLayers = Number.isFinite(options.forwardLayers)
+    ? Math.max(0, Math.trunc(Number(options.forwardLayers)))
+    : DEFAULT_DRAGON_TEETH_THICKNESS;
+  if (forwardLayers <= 0) return [];
   const preferredParity = checkerboard.parityAt(target.x, target.y);
   const boundaryKeys = new Set(boundaryTiles.map((tile) => key(tile.x, tile.y)));
   const outside = outsideKeys instanceof Set ? outsideKeys : new Set();
+  const occupied = new Set(boundaryKeys);
+  const seenDepth = new Map();
   const candidates = new Map();
+  const queue = boundaryTiles
+    .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+    .map((tile) => ({
+      x: tile.x,
+      y: tile.y,
+      depth: 0,
+      exitDistance: Number(ctx.matrices.exitDistance[idx(tile.x, tile.y)] || 0),
+    }));
 
-  for (const boundaryTile of boundaryTiles) {
-    if (!boundaryTile || !Number.isFinite(boundaryTile.x) || !Number.isFinite(boundaryTile.y)) continue;
-    for (const next of neighbors8(boundaryTile.x, boundaryTile.y)) {
+  for (let i = 0; i < queue.length; i++) {
+    const current = queue[i];
+    if (!current || current.depth >= forwardLayers) continue;
+    for (const next of neighbors8(current.x, current.y)) {
       const nextKey = key(next.x, next.y);
       if (boundaryKeys.has(nextKey) || !outside.has(nextKey)) continue;
       if (!inBounds(next.x, next.y)) continue;
       const nextId = idx(next.x, next.y);
-      const boundaryExitDistance = Number(ctx.matrices.exitDistance[idx(boundaryTile.x, boundaryTile.y)] || 0);
       const candidateExitDistance = Number(ctx.matrices.exitDistance[nextId] || 0);
       if (ctx.matrices.walkableMatrix[nextId] !== 1) continue;
       if (ctx.matrices.staticBlocked[nextId] === 1) continue;
       if (ctx.matrices.exitProximity[nextId] === 1) continue;
-      if (!(candidateExitDistance < boundaryExitDistance)) continue;
+      if (!(candidateExitDistance < current.exitDistance)) continue;
+      const nextDepth = current.depth + 1;
+      const previousDepth = seenDepth.get(nextKey);
+      if (previousDepth !== undefined && previousDepth <= nextDepth) continue;
+      seenDepth.set(nextKey, nextDepth);
+      queue.push({
+        x: next.x,
+        y: next.y,
+        depth: nextDepth,
+        exitDistance: candidateExitDistance,
+      });
       if (checkerboard.classifyTile(next.x, next.y, preferredParity) !== 'structure') continue;
-      let boundaryAdjacency = 0;
+      let supportAdjacency = 0;
       for (const neighbor of neighbors8(next.x, next.y)) {
-        if (boundaryKeys.has(key(neighbor.x, neighbor.y))) boundaryAdjacency += 1;
+        if (occupied.has(key(neighbor.x, neighbor.y))) supportAdjacency += 1;
       }
-      if (boundaryAdjacency <= 0) continue;
+      if (supportAdjacency <= 0) continue;
       const score =
-        boundaryAdjacency * 20 -
+        supportAdjacency * 20 -
+        nextDepth * 12 -
         chebyshev(next, target) * 3 -
         (Math.abs(next.x - target.x) + Math.abs(next.y - target.y)) * 0.1;
       const existing = candidates.get(nextKey);
@@ -400,15 +433,19 @@ function buildDragonTeeth(ctx, target, boundaryTiles, outsideKeys) {
     }));
 }
 
-function buildNoGoZone(insideKeys, outsideKeys) {
+function buildNoGoZone(insideKeys, outsideKeys, options = {}) {
   const inside = insideKeys instanceof Set ? insideKeys : new Set();
   const outside = outsideKeys instanceof Set ? outsideKeys : new Set();
+  const inwardDepth = Number.isFinite(options.inwardDepth)
+    ? Math.max(0, Math.trunc(Number(options.inwardDepth)))
+    : DEFAULT_NO_GO_DEPTH;
+  if (inwardDepth <= 0) return [];
   const noGo = new Map();
   for (const outsideKey of outside) {
     const outsideTile = parseKey(outsideKey);
-    for (let dx = -3; dx <= 3; dx++) {
-      for (let dy = -3; dy <= 3; dy++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) > 3) continue;
+    for (let dx = -inwardDepth; dx <= inwardDepth; dx++) {
+      for (let dy = -inwardDepth; dy <= inwardDepth; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) > inwardDepth) continue;
         const x = outsideTile.x + dx;
         const y = outsideTile.y + dy;
         if (!inBounds(x, y)) continue;
@@ -550,30 +587,36 @@ function summarizePlan(result) {
   };
 }
 
-function planRoomTarget(roomName, targetInput, yInput, options = {}) {
-  let normalizedYInput = yInput;
-  let normalizedOptions = options;
-  if (
-    normalizedYInput &&
-    typeof normalizedYInput === 'object' &&
-    !Array.isArray(normalizedYInput) &&
-    !Number.isFinite(normalizedYInput)
-  ) {
-    normalizedOptions = normalizedYInput;
-    normalizedYInput = undefined;
-  }
-  const room = Game.rooms[roomName];
-  if (!room) {
-    return { ok: false, roomName, error: 'room-not-visible' };
-  }
-  const target = normalizeTargetCoordinate(targetInput, normalizedYInput);
-  if (!target || !inBounds(target.x, target.y)) {
-    return { ok: false, roomName, error: 'invalid-target' };
-  }
-  if (target.x === 0 || target.x === 49 || target.y === 0 || target.y === 49) {
-    return { ok: false, roomName, target, error: 'target-on-border' };
-  }
+function normalizePlannerOptions(options = {}) {
+  const input = options && typeof options === 'object' ? options : {};
+  const rampartThickness = Number.isFinite(input.rampartThickness)
+    ? Math.max(1, Math.trunc(Number(input.rampartThickness)))
+    : DEFAULT_RAMPART_THICKNESS;
+  const noGoDepth = Number.isFinite(input.noGoDepth)
+    ? Math.max(0, Math.trunc(Number(input.noGoDepth)))
+    : DEFAULT_NO_GO_DEPTH;
+  const dragonTeethThickness = Number.isFinite(input.dragonTeethThickness)
+    ? Math.max(0, Math.trunc(Number(input.dragonTeethThickness)))
+    : DEFAULT_DRAGON_TEETH_THICKNESS;
+  return Object.assign({}, input, {
+    rampartThickness,
+    noGoDepth,
+    dragonTeethThickness,
+  });
+}
 
+function planContextTarget(ctx, targetInput, options = {}) {
+  const normalizedOptions = normalizePlannerOptions(options);
+  const target = normalizeTargetCoordinate(targetInput);
+  const helpers = getBuildCompendiumHelpers();
+  if (!ctx || !target || !inBounds(target.x, target.y)) {
+    return {
+      ok: false,
+      roomName: options && options.roomName ? options.roomName : ctx && ctx.roomName ? ctx.roomName : null,
+      target: target || null,
+      error: 'invalid-target',
+    };
+  }
   const pickBestRampartCut =
     helpers && typeof helpers.pickBestRampartCut === 'function'
       ? helpers.pickBestRampartCut
@@ -581,24 +624,32 @@ function planRoomTarget(roomName, targetInput, yInput, options = {}) {
   const canonicalizeRampartBoundaryTiles =
     helpers && typeof helpers.canonicalizeRampartBoundaryTiles === 'function'
       ? helpers.canonicalizeRampartBoundaryTiles
-      : (ctx, tiles) => tiles || [];
+      : (context, tiles) => tiles || [];
   const computeRampartInteriorMetrics =
     helpers && typeof helpers.computeRampartInteriorMetrics === 'function'
       ? helpers.computeRampartInteriorMetrics
       : () => ({});
-
   if (!pickBestRampartCut) {
-    return { ok: false, roomName, target, error: 'missing-rampart-helper' };
+    return {
+      ok: false,
+      roomName: options && options.roomName ? options.roomName : ctx && ctx.roomName ? ctx.roomName : null,
+      target,
+      error: 'missing-rampart-helper',
+    };
   }
 
-  const ctx = buildPlannerContext(room, target);
-  const defenseCtx = buildStandaloneDefenseContext(ctx, target, normalizedOptions || {});
-  const strategy = String((normalizedOptions && normalizedOptions.strategy) || 'full').toLowerCase() === 'estimate'
+  const defenseCtx =
+    normalizedOptions.defenseCtx && typeof normalizedOptions.defenseCtx === 'object'
+      ? normalizedOptions.defenseCtx
+      : buildStandaloneDefenseContext(ctx, target, normalizedOptions);
+  const strategy = String(normalizedOptions.strategy || 'full').toLowerCase() === 'estimate'
     ? 'estimate'
     : 'full';
   const cut = pickBestRampartCut(ctx, target, { strategy, defenseCtx });
   const rawCutLine = Array.isArray(cut && cut.line) ? cut.line.slice() : [];
-  const boundaryTiles = canonicalizeStandaloneBoundary(ctx, rawCutLine,
+  const boundaryTiles = canonicalizeStandaloneBoundary(
+    ctx,
+    rawCutLine,
     target,
     canonicalizeRampartBoundaryTiles,
   );
@@ -614,23 +665,33 @@ function planRoomTarget(roomName, targetInput, yInput, options = {}) {
     target,
     boundaryTiles,
     outsideKeys,
-    normalizedOptions && normalizedOptions.rampartThickness
-      ? { extraLayers: Math.max(0, Number(normalizedOptions.rampartThickness) - 1) }
-      : { extraLayers: 1 },
+    { extraLayers: Math.max(0, normalizedOptions.rampartThickness - 1) },
   );
-  const allRampartTiles = boundaryTiles.concat(outerBandTiles);
-  const boundaryPlacements = allRampartTiles.map((tile) => ({
+  const primaryRamparts = boundaryTiles.map((tile) => ({
     type: RAMPART_TYPE,
     x: tile.x,
     y: tile.y,
     rcl: 2,
     tag: tile.tag || 'rampart.edge',
   }));
+  const outerBandRamparts = outerBandTiles.map((tile) => ({
+    type: RAMPART_TYPE,
+    x: tile.x,
+    y: tile.y,
+    rcl: 2,
+    tag: tile.tag || 'rampart.edge',
+  }));
+  const allRampartTiles = boundaryTiles.concat(outerBandTiles);
+  const boundaryPlacements = primaryRamparts.concat(outerBandRamparts);
   const dragonToothFrontier = outerBandTiles.length > 0 ? outerBandTiles : boundaryTiles;
-  const dragonTeeth = normalizedOptions && normalizedOptions.planDragonTeeth === false
+  const dragonTeeth = normalizedOptions.planDragonTeeth === false
     ? []
-    : buildDragonTeeth(ctx, target, dragonToothFrontier, outsideKeys);
-  const noGoZone = buildNoGoZone(insideKeys, outsideKeys);
+    : buildDragonTeeth(ctx, target, dragonToothFrontier, outsideKeys, {
+        forwardLayers: normalizedOptions.dragonTeethThickness,
+      });
+  const noGoZone = buildNoGoZone(insideKeys, outsideKeys, {
+    inwardDepth: normalizedOptions.noGoDepth,
+  });
   const lineMetrics = computeRampartInteriorMetrics(ctx, boundaryTiles, target);
   const sealed =
     Number(lineMetrics.protectedStructures || 0) === Number(lineMetrics.protectedInsideCount || 0) &&
@@ -639,11 +700,14 @@ function planRoomTarget(roomName, targetInput, yInput, options = {}) {
 
   const result = {
     ok: true,
-    roomName,
+    roomName:
+      normalizedOptions.roomName || ctx.roomName || (ctx.meta && ctx.meta.roomName) || null,
     generatedAt:
       typeof Game !== 'undefined' && Game && Number.isFinite(Game.time) ? Number(Game.time) : 0,
     target: cloneSerializable(target),
     placements: boundaryPlacements.concat(dragonTeeth),
+    primaryRamparts: cloneSerializable(primaryRamparts),
+    outerBandRamparts: cloneSerializable(outerBandRamparts),
     ramparts: cloneSerializable(boundaryPlacements),
     dragonTeeth: cloneSerializable(dragonTeeth),
     displayRoads: allRampartTiles.map((tile) => ({ x: tile.x, y: tile.y, rcl: 2, tag: 'road.rampart' })),
@@ -651,6 +715,9 @@ function planRoomTarget(roomName, targetInput, yInput, options = {}) {
     meta: {
       mode: 'standalone-rampart-mincut',
       strategy,
+      rampartThickness: normalizedOptions.rampartThickness,
+      noGoDepth: normalizedOptions.noGoDepth,
+      dragonTeethThickness: normalizedOptions.dragonTeethThickness,
       boundaryCount: boundaryPlacements.length,
       primaryBoundaryCount: boundaryTiles.length,
       outerBandCount: outerBandTiles.length,
@@ -677,8 +744,39 @@ function planRoomTarget(roomName, targetInput, yInput, options = {}) {
       outsideTiles: [...outsideKeys].map(parseKey),
       result,
     },
-    normalizedOptions && normalizedOptions.debug ? normalizedOptions.debug : {},
+    normalizedOptions.debug || {},
   );
+  return result;
+}
+
+function planRoomTarget(roomName, targetInput, yInput, options = {}) {
+  let normalizedYInput = yInput;
+  let normalizedOptions = options;
+  if (
+    normalizedYInput &&
+    typeof normalizedYInput === 'object' &&
+    !Array.isArray(normalizedYInput) &&
+    !Number.isFinite(normalizedYInput)
+  ) {
+    normalizedOptions = normalizedYInput;
+    normalizedYInput = undefined;
+  }
+  const room = Game.rooms[roomName];
+  if (!room) {
+    return { ok: false, roomName, error: 'room-not-visible' };
+  }
+  const target = normalizeTargetCoordinate(targetInput, normalizedYInput);
+  if (!target || !inBounds(target.x, target.y)) {
+    return { ok: false, roomName, error: 'invalid-target' };
+  }
+  if (target.x === 0 || target.x === 49 || target.y === 0 || target.y === 49) {
+    return { ok: false, roomName, target, error: 'target-on-border' };
+  }
+  const ctx = buildPlannerContext(room, target);
+  const result = planContextTarget(ctx, target, Object.assign({}, normalizedOptions || {}, {
+    roomName,
+  }));
+  if (!result || result.ok !== true) return result;
 
   persistRoomPlan(roomName, result);
   if (!Memory.stats) Memory.stats = {};
@@ -748,6 +846,7 @@ module.exports = {
   _helpers: {
     buildPlannerContext,
     buildDebugPayload,
+    planContextTarget,
     canonicalizeStandaloneBoundary,
     buildStandaloneDefenseContext,
     collectExitRegions,

@@ -413,6 +413,41 @@ describe('build compendium planner', function () {
     }
   });
 
+  it('keeps connected foundation flow roads when full-plan pruning runs', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 25, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 25, y: 26, tag: 'road.flow' },
+        { type: STRUCTURE_ROAD, x: 25, y: 27, tag: 'road.flow' },
+        { type: STRUCTURE_ROAD, x: 40, y: 40, tag: 'road.flow' },
+      ],
+      blocked: new Set(),
+      roads: new Set(['25:25', '25:26', '25:27', '40:40']),
+      roadBlockedByStructures: new Set(),
+      ramparts: new Set(),
+      reserved: new Set(),
+      structuresByPos: new Map(),
+      matrices,
+    };
+
+    const pruning = planner._helpers.pruneRoadPlacements(ctx, {
+      keepTags: ['road.coreStamp', 'road.flow'],
+      storagePos: { x: 25, y: 25 },
+    });
+
+    expect(pruning.removed).to.equal(1);
+    expect(ctx.roads.has('25:26')).to.equal(true);
+    expect(ctx.roads.has('25:27')).to.equal(true);
+    expect(ctx.roads.has('40:40')).to.equal(false);
+  });
+
   it('penalizes candidates that still miss base-road redundancy in the final weighted score', function () {
     const safePlan = {
       placements: [
@@ -709,6 +744,31 @@ describe('build compendium planner', function () {
     expect((plan.meta.validation || []).some((entry) => String(entry).startsWith('rampart-standoff-fail'))).to.equal(false);
   });
 
+  it('uses rampart mincut outputs as the builder default and tracks no-go metadata', function () {
+    const plan = planner.generatePlan('W1N1', {
+      topN: 3,
+      rampartMincut: {
+        rampartThickness: 2,
+        noGoDepth: 2,
+        dragonTeethThickness: 1,
+      },
+    });
+
+    expect(plan.meta.rampartPlanning).to.exist;
+    expect(plan.meta.rampartPlanning.moduleAttempted).to.equal(true);
+    expect(['rampartMincut-module', 'legacy-rampart-cut']).to.include(plan.meta.rampartPlanning.source);
+    if (plan.meta.rampartPlanning.source === 'rampartMincut-module') {
+      expect(plan.meta.rampartPlanning.moduleAccepted).to.equal(true);
+      expect(Number(plan.meta.rampartPlanning.rampartThickness || 0)).to.equal(2);
+      expect(Number(plan.meta.rampartPlanning.noGoDepth || 0)).to.equal(2);
+      expect(Number(plan.meta.rampartPlanning.dragonTeethThickness || 0)).to.equal(1);
+      expect(Number(plan.meta.rampartPlanning.noGoCount || 0)).to.be.greaterThan(0);
+    } else {
+      expect(plan.meta.rampartPlanning.moduleAccepted).to.equal(false);
+      expect(plan.meta.rampartPlanning.moduleFallbackReason).to.be.a('string').that.is.not.empty;
+    }
+  });
+
   it('connects rampart perimeter roads back to the main base network before pruning', function () {
     const matrices = {
       walkableMatrix: new Array(2500).fill(1),
@@ -752,6 +812,89 @@ describe('build compendium planner', function () {
     expect(result.removedRogueEdgeRamparts).to.equal(0);
     expect(result.boundaryPlacedCount).to.equal(ring.length);
     expect(ctx.placements.some((placement) => placement.tag === 'road.rampartAccess')).to.equal(true);
+  });
+
+  it('relocates no-go structures and adds ramparts to roads that enter the no-go zone', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      roomName: 'W1N1',
+      placements: [
+        { type: STRUCTURE_ROAD, x: 20, y: 20, rcl: 1, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 21, y: 20, rcl: 1, tag: 'road.full' },
+        { type: STRUCTURE_ROAD, x: 22, y: 20, rcl: 1, tag: 'road.full' },
+        { type: STRUCTURE_ROAD, x: 23, y: 20, rcl: 1, tag: 'road.full' },
+        { type: STRUCTURE_EXTENSION, x: 22, y: 22, rcl: 2, tag: 'extension.1' },
+      ],
+      blocked: new Set(['22:22']),
+      roads: new Set(['20:20', '21:20', '22:20', '23:20']),
+      ramparts: new Set(),
+      roadBlockedByStructures: new Set(['22:22']),
+      reserved: new Set(['22:22']),
+      structuresByPos: new Map([['22:22', STRUCTURE_EXTENSION]]),
+      matrices,
+      meta: {},
+    };
+    const candidates = [
+      { x: 23, y: 21, key: '23:21', bucketId: 'b-1' },
+    ];
+
+    const relocation = planner._helpers.relocatePlacementsOutOfNoGoZone(
+      ctx,
+      [{ x: 22, y: 22 }],
+      { x: 20, y: 20 },
+      'parity',
+      0,
+      candidates,
+    );
+    const finalized = planner._helpers.finalizeFullRampartPlacements(
+      ctx,
+      [{ x: 24, y: 20, tag: 'rampart.edge' }],
+      { x: 20, y: 20 },
+      {
+        desiredRamparts: [
+          { x: 24, y: 20, tag: 'rampart.edge' },
+          { x: 25, y: 20, tag: 'rampart.edge.outer.1' },
+        ],
+        primaryBoundary: [{ x: 24, y: 20, tag: 'rampart.edge' }],
+        noGoZone: [{ x: 22, y: 20 }, { x: 23, y: 20 }],
+      },
+    );
+
+    expect(relocation.relocated).to.equal(1);
+    expect(relocation.remaining).to.equal(0);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_EXTENSION &&
+      placement.x === 23 &&
+      placement.y === 21,
+    )).to.equal(true);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_RAMPART &&
+      placement.tag === 'rampart.edge.outer.1' &&
+      placement.x === 25 &&
+      placement.y === 20,
+    )).to.equal(true);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_ROAD &&
+      placement.tag === 'road.rampart' &&
+      placement.x === 25 &&
+      placement.y === 20,
+    )).to.equal(true);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_RAMPART &&
+      placement.x === 22 &&
+      placement.y === 20,
+    )).to.equal(true);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_RAMPART &&
+      placement.x === 23 &&
+      placement.y === 20,
+    )).to.equal(true);
   });
 
   it('prunes stray single inner ramparts that do not connect to the shell', function () {

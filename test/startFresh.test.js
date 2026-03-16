@@ -75,6 +75,7 @@ describe('startFresh command', function() {
       layoutPlanningDynamicBatching: true,
       layoutPlanningReplanInterval: 1000,
       layoutExtensionPattern: 'parity',
+      layoutDefensePlanningMode: 'full',
       layoutRecalculateRequested: 'all',
       layoutRecalculateMode: 'theoretical',
       enableMemHack: true,
@@ -122,15 +123,26 @@ describe('startFresh command', function() {
     expect(Memory.settings.runtimeMode).to.equal('theoretical');
     expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
     expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
-    expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+    expect(Memory.settings.layoutHarabiStage).to.equal('full');
+    expect(Memory.settings.layoutDefensePlanningMode).to.equal('full');
   });
 
-  it('keeps harabi stage on foundation in theoretical mode', function() {
+  it('uses full harabi stage by default in theoretical mode', function() {
     startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', harabiStage: 'full' });
     expect(Memory.settings.runtimeMode).to.equal('theoretical');
     expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
     expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
+    expect(Memory.settings.layoutHarabiStage).to.equal('full');
+    expect(Memory.settings.layoutDefensePlanningMode).to.equal('full');
+  });
+
+  it('allows explicit foundation harabi stage in theoretical mode for debugging', function() {
+    startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', harabiStage: 'foundation' });
+    expect(Memory.settings.runtimeMode).to.equal('theoretical');
+    expect(Memory.settings.layoutPlanningMode).to.equal('theoretical');
+    expect(Memory.settings.layoutExtensionPattern).to.equal('cluster3');
     expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+    expect(Memory.settings.layoutDefensePlanningMode).to.equal('full');
   });
 
   it('supports opt-in layout plan dump debug mode in theoretical mode', function() {
@@ -163,6 +175,7 @@ describe('startFresh command', function() {
       layoutPlanningMaxCandidatesPerTick: 1,
       layoutPlanningDynamicBatching: false,
       layoutPlanningReplanInterval: 1000,
+      layoutDefensePlanningMode: 'full',
       enableMemHack: true,
       memHackDebug: false,
       pauseBot: false,

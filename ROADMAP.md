@@ -36,10 +36,12 @@
 
 ### 🔥 Program-Top-Prioritäten (neu gewichtet)
 - [ ] **Prio 5**: Dynamic Baseplanner Phasen 1–6 (siehe `Baseplanner Master-Spec`) als primärer Delivery-Stream.
+- [ ] **Prio 5 / Highest**: Rampart-Queueing im Live-Builder exakt an Planner-Output angleichen. Stand 2026-03: Winner-Selection materialisiert jetzt den echten `full`-Plan statt nur `foundation`, aber das konkrete Queueing von Ramparts / `road+rampart`-Tiles / Zugangs-Ramparts passt noch nicht vollständig 1:1 zum geplanten Defense-Layout. Danach ist das Base-Building nahezu fertig.
 - [ ] **Prio 5**: `manager.building` an `basePlan.buildQueue` anbinden (RCL-Gates, Priority-Order, Reserved-Tiles).
 - [ ] **Prio 4**: Memory/HUD/Visual Overlay für Planqualität, Build-Fortschritt, Validation-Warnungen vervollständigen.
 - [ ] **Prio 4**: Validation & Fallback-Strategien (Lab-Constraint, Rampart-Konnektivität, Boundary-Regeln) produktionsreif machen.
 - [x] **Prio 4**: Standalone-Rampart-Mincut-Debugpfad für eine einzelne Schutzkoordinate mit Overlay, Dragon Teeth und Ranged-NoGo-Zone ergänzen.
+- [x] **Prio 4**: Rampart-Mincut-Outputs als Standard in den Full Builder übernehmen, inklusive NoGo-Relocation und geschützter Zugangsstraßen in die NoGo-Zone.
 
 ### 🧩 Re-Gruppierung bestehender Roadmap-Punkte
 - [ ] Auto-Layout-Aufgaben werden als **Legacy/Transition** geführt und in den Baseplanner-Phasen absorbiert statt parallel erweitert.
@@ -212,6 +214,7 @@
 ### 🧱 Base-Building Workstream (Next)
 - [x] Runtime stabilisiert für Planner-Debug: Idle-Gating + HTM-Budgeting + strict overlay off-policy.
 - [x] Memory-Overhead reduziert: MemHack (default on) + theoretical pruning (Top-Kandidaten + kompakter Last-Run).
+- [ ] Highest open handoff: `basePlan.buildQueue` / `manager.building` müssen Ramparts, `road+rampart`-Overlays und NoGo-Zugangs-Ramparts exakt wie geplant umsetzen. Der theoretische Winner-Flow liefert nun `full` statt `foundation`, aber das Live-Queueing der Ramparts ist noch nicht pixelgenau genug.
 - [ ] Building rollout im Live-Mode gegen `basePlan.buildQueue` auf RCL-Stufen feinjustieren (Phase-spezifische Baufenster).
 - [ ] `manager.building` Prioritäten mit Planner-Scoring koppeln (kritische Infrastruktur zuerst bei CPU-/Bucket-Druck).
 - [ ] Candidate-to-build Traceability im HUD erweitern (Winner + Top-3 mit Build-Fortschritt je Kandidat).
