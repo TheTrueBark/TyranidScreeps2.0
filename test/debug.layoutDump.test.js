@@ -50,6 +50,17 @@ describe('debug.layoutDump', function() {
               bestScoreAfter: 0.61,
               improvementPct: 17.3,
             },
+            fullSelectionRerank: {
+              enabled: true,
+              defensePlanningMode: 'estimate',
+              rerankedCount: 2,
+              topN: 3,
+              selectedIndex: 1,
+              candidates: [
+                { index: 0, foundationScore: 0.8, rawWeightedScore: 0.9, weightedScore: -4.1, selectionPenalty: 5, criticalCount: 1, majorCount: 0 },
+                { index: 1, foundationScore: 0.72, rawWeightedScore: 0.74, weightedScore: 0.74, selectionPenalty: 0, criticalCount: 0, majorCount: 0 },
+              ],
+            },
             validation: [],
           },
         },
@@ -75,6 +86,7 @@ describe('debug.layoutDump', function() {
     expect(result.lines.some((line) => line.includes('stampPruning enabled=yes'))).to.equal(true);
     expect(result.lines.some((line) => line.includes('type=spawn'))).to.equal(true);
     expect(result.lines.some((line) => line.includes('refinementDebug status=done'))).to.equal(true);
+    expect(result.lines.some((line) => line.includes('fullSelectionRerank enabled=yes mode=estimate reranked=2/3 selected=1'))).to.equal(true);
   });
 
   it('formats buildQueue coordinates from entry.pos fallback', function() {
@@ -139,6 +151,21 @@ describe('debug.layoutDump', function() {
     expect(payload.structureCounts.spawn).to.equal(1);
     expect(payload.stampStats.bigPlaced).to.equal(7);
     expect(payload.validStructurePositions.structureClear).to.equal(2);
+  });
+
+  it('derives structure counts from compact queue-only basePlan storage', function() {
+    delete Memory.rooms.W1N1.basePlan.structures;
+    Memory.rooms.W1N1.basePlan.buildQueue = [
+      { type: 'spawn', pos: { x: 25, y: 25 } },
+      { type: 'extension', pos: { x: 26, y: 25 }, rcl: 2 },
+      { type: 'road', pos: { x: 24, y: 25 } },
+    ];
+    const payload = layoutDump.buildLayoutPlanDump('W1N1');
+    expect(payload.ok).to.equal(true);
+    expect(payload.structureCounts.spawn).to.equal(1);
+    expect(payload.structureCounts.extension).to.equal(1);
+    expect(payload.structureCounts.road).to.equal(1);
+    expect(payload.buildQueueCounts.spawn).to.equal(1);
   });
 
   it('prints structure planning extension order rows when ranking debug is present', function() {

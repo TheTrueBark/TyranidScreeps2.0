@@ -7,6 +7,18 @@ const statsConsole = require('console.console');
 function startFresh(options = {}) {
   const shouldPause =
     typeof options === 'boolean' ? options : Boolean(options && options.pause);
+  const requestedWipe =
+    typeof options === 'object' && options !== null && Object.prototype.hasOwnProperty.call(options, 'wipe')
+      ? options.wipe
+      : 'runtime';
+  const normalizedWipeMode =
+    requestedWipe === true ||
+    String(requestedWipe || '').toLowerCase() === 'all' ||
+    String(requestedWipe || '').toLowerCase() === 'full'
+      ? 'all'
+      : requestedWipe === false || String(requestedWipe || '').toLowerCase() === 'none'
+        ? 'none'
+        : 'runtime';
   const theoreticalMode =
     typeof options === 'object' && options !== null
       ? Boolean(options.theoreticalBuildingMode)
@@ -43,51 +55,58 @@ function startFresh(options = {}) {
   const useTheoreticalMode = theoreticalMode && !useMaintenanceMode;
   const previousSettings = Memory.settings || {};
   const preservedSettings = {};
-  const preserveKeys = [
-    'runtimeMode',
-    'overlayMode',
-    'enableVisuals',
-    'alwaysShowHud',
-    'showSpawnQueueHud',
-    'showLayoutOverlay',
-    'showLayoutLegend',
-    'showLayoutOverlayLabels',
-    'buildPreviewOnly',
-    'layoutPlanningMode',
-    'layoutOverlayView',
-    'layoutCandidateOverlayIndex',
-    'layoutPlanningTopCandidates',
-    'layoutPlanningCandidatesPerTick',
-    'layoutPlanningMaxCandidatesPerTick',
-    'layoutPlanningDynamicBatching',
-    'layoutPlanningReplanInterval',
-    'layoutExtensionPattern',
-    'layoutHarabiStage',
-    'layoutPlanDumpDebug',
-    'enableTaskProfiling',
-    'enableMemHack',
-    'memHackDebug',
-  ];
-  for (const key of preserveKeys) {
-    if (previousSettings[key] !== undefined) preservedSettings[key] = previousSettings[key];
+  if (normalizedWipeMode !== 'all') {
+    const preserveKeys = [
+      'runtimeMode',
+      'overlayMode',
+      'enableVisuals',
+      'alwaysShowHud',
+      'showSpawnQueueHud',
+      'showLayoutOverlay',
+      'showLayoutLegend',
+      'showLayoutOverlayLabels',
+      'buildPreviewOnly',
+      'layoutPlanningMode',
+      'layoutOverlayView',
+      'layoutCandidateOverlayIndex',
+      'layoutPlanningTopCandidates',
+      'layoutPlanningCandidatesPerTick',
+      'layoutPlanningMaxCandidatesPerTick',
+      'layoutPlanningDynamicBatching',
+      'layoutPlanningReplanInterval',
+      'layoutExtensionPattern',
+      'layoutHarabiStage',
+      'layoutPlanDumpDebug',
+      'enableTaskProfiling',
+      'enableMemHack',
+      'memHackDebug',
+    ];
+    for (const key of preserveKeys) {
+      if (previousSettings[key] !== undefined) preservedSettings[key] = previousSettings[key];
+    }
   }
 
   if (!Memory.stats) Memory.stats = {};
-  statsConsole.log('Starting fresh memory wipe', 2);
-  var keys = [
-    'rooms',
-    'hive',
-    'htm',
-    'demand',
-    'spawnQueue',
-    'creeps',
-    'stats',
-    'spawns',
-    'roleEval',
-    'nextSpawnId',
-    'settings',
-  ];
-  for (var i = 0; i < keys.length; i++) delete Memory[keys[i]];
+  statsConsole.log(`Starting fresh memory wipe (${normalizedWipeMode})`, 2);
+  const keys =
+    normalizedWipeMode === 'all'
+      ? Object.keys(Memory)
+      : normalizedWipeMode === 'none'
+        ? []
+        : [
+            'rooms',
+            'hive',
+            'htm',
+            'demand',
+            'spawnQueue',
+            'creeps',
+            'stats',
+            'spawns',
+            'roleEval',
+            'nextSpawnId',
+            'settings',
+          ];
+  for (let i = 0; i < keys.length; i++) delete Memory[keys[i]];
 
   if (
     Object.keys(preservedSettings).length > 0 ||

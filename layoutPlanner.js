@@ -32,6 +32,8 @@ const DEFAULT_REFINEMENT_TOP_SEEDS = 2;
 const DEFAULT_REFINEMENT_MAX_GENERATIONS = 8;
 const DEFAULT_REFINEMENT_VARIANTS_PER_GENERATION = 4;
 const DEFAULT_REFINEMENT_MIN_BUCKET = 3500;
+const DEFAULT_FULL_SELECTION_RERANK_CANDIDATES = 3;
+const DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE = 'estimate';
 const EXPECTED_CPU_PARENT_TASK = 0.35;
 const EXPECTED_CPU_CANDIDATE_TASK = 8;
 const EXPECTED_CPU_FULL_PREVIEW = 6;
@@ -123,6 +125,219 @@ function groupStructuresByType(placements = []) {
   return grouped;
 }
 
+function compactPersistedEvaluation(evaluation = {}) {
+  const compact = {};
+  if (
+    evaluation &&
+    typeof evaluation.weightedScore === 'number' &&
+    Number.isFinite(evaluation.weightedScore)
+  ) {
+    compact.weightedScore = Number(evaluation.weightedScore);
+  }
+  return compact;
+}
+
+const FULL_SELECTION_CRITICAL_VALIDATION_PREFIXES = [
+  'rampart-boundary-leak',
+  'road-network-disconnected',
+  'base-road-redundancy-missing',
+  'missing-logistics-route',
+  'source-road-anchor-missing',
+  'rampart-road-missing',
+  'rampart-road-disconnected',
+  'controller-stamp-missing',
+  'controller-stamp-incomplete',
+  'core-stamp-storage-fallback',
+  'core-stamp-spawn1-fallback',
+  'core-stamp-terminal-fallback',
+  'core-stamp-link-fallback',
+  'controller-link-missing',
+  'controller-link-range-fail',
+  'source-link-range-fail',
+  'source-link-container-range-fail',
+  'extension-foundation-rank-missing',
+];
+
+const FULL_SELECTION_MAJOR_VALIDATION_PREFIXES = [
+  'rampart-standoff-fail',
+  'defense-score-low',
+  'rampart-rogue-edge',
+  'rampart-rogue-corridor',
+  'rampart-diagonal-gap',
+  'sink-link-range-storage-fail',
+  'terminal-range-storage-fail',
+  'storage-neighbor-fail',
+  'spawn-neighbor-fail',
+  'spawn-spread-fail',
+  'spawn-exit-blocked',
+  'container-count-fail',
+  'exit-proximity-fail',
+];
+
+const FOUNDATION_SELECTION_HARD_REJECT_PREFIXES = [
+  'controller-stamp-missing',
+  'controller-stamp-incomplete',
+  'missing-logistics-route',
+  'source-road-anchor-missing',
+  'road-network-disconnected',
+  'spawn-exit-blocked',
+  'extension-foundation-rank-missing',
+];
+
+function validationMatchesPrefix(flag, prefixes = []) {
+  const value = String(flag || '');
+  return prefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}:`));
+}
+
+function summarizeFullSelectionValidation(validation = []) {
+  const flags = Array.isArray(validation) ? validation.filter(Boolean).map(String) : [];
+  const criticalFlags = [];
+  const majorFlags = [];
+  const minorFlags = [];
+
+  for (const flag of flags) {
+    if (validationMatchesPrefix(flag, FULL_SELECTION_CRITICAL_VALIDATION_PREFIXES)) {
+      criticalFlags.push(flag);
+      continue;
+    }
+    if (validationMatchesPrefix(flag, FULL_SELECTION_MAJOR_VALIDATION_PREFIXES)) {
+      majorFlags.push(flag);
+      continue;
+    }
+    minorFlags.push(flag);
+  }
+
+  return {
+    criticalFlags,
+    majorFlags,
+    minorFlags,
+    criticalCount: criticalFlags.length,
+    majorCount: majorFlags.length,
+    minorCount: minorFlags.length,
+    penalty:
+      criticalFlags.length * 5 +
+      majorFlags.length * 1.5 +
+      Math.min(1, minorFlags.length * 0.1),
+  };
+}
+
+function summarizeFoundationSelectionValidation(validation = []) {
+  const flags = Array.isArray(validation) ? validation.filter(Boolean).map(String) : [];
+  const hardRejectFlags = flags.filter((flag) =>
+    validationMatchesPrefix(flag, FOUNDATION_SELECTION_HARD_REJECT_PREFIXES),
+  );
+  return {
+    hardRejectFlags,
+    hardReject: hardRejectFlags.length > 0,
+  };
+}
+
+function applySelectionPenaltyToGeneratedPlan(generated) {
+  const rawWeightedScore =
+    generated &&
+    generated.evaluation &&
+    typeof generated.evaluation.weightedScore === 'number' &&
+    Number.isFinite(generated.evaluation.weightedScore)
+      ? Number(generated.evaluation.weightedScore)
+      : 0;
+  const validationSummary = summarizeFullSelectionValidation(
+    generated && generated.meta && Array.isArray(generated.meta.validation)
+      ? generated.meta.validation
+      : [],
+  );
+  const foundationSelection = summarizeFoundationSelectionValidation(
+    generated && generated.meta && Array.isArray(generated.meta.validation)
+      ? generated.meta.validation
+      : [],
+  );
+  return {
+    rawWeightedScore,
+    selectionPenalty: validationSummary.penalty,
+    weightedScore: foundationSelection.hardReject
+      ? Number.NEGATIVE_INFINITY
+      : rawWeightedScore - validationSummary.penalty,
+    validationSummary,
+    selectionRejected: foundationSelection.hardReject,
+    hardRejectFlags: foundationSelection.hardRejectFlags,
+  };
+}
+
+function compactFullSelectionRerankDebug(debug) {
+  if (!debug || typeof debug !== 'object') return {};
+  const candidateRows = Array.isArray(debug.candidates) ? debug.candidates : [];
+  return {
+    enabled: debug.enabled === true,
+    defensePlanningMode:
+      typeof debug.defensePlanningMode === 'string' ? debug.defensePlanningMode : null,
+    rerankedCount: Number(debug.rerankedCount || 0),
+    topN: Number(debug.topN || 0),
+    selectedIndex:
+      typeof debug.selectedIndex === 'number' && Number.isFinite(debug.selectedIndex)
+        ? debug.selectedIndex
+        : null,
+    candidates: candidateRows.map((row) => ({
+      index:
+        typeof row.index === 'number' && Number.isFinite(row.index)
+          ? row.index
+          : null,
+      foundationScore: Number(row.foundationScore || 0),
+      rawWeightedScore: Number(row.rawWeightedScore || 0),
+      weightedScore: Number(row.weightedScore || 0),
+      selectionPenalty: Number(row.selectionPenalty || 0),
+      selectionRejected: row.selectionRejected === true,
+      criticalCount: Number(row.criticalCount || 0),
+      majorCount: Number(row.majorCount || 0),
+    })),
+  };
+}
+
+function compactPersistedBuildQueue(buildQueue = []) {
+  if (!Array.isArray(buildQueue)) return [];
+  const compact = [];
+  for (const entry of buildQueue) {
+    if (!entry || !entry.pos || typeof entry.type !== 'string') continue;
+    const x = Number(entry.pos.x);
+    const y = Number(entry.pos.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const row = {
+      type: entry.type,
+      pos: { x, y },
+    };
+    if (Number(entry.rcl || 1) > 1) row.rcl = Number(entry.rcl || 1);
+    if (entry.built === true) row.built = true;
+    if (typeof entry.builtAt === 'number' && Number.isFinite(entry.builtAt)) {
+      row.builtAt = Number(entry.builtAt);
+    }
+    compact.push(row);
+  }
+  return compact;
+}
+
+function compactPersistedBasePlan(basePlan = {}) {
+  const compact = {
+    version: Number(basePlan.version || 1),
+    generatedAt:
+      typeof basePlan.generatedAt === 'number' && Number.isFinite(basePlan.generatedAt)
+        ? Number(basePlan.generatedAt)
+        : Game.time,
+    buildQueue: compactPersistedBuildQueue(basePlan.buildQueue),
+    compacted: true,
+  };
+  if (basePlan.spawnPos && typeof basePlan.spawnPos.x === 'number' && typeof basePlan.spawnPos.y === 'number') {
+    compact.spawnPos = {
+      x: Number(basePlan.spawnPos.x),
+      y: Number(basePlan.spawnPos.y),
+    };
+  }
+  const evaluation = compactPersistedEvaluation(basePlan.evaluation);
+  if (Object.keys(evaluation).length > 0) compact.evaluation = evaluation;
+  if (basePlan.planningRunId) compact.planningRunId = basePlan.planningRunId;
+  if (basePlan.plannerDebug && typeof basePlan.plannerDebug === 'object') {
+    compact.plannerDebug = basePlan.plannerDebug;
+  }
+  return compact;
+}
+
 function persistBasePlan(roomName, generated, pipeline) {
   if (!Memory.rooms) Memory.rooms = {};
   if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
@@ -138,30 +353,11 @@ function persistBasePlan(roomName, generated, pipeline) {
     evaluation: generated.evaluation || {},
     selection: generated.selection || null,
     planningRunId: pipeline && pipeline.runId ? pipeline.runId : null,
-    plannerDebug: {
-      layoutPattern: generated && generated.meta ? generated.meta.layoutPattern || null : null,
-      harabiStage: generated && generated.meta ? generated.meta.harabiStage || null : null,
-      stampStats: generated && generated.meta ? generated.meta.stampStats || {} : {},
-      stampPruning: generated && generated.meta ? generated.meta.stampPruning || {} : {},
-      sourceLogistics: generated && generated.meta ? generated.meta.sourceLogistics || {} : {},
-      foundationDebug: generated && generated.meta ? generated.meta.foundationDebug || {} : {},
-      sourceResourceDebug: generated && generated.meta ? generated.meta.sourceResourceDebug || {} : {},
-      logisticsRoutes: generated && generated.meta ? generated.meta.logisticsRoutes || {} : {},
-      labPlanning: generated && generated.meta ? generated.meta.labPlanning || {} : {},
-      structurePlanning: generated && generated.meta ? generated.meta.structurePlanning || {} : {},
-      foundationSnapshot:
-        generated && generated.meta ? generated.meta.foundationSnapshot || null : null,
-      fullOptimization:
-        generated && generated.meta ? generated.meta.fullOptimization || null : null,
-      refinementDebug: generated && generated.meta ? generated.meta.refinementDebug || {} : {},
-      validStructurePositions:
-        generated && generated.meta ? generated.meta.validStructurePositions || {} : {},
-      validation: generated && generated.meta ? generated.meta.validation || [] : [],
-    },
+    plannerDebug: compactBasePlanPlannerDebug(generated && generated.meta ? generated.meta : {}),
   };
 
   const validation = basePlanValidation.validateBasePlan(roomName, rawPlan);
-  roomMem.basePlan = validation.normalizedPlan;
+  roomMem.basePlan = compactPersistedBasePlan(validation.normalizedPlan);
   roomMem.basePlan.validation = {
     valid: validation.valid,
     issues: validation.issues,
@@ -646,12 +842,207 @@ function writeRoadMatrix(mem, roadTiles) {
   mem.roadMatrix = {};
   for (const tile of roadTiles) {
     if (!mem.roadMatrix[tile.x]) mem.roadMatrix[tile.x] = {};
-    mem.roadMatrix[tile.x][tile.y] = {
-      planned: true,
-      rcl: 1,
-      plannedBy: 'layoutPlanner',
-    };
+    mem.roadMatrix[tile.x][tile.y] = { rcl: 1 };
   }
+}
+
+function countPlacementsByType(placements = []) {
+  const counts = {};
+  for (const placement of Array.isArray(placements) ? placements : []) {
+    if (!placement || !placement.type) continue;
+    counts[placement.type] = (counts[placement.type] || 0) + 1;
+  }
+  return counts;
+}
+
+function compactLabPlanningDebug(debug) {
+  if (!debug || typeof debug !== 'object') return {};
+  const sourceLabs = Array.isArray(debug.sourceLabs)
+    ? debug.sourceLabs
+        .filter((pos) => pos && Number.isFinite(pos.x) && Number.isFinite(pos.y))
+        .slice(0, 2)
+        .map((pos) => ({ x: pos.x, y: pos.y }))
+    : [];
+  const reactionLabs = Array.isArray(debug.reactionLabs) ? debug.reactionLabs : [];
+  return {
+    mode: debug.mode || null,
+    computed: debug.computed === true,
+    clusterFound: debug.clusterFound === true,
+    totalLabs: Number(debug.totalLabs || sourceLabs.length + reactionLabs.length || 0),
+    sourceLabs,
+    reactionLabCount: reactionLabs.length,
+  };
+}
+
+function compactStructurePlanningDebug(debug) {
+  if (!debug || typeof debug !== 'object') return {};
+  const ranking = debug.ranking && typeof debug.ranking === 'object' ? debug.ranking : {};
+  return {
+    mode: debug.mode || null,
+    computed: debug.computed === true,
+    counts: debug.counts && typeof debug.counts === 'object' ? debug.counts : {},
+    ranking: {
+      extensionOrderTotal: Number(ranking.extensionOrderTotal || 0),
+      extensionOrderTruncated: ranking.extensionOrderTruncated === true,
+      disconnectedFallbackCount: Number(ranking.disconnectedFallbackCount || 0),
+      distanceModel: ranking.distanceModel || null,
+      rangeMode: ranking.rangeMode || null,
+      roadSelection: ranking.roadSelection || null,
+      spawnStampCenter:
+        ranking.spawnStampCenter &&
+        Number.isFinite(ranking.spawnStampCenter.x) &&
+        Number.isFinite(ranking.spawnStampCenter.y)
+          ? { x: ranking.spawnStampCenter.x, y: ranking.spawnStampCenter.y }
+          : null,
+      spawnRef:
+        ranking.spawnRef &&
+        Number.isFinite(ranking.spawnRef.x) &&
+        Number.isFinite(ranking.spawnRef.y)
+          ? { x: ranking.spawnRef.x, y: ranking.spawnRef.y }
+          : null,
+    },
+  };
+}
+
+function compactValidStructureDebug(debug) {
+  if (!debug || typeof debug !== 'object') return {};
+  const positions = Array.isArray(debug.positions) ? debug.positions : [];
+  return {
+    mode: debug.mode || null,
+    distanceModel: debug.distanceModel || null,
+    roadSelection: debug.roadSelection || null,
+    structureClear: Number(debug.structureClear || 0),
+    roadClear: Number(debug.roadClear || 0),
+    canPlace: Number(debug.canPlace || 0),
+    shownPositions: positions.length,
+    truncated: debug.truncated === true,
+  };
+}
+
+function cloneCoord(pos, extraKeys = []) {
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+  const cloned = { x: Number(pos.x), y: Number(pos.y) };
+  for (const key of extraKeys) {
+    if (pos[key] !== undefined) cloned[key] = pos[key];
+  }
+  return cloned;
+}
+
+function compactTheoreticalCandidateRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const compact = {
+    index: typeof row.index === 'number' ? row.index : null,
+    anchor: cloneCoord(row.anchor),
+    initialScore: Number(row.initialScore || 0),
+    weightedScore:
+      typeof row.weightedScore === 'number' && Number.isFinite(row.weightedScore)
+        ? row.weightedScore
+        : null,
+    weightedContributions:
+      row.weightedContributions && typeof row.weightedContributions === 'object'
+        ? row.weightedContributions
+        : {},
+    selected: row.selected === true,
+    completedAt: Number(row.completedAt || 0),
+  };
+  if (typeof row.rawWeightedScore === 'number' && Number.isFinite(row.rawWeightedScore)) {
+    compact.rawWeightedScore = Number(row.rawWeightedScore);
+  }
+  if (typeof row.selectionPenalty === 'number' && Number.isFinite(row.selectionPenalty)) {
+    compact.selectionPenalty = Number(row.selectionPenalty);
+  }
+  if (row.selectionRejected === true) {
+    compact.selectionRejected = true;
+    compact.hardRejectFlags = Array.isArray(row.hardRejectFlags) ? row.hardRejectFlags.slice() : [];
+  }
+  if (typeof row.defenseScore === 'number' && Number.isFinite(row.defenseScore)) {
+    compact.defenseScore = Number(row.defenseScore);
+  }
+  return compact;
+}
+
+function compactBasePlanPlannerDebug(meta = {}) {
+  return {
+    layoutPattern: meta.layoutPattern || null,
+    harabiStage: meta.harabiStage || null,
+    stampStats: meta.stampStats || {},
+    stampPruning: meta.stampPruning || {},
+    sourceLogistics: meta.sourceLogistics || {},
+    foundationDebug: meta.foundationDebug || {},
+    sourceResourceDebug: meta.sourceResourceDebug || {},
+    logisticsRoutes: meta.logisticsRoutes || {},
+    labPlanning: compactLabPlanningDebug(meta.labPlanning),
+    structurePlanning: compactStructurePlanningDebug(meta.structurePlanning),
+    refinementDebug: summarizeRefinement(meta.refinementDebug),
+    fullSelectionRerank: compactFullSelectionRerankDebug(meta.fullSelectionRerank),
+    validStructurePositions: compactValidStructureDebug(meta.validStructurePositions),
+    validation: Array.isArray(meta.validation) ? meta.validation : [],
+    compacted: true,
+  };
+}
+
+function compactCompletedTheoreticalState(theoretical = {}) {
+  const sourceContainers = Array.isArray(theoretical.sourceContainers)
+    ? theoretical.sourceContainers
+        .map((pos) => cloneCoord(pos))
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  const compact = {
+    compacted: true,
+    controllerPos: cloneCoord(theoretical.controllerPos),
+    spawnCandidate: cloneCoord(theoretical.spawnCandidate, ['score']),
+    controllerContainer: cloneCoord(theoretical.controllerContainer),
+    sourceContainers,
+    foundationDebug:
+      theoretical.foundationDebug && typeof theoretical.foundationDebug === 'object'
+        ? theoretical.foundationDebug
+        : {},
+    sourceResourceDebug:
+      theoretical.sourceResourceDebug && typeof theoretical.sourceResourceDebug === 'object'
+        ? theoretical.sourceResourceDebug
+        : {},
+    logisticsRoutes:
+      theoretical.logisticsRoutes && typeof theoretical.logisticsRoutes === 'object'
+        ? theoretical.logisticsRoutes
+        : {},
+    labPlanning: compactLabPlanningDebug(theoretical.labPlanning),
+    structurePlanning: compactStructurePlanningDebug(theoretical.structurePlanning),
+    refinementDebug: summarizeRefinement(theoretical.refinementDebug),
+    fullSelectionRerank: compactFullSelectionRerankDebug(theoretical.fullSelectionRerank),
+    validStructurePositions: compactValidStructureDebug(theoretical.validStructurePositions),
+    floodScore: Number(theoretical.floodScore || 0),
+    mincutProxy: Number(theoretical.mincutProxy || 0),
+    selectedCandidateIndex:
+      typeof theoretical.selectedCandidateIndex === 'number'
+        ? theoretical.selectedCandidateIndex
+        : null,
+    selectedWeightedScore: Number(theoretical.selectedWeightedScore || 0),
+    candidates: Array.isArray(theoretical.candidates)
+      ? theoretical.candidates
+          .map((row) => compactTheoreticalCandidateRow(row))
+          .filter(Boolean)
+      : [],
+    candidateSet:
+      theoretical.candidateSet && typeof theoretical.candidateSet === 'object'
+        ? theoretical.candidateSet
+        : {},
+    checklist:
+      theoretical.checklist && typeof theoretical.checklist === 'object'
+        ? theoretical.checklist
+        : null,
+    planningRunId: theoretical.planningRunId || null,
+    planningStatus: theoretical.planningStatus || 'completed',
+    generatedAt: Number(theoretical.generatedAt || 0),
+  };
+  if (typeof theoretical.currentlyViewingCandidate === 'number') {
+    compact.currentlyViewingCandidate = theoretical.currentlyViewingCandidate;
+  }
+  return compact;
+}
+
+function hasRenderableCandidatePlacements(plan) {
+  return Boolean(plan && Array.isArray(plan.placements));
 }
 
 const layoutPlanner = {
@@ -758,6 +1149,50 @@ const layoutPlanner = {
     };
   },
 
+  _compactCandidatePlan(plan, options = {}) {
+    if (!plan || typeof plan !== 'object') return null;
+    const keepPlacements = options.keepPlacements === true;
+    const compact = {
+      index: typeof plan.index === 'number' ? plan.index : null,
+      anchor: plan.anchor || null,
+      weightedScore: Number(plan.weightedScore || 0),
+      weightedMetrics: plan.weightedMetrics || {},
+      weightedContributions: plan.weightedContributions || {},
+      validation: plan.validation || [],
+      stampStats: plan.stampStats || {},
+      stampPruning: plan.stampPruning || {},
+      sourceLogistics: plan.sourceLogistics || {},
+      foundationDebug: plan.foundationDebug || {},
+      sourceResourceDebug: plan.sourceResourceDebug || {},
+      logisticsRoutes: plan.logisticsRoutes || {},
+      defenseScore: Number(plan.defenseScore || 0),
+      completedAt: Number(plan.completedAt || 0),
+      compacted: keepPlacements !== true,
+      selectionRejected: plan.selectionRejected === true,
+      hardRejectFlags: Array.isArray(plan.hardRejectFlags) ? plan.hardRejectFlags : [],
+      structureCounts:
+        plan.structureCounts && typeof plan.structureCounts === 'object'
+          ? plan.structureCounts
+          : countPlacementsByType(plan.placements),
+    };
+    if (keepPlacements) {
+      compact.placements = Array.isArray(plan.placements) ? plan.placements : [];
+      compact.labPlanning = plan.labPlanning || {};
+      compact.structurePlanning = plan.structurePlanning || {};
+      compact.refinementDebug = plan.refinementDebug || {};
+      compact.validStructurePositions = plan.validStructurePositions || {};
+      if (plan.foundationSnapshot) compact.foundationSnapshot = plan.foundationSnapshot;
+      if (plan.fullOptimization) compact.fullOptimization = plan.fullOptimization;
+      if (plan.refinementInput) compact.refinementInput = plan.refinementInput;
+      return compact;
+    }
+    compact.labPlanning = compactLabPlanningDebug(plan.labPlanning);
+    compact.structurePlanning = compactStructurePlanningDebug(plan.structurePlanning);
+    compact.refinementDebug = summarizeRefinement(plan.refinementDebug);
+    compact.validStructurePositions = compactValidStructureDebug(plan.validStructurePositions);
+    return compact;
+  },
+
   _pruneTheoreticalMemory(roomName, options = {}) {
     if (!Memory.rooms || !Memory.rooms[roomName]) return null;
     const roomMem = Memory.rooms[roomName];
@@ -772,6 +1207,7 @@ const layoutPlanner = {
       removedCandidatePlans: 0,
       removedPipelineResults: 0,
       removedPipelineRuns: 0,
+      compactedCandidatePlans: 0,
       keptCandidates: 0,
       keptPipelineRuns: 0,
       removedTotal: 0,
@@ -780,6 +1216,11 @@ const layoutPlanner = {
     const pipeline = layout.theoreticalPipeline || null;
     const theoretical = layout.theoretical || null;
     const plans = layout.theoreticalCandidatePlans || {};
+    const hasPersistedBasePlan = Boolean(
+      roomMem.basePlan &&
+        Array.isArray(roomMem.basePlan.buildQueue) &&
+        roomMem.basePlan.buildQueue.length > 0,
+    );
     const winnerIndex =
       pipeline && typeof pipeline.bestCandidateIndex === 'number'
         ? pipeline.bestCandidateIndex
@@ -831,6 +1272,31 @@ const layoutPlanner = {
     }
     const keepSet = {};
     for (const idx of ranked) keepSet[String(idx)] = true;
+    const keepFullSet = {};
+    const selectedIndex =
+      theoretical && typeof theoretical.selectedCandidateIndex === 'number'
+        ? theoretical.selectedCandidateIndex
+        : null;
+    const currentDisplayIndex =
+      typeof layout.currentDisplayCandidateIndex === 'number'
+        ? layout.currentDisplayCandidateIndex
+        : null;
+    const explicitlyRequestedOverlayIndex =
+      requestedOverlayIndex >= 0 ? requestedOverlayIndex : null;
+    for (const idx of [explicitlyRequestedOverlayIndex, currentDisplayIndex]) {
+      if (typeof idx !== 'number' || !keepSet[String(idx)]) continue;
+      if (!hasPersistedBasePlan || idx !== winnerIndex || idx === explicitlyRequestedOverlayIndex) {
+        keepFullSet[String(idx)] = true;
+      }
+    }
+    if (!hasPersistedBasePlan) {
+      for (const idx of [winnerIndex, selectedIndex]) {
+        if (typeof idx === 'number' && keepSet[String(idx)]) keepFullSet[String(idx)] = true;
+      }
+    }
+    if (!hasPersistedBasePlan && Object.keys(keepFullSet).length === 0 && ranked.length > 0) {
+      keepFullSet[String(ranked[0])] = true;
+    }
 
     if (theoretical && Array.isArray(theoretical.candidates)) {
       const before = theoretical.candidates.length;
@@ -850,27 +1316,9 @@ const layoutPlanner = {
           continue;
         }
         const plan = layout.theoreticalCandidatePlans[key] || {};
-        compactPlans[key] = {
-          index: typeof plan.index === 'number' ? plan.index : Number(key),
-          anchor: plan.anchor || null,
-          placements: Array.isArray(plan.placements) ? plan.placements : [],
-          weightedScore: Number(plan.weightedScore || 0),
-          weightedMetrics: plan.weightedMetrics || {},
-          weightedContributions: plan.weightedContributions || {},
-          validation: plan.validation || [],
-          stampStats: plan.stampStats || {},
-          stampPruning: plan.stampPruning || {},
-          sourceLogistics: plan.sourceLogistics || {},
-          foundationDebug: plan.foundationDebug || {},
-          sourceResourceDebug: plan.sourceResourceDebug || {},
-          logisticsRoutes: plan.logisticsRoutes || {},
-          labPlanning: plan.labPlanning || {},
-          structurePlanning: plan.structurePlanning || {},
-          refinementDebug: plan.refinementDebug || {},
-          validStructurePositions: plan.validStructurePositions || {},
-          defenseScore: Number(plan.defenseScore || 0),
-          completedAt: Number(plan.completedAt || 0),
-        };
+        const keepFull = keepFullSet[String(key)] === true;
+        compactPlans[key] = this._compactCandidatePlan(plan, { keepPlacements: keepFull });
+        if (!keepFull) summary.compactedCandidatePlans += 1;
       }
       layout.theoreticalCandidatePlans = compactPlans;
     }
@@ -927,6 +1375,16 @@ const layoutPlanner = {
       summary.removedCandidatePlans +
       summary.removedPipelineResults +
       summary.removedPipelineRuns;
+    if (layout.theoretical && pipeline && pipeline.status === 'completed') {
+      layout.theoretical = compactCompletedTheoreticalState(layout.theoretical);
+    }
+    const resolvedDisplayIndex = this._resolveDisplayedCandidateIndex(roomMem);
+    if (resolvedDisplayIndex !== null) {
+      layout.currentDisplayCandidateIndex = resolvedDisplayIndex;
+      if (layout.theoretical) {
+        layout.theoretical.currentlyViewingCandidate = resolvedDisplayIndex;
+      }
+    }
     layout.memTrimLast = summary;
     if (!Memory.stats) Memory.stats = {};
     Memory.stats.memTrimLast = summary;
@@ -1118,29 +1576,15 @@ const layoutPlanner = {
       const { x, y, type, rcl, tag } = placement;
       if (type === ROAD_TYPE) {
         if (!layoutMem.roadMatrix[x]) layoutMem.roadMatrix[x] = {};
-        layoutMem.roadMatrix[x][y] = {
-          planned: true,
-          rcl: rcl || 1,
-          plannedBy: 'layoutPlanner',
-          tag: tag || null,
-          candidateIndex:
-            typeof options.candidateIndex === 'number' ? options.candidateIndex : null,
-        };
+        layoutMem.roadMatrix[x][y] = tag ? { rcl: rcl || 1, tag } : { rcl: rcl || 1 };
       }
       if (!layoutMem.matrix[x]) layoutMem.matrix[x] = {};
       if (layoutMem.matrix[x][y] && layoutMem.matrix[x][y].structureType !== ROAD_TYPE) {
         continue;
       }
-      layoutMem.matrix[x][y] = {
-        structureType: type,
-        rcl: rcl || 1,
-        planned: true,
-        plannedBy: 'layoutPlanner',
-        blockedUntil: Game.time + 10000,
-        tag: tag || null,
-        candidateIndex:
-          typeof options.candidateIndex === 'number' ? options.candidateIndex : null,
-      };
+      layoutMem.matrix[x][y] = tag
+        ? { structureType: type, rcl: rcl || 1, tag }
+        : { structureType: type, rcl: rcl || 1 };
       if (!layoutMem.reserved[x]) layoutMem.reserved[x] = {};
       layoutMem.reserved[x][y] = true;
     }
@@ -1154,6 +1598,7 @@ const layoutPlanner = {
       .filter((n) => Number.isFinite(n))
       .sort((a, b) => a - b);
     if (!available.length) return null;
+    const renderable = available.filter((index) => hasRenderableCandidatePlacements(plans[String(index)]));
 
     const preferred =
       Memory &&
@@ -1162,7 +1607,7 @@ const layoutPlanner = {
         ? Memory.settings.layoutCandidateOverlayIndex
         : -1;
 
-    if (preferred >= 0 && available.includes(preferred)) {
+    if (preferred >= 0 && renderable.includes(preferred)) {
       return preferred;
     }
 
@@ -1172,10 +1617,17 @@ const layoutPlanner = {
         ? mem.layout.theoretical.selectedCandidateIndex
         : null;
 
-    if (preferred === -1 && selected !== null && available.includes(selected)) {
+    if (selected !== null && renderable.includes(selected)) {
       return selected;
     }
 
+    if (renderable.length) return renderable[0];
+    if (preferred >= 0 && available.includes(preferred)) {
+      return preferred;
+    }
+    if (preferred === -1 && selected !== null && available.includes(selected)) {
+      return selected;
+    }
     return available[0];
   },
 
@@ -1421,6 +1873,27 @@ const layoutPlanner = {
     if (!mem.layout) mem.layout = {};
     generated.meta = generated.meta || {};
     generated.meta.refinementDebug = summarizeRefinement(pipeline && pipeline.refinement);
+    generated.meta.fullSelectionRerank =
+      pipeline && pipeline.fullSelectionRerank ? pipeline.fullSelectionRerank : null;
+    const selectedResult =
+      pipeline &&
+      pipeline.results &&
+      typeof pipeline.bestCandidateIndex === 'number' &&
+      pipeline.results[pipeline.bestCandidateIndex]
+        ? pipeline.results[pipeline.bestCandidateIndex]
+        : null;
+    if (selectedResult && typeof selectedResult.weightedScore === 'number') {
+      generated.evaluation = Object.assign({}, generated.evaluation || {}, {
+        rawWeightedScore:
+          typeof selectedResult.rawWeightedScore === 'number'
+            ? selectedResult.rawWeightedScore
+            : generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
+              ? generated.evaluation.weightedScore
+              : 0,
+        selectionPenalty: Number(selectedResult.selectionPenalty || 0),
+        weightedScore: Number(selectedResult.weightedScore || 0),
+      });
+    }
     const planMode = 'theoretical';
     mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
     this._applyTheoreticalPlacements(mem.layout, generated, {
@@ -1433,10 +1906,6 @@ const layoutPlanner = {
     const sourceContainers = generated.placements.filter(
       (p) => p.tag && p.tag.startsWith('source.container.'),
     );
-    const roadTiles = generated.placements
-      .filter((p) => p.type === ROAD_TYPE)
-      .map((p) => ({ x: p.x, y: p.y }));
-
     const candidateRows = (pipeline.candidates || []).map((candidate) => {
       const result = pipeline.results && pipeline.results[candidate.index];
       return {
@@ -1448,6 +1917,8 @@ const layoutPlanner = {
         weightedScore: result ? result.weightedScore : null,
         weightedMetrics: result ? result.weightedMetrics : null,
         weightedContributions: result ? result.weightedContributions : null,
+        selectionRejected: result ? result.selectionRejected === true : false,
+        hardRejectFlags: result ? result.hardRejectFlags || [] : [],
         validation: result ? result.validation : [],
         defenseScore: result ? result.defenseScore : 0,
         completedAt: result ? result.completedAt : null,
@@ -1455,7 +1926,6 @@ const layoutPlanner = {
       };
     });
 
-    const selectedCandidate = candidateRows.find((row) => row.selected) || null;
     const selectedEvaluation = generated.evaluation || {};
     const checklist = this._buildTheoreticalChecklist(
       room.name,
@@ -1469,6 +1939,11 @@ const layoutPlanner = {
       anchor: { x: generated.anchor.x, y: generated.anchor.y },
       placements: generated.placements,
       weightedScore: selectedEvaluation.weightedScore || 0,
+      rawWeightedScore:
+        typeof selectedEvaluation.rawWeightedScore === 'number'
+          ? selectedEvaluation.rawWeightedScore
+          : selectedEvaluation.weightedScore || 0,
+      selectionPenalty: Number(selectedEvaluation.selectionPenalty || 0),
       weightedMetrics: selectedEvaluation.metrics || {},
       weightedContributions: selectedEvaluation.contributions || {},
       validation: generated.meta.validation || [],
@@ -1487,7 +1962,7 @@ const layoutPlanner = {
       refinementInput: null,
     };
 
-    mem.layout.theoretical = {
+    mem.layout.theoretical = compactCompletedTheoreticalState({
       controllerPos: { x: room.controller.pos.x, y: room.controller.pos.y },
       spawnCandidate: spawnCandidate
         ? {
@@ -1505,6 +1980,7 @@ const layoutPlanner = {
       labPlanning: generated.meta.labPlanning || {},
       structurePlanning: generated.meta.structurePlanning || {},
       refinementDebug: generated.meta.refinementDebug || {},
+      fullSelectionRerank: generated.meta.fullSelectionRerank || {},
       wallDistance: generated.analysis.dt || [],
       controllerDistance: toArrayMap(generated.analysis.controllerDistance || {}),
       floodScore: Array.isArray(generated.analysis.flood) ? generated.analysis.flood.length : 0,
@@ -1512,7 +1988,6 @@ const layoutPlanner = {
         ? generated.analysis.flood.map((tile) => ({ x: tile.x, y: tile.y, d: tile.d }))
         : [],
       mincutProxy: generated.placements.filter((p) => p.type === RAMPART_TYPE).length,
-      roads: roadTiles,
       validation: generated.meta.validation || [],
       validStructurePositions: generated.meta.validStructurePositions || {},
       structurePlanning: generated.meta.structurePlanning || {},
@@ -1528,7 +2003,7 @@ const layoutPlanner = {
       planningRunId: pipeline.runId,
       planningStatus: 'completed',
       generatedAt: Game.time,
-    };
+    });
     mem.layout.theoretical.currentlyViewingCandidate =
       typeof mem.layout.currentDisplayCandidateIndex === 'number'
         ? mem.layout.currentDisplayCandidateIndex
@@ -1770,7 +2245,8 @@ const layoutPlanner = {
           });
           if (!generated || !generated.evaluation) continue;
           generated.meta = generated.meta || {};
-          const newScore = Number(generated.evaluation.weightedScore || 0);
+          const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
+          const newScore = selectionEvaluation.weightedScore;
           const current = pipeline.results && pipeline.results[seedIndex] ? pipeline.results[seedIndex] : null;
           const currentScore = current ? Number(current.weightedScore || 0) : -Infinity;
           if (!(newScore > currentScore)) continue;
@@ -1781,6 +2257,10 @@ const layoutPlanner = {
             anchor: { x: generated.anchor.x, y: generated.anchor.y },
             placements: generated.placements,
             weightedScore: newScore,
+            rawWeightedScore: selectionEvaluation.rawWeightedScore,
+            selectionPenalty: selectionEvaluation.selectionPenalty,
+            selectionRejected: selectionEvaluation.selectionRejected,
+            hardRejectFlags: selectionEvaluation.hardRejectFlags,
             weightedMetrics: generated.evaluation.metrics || {},
             weightedContributions: generated.evaluation.contributions || {},
             validation: generated.meta && generated.meta.validation ? generated.meta.validation : [],
@@ -1826,6 +2306,10 @@ const layoutPlanner = {
           pipeline.results[seedIndex] = {
             index: seedIndex,
             weightedScore: newScore,
+            rawWeightedScore: selectionEvaluation.rawWeightedScore,
+            selectionPenalty: selectionEvaluation.selectionPenalty,
+            selectionRejected: selectionEvaluation.selectionRejected,
+            hardRejectFlags: selectionEvaluation.hardRejectFlags,
             weightedMetrics: generated.evaluation.metrics || {},
             weightedContributions: generated.evaluation.contributions || {},
             validation: generated.meta && generated.meta.validation ? generated.meta.validation : [],
@@ -1865,6 +2349,167 @@ const layoutPlanner = {
     if (Number(refinement.generation || 0) >= maxGenerations) {
       refinement.status = 'done';
     }
+  },
+
+  _rankPipelineResults(results = {}) {
+    return Object.values(results || {}).sort((a, b) => {
+      const aRejected = a && a.selectionRejected === true ? 1 : 0;
+      const bRejected = b && b.selectionRejected === true ? 1 : 0;
+      if (aRejected !== bRejected) return aRejected - bRejected;
+      const aScore = Number(a && a.weightedScore ? a.weightedScore : 0);
+      const bScore = Number(b && b.weightedScore ? b.weightedScore : 0);
+      if (bScore !== aScore) return bScore - aScore;
+      return Number(a && a.index ? a.index : 0) - Number(b && b.index ? b.index : 0);
+    });
+  },
+
+  _pickBestSelectableResult(ranked = []) {
+    if (!Array.isArray(ranked) || ranked.length === 0) return null;
+    return ranked.find((result) => !(result && result.selectionRejected === true)) || null;
+  },
+
+  _rerankTopCandidatesWithFullPlans(roomName, pipeline, mem, ranked = []) {
+    if (!pipeline || !mem || !mem.layout) return Array.isArray(ranked) ? ranked : [];
+    const requestedHarabiStage =
+      typeof pipeline.requestedHarabiStage === 'string' ? pipeline.requestedHarabiStage : 'foundation';
+    const candidateHarabiStage =
+      typeof pipeline.candidateHarabiStage === 'string' ? pipeline.candidateHarabiStage : requestedHarabiStage;
+    const finalHarabiStage =
+      typeof pipeline.finalHarabiStage === 'string' ? pipeline.finalHarabiStage : requestedHarabiStage;
+    if (
+      requestedHarabiStage !== 'full' ||
+      finalHarabiStage !== 'full' ||
+      candidateHarabiStage === finalHarabiStage
+    ) {
+      return Array.isArray(ranked) ? ranked : this._rankPipelineResults(pipeline.results);
+    }
+
+    const rankedRows = Array.isArray(ranked) && ranked.length > 0
+      ? ranked.slice()
+      : this._rankPipelineResults(pipeline.results);
+    if (rankedRows.length === 0) return rankedRows;
+
+    const rerankCount = Math.max(
+      1,
+      Math.min(DEFAULT_FULL_SELECTION_RERANK_CANDIDATES, rankedRows.length),
+    );
+    // The finalist rerank is only a selection pass. Keep it on the cheap estimate-defense
+    // path so we can compare practical candidates without running full minCut smoothing
+    // multiple times in a single theoretical tick.
+    const defensePlanningMode = DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE;
+    mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
+    const rerankedCandidates = [];
+
+    for (let i = 0; i < rerankCount; i++) {
+      const baseResult = rankedRows[i];
+      if (!baseResult || typeof baseResult.index !== 'number') continue;
+      const selectedCandidate = (pipeline.candidates || []).find((candidate) => candidate.index === baseResult.index);
+      if (!selectedCandidate || !selectedCandidate.anchor) continue;
+      const selectedPlan = mem.layout.theoreticalCandidatePlans[String(selectedCandidate.index)] || null;
+      const refinementInput =
+        selectedPlan &&
+        selectedPlan.refinementInput &&
+        selectedPlan.refinementInput.anchor &&
+        selectedPlan.refinementInput.mutation
+          ? selectedPlan.refinementInput
+          : null;
+
+      const generated = buildCompendium.generatePlanForAnchor(
+        roomName,
+        refinementInput && refinementInput.anchor ? refinementInput.anchor : selectedCandidate.anchor,
+        {
+          candidateMeta: selectedCandidate,
+          extensionPattern: readLayoutPattern(),
+          harabiStage: finalHarabiStage,
+          defensePlanningMode,
+          mutation: refinementInput ? refinementInput.mutation : null,
+        },
+      );
+      if (!generated) continue;
+
+      generated.meta = generated.meta || {};
+      generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
+      const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
+      const validationSummary = selectionEvaluation.validationSummary;
+      const rawWeightedScore = selectionEvaluation.rawWeightedScore;
+      const rerankedScore = selectionEvaluation.weightedScore;
+
+      pipeline.results[selectedCandidate.index] = {
+        index: selectedCandidate.index,
+        weightedScore: rerankedScore,
+        rawWeightedScore,
+        selectionScore: rerankedScore,
+        selectionPenalty: validationSummary.penalty,
+        selectionRejected: selectionEvaluation.selectionRejected,
+        hardRejectFlags: selectionEvaluation.hardRejectFlags,
+        weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
+        weightedContributions: generated.evaluation ? generated.evaluation.contributions || {} : {},
+        validation: generated.meta.validation || [],
+        defenseScore:
+          generated.meta && typeof generated.meta.defenseScore === 'number'
+            ? generated.meta.defenseScore
+            : 0,
+        completedAt: Game.time,
+        fullMaterialized: true,
+        rerankedFromFoundationScore: Number(baseResult.weightedScore || 0),
+      };
+
+      mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = {
+        index: selectedCandidate.index,
+        anchor: { x: generated.anchor.x, y: generated.anchor.y },
+        placements: generated.placements,
+        weightedScore: rerankedScore,
+        rawWeightedScore,
+        selectionPenalty: validationSummary.penalty,
+        selectionRejected: selectionEvaluation.selectionRejected,
+        hardRejectFlags: selectionEvaluation.hardRejectFlags,
+        weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
+        weightedContributions: generated.evaluation ? generated.evaluation.contributions || {} : {},
+        validation: generated.meta.validation || [],
+        stampStats: generated.meta.stampStats || {},
+        stampPruning: generated.meta.stampPruning || {},
+        sourceLogistics: generated.meta.sourceLogistics || {},
+        foundationDebug: generated.meta.foundationDebug || {},
+        sourceResourceDebug: generated.meta.sourceResourceDebug || {},
+        logisticsRoutes: generated.meta.logisticsRoutes || {},
+        labPlanning: generated.meta.labPlanning || {},
+        structurePlanning: generated.meta.structurePlanning || {},
+        foundationSnapshot: generated.meta.foundationSnapshot || null,
+        fullOptimization: generated.meta.fullOptimization || null,
+        refinementDebug: generated.meta.refinementDebug || {},
+        validStructurePositions: generated.meta.validStructurePositions || {},
+        defenseScore:
+          generated.meta && typeof generated.meta.defenseScore === 'number'
+            ? generated.meta.defenseScore
+            : 0,
+        completedAt: Game.time,
+        refinementInput: refinementInput || null,
+      };
+
+      rerankedCandidates.push({
+        index: selectedCandidate.index,
+        foundationScore: Number(baseResult.weightedScore || 0),
+        rawWeightedScore,
+        weightedScore: rerankedScore,
+        selectionPenalty: validationSummary.penalty,
+        selectionRejected: selectionEvaluation.selectionRejected,
+        criticalCount: validationSummary.criticalCount,
+        majorCount: validationSummary.majorCount,
+      });
+    }
+
+    const reranked = this._rankPipelineResults(pipeline.results);
+    const bestSelectable = this._pickBestSelectableResult(reranked);
+    pipeline.fullSelectionRerank = {
+      enabled: rerankedCandidates.length > 0,
+      defensePlanningMode,
+      rerankedCount: rerankedCandidates.length,
+      topN: rerankCount,
+      selectedIndex: bestSelectable ? bestSelectable.index : null,
+      candidates: rerankedCandidates,
+      completedAt: Game.time,
+    };
+    return reranked;
   },
 
   _materializeTheoreticalFullPreview(roomName, pipeline, mem, selectedCandidate, selectedResult, options = {}) {
@@ -1910,6 +2555,19 @@ const layoutPlanner = {
     if (!generated) return false;
     generated.meta = generated.meta || {};
     generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
+    generated.meta.fullSelectionRerank = pipeline.fullSelectionRerank || null;
+    if (selectedResult && typeof selectedResult.weightedScore === 'number') {
+      generated.evaluation = Object.assign({}, generated.evaluation || {}, {
+        rawWeightedScore:
+          typeof selectedResult.rawWeightedScore === 'number'
+            ? selectedResult.rawWeightedScore
+            : generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
+              ? generated.evaluation.weightedScore
+              : 0,
+        selectionPenalty: Number(selectedResult.selectionPenalty || 0),
+        weightedScore: Number(selectedResult.weightedScore || 0),
+      });
+    }
     persistBasePlan(roomName, generated, pipeline);
     const spawnCandidate = Array.isArray(generated.placements)
       ? generated.placements.find((p) => p.type === SPAWN_TYPE)
@@ -1919,11 +2577,6 @@ const layoutPlanner = {
       : null;
     const sourceContainers = Array.isArray(generated.placements)
       ? generated.placements.filter((p) => p.tag && p.tag.startsWith('source.container.'))
-      : [];
-    const roadTiles = Array.isArray(generated.placements)
-      ? generated.placements
-          .filter((p) => p.type === ROAD_TYPE)
-          .map((p) => ({ x: p.x, y: p.y }))
       : [];
     mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
     mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = {
@@ -1960,7 +2613,7 @@ const layoutPlanner = {
       completedAt: Game.time,
       refinementInput: refinementInput || null,
     };
-    mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+    mem.layout.theoretical = compactCompletedTheoreticalState(Object.assign({}, mem.layout.theoretical || {}, {
       spawnCandidate: spawnCandidate
         ? {
             x: spawnCandidate.x,
@@ -1977,6 +2630,7 @@ const layoutPlanner = {
       labPlanning: generated.meta.labPlanning || {},
       structurePlanning: generated.meta.structurePlanning || {},
       refinementDebug: generated.meta.refinementDebug || {},
+      fullSelectionRerank: generated.meta.fullSelectionRerank || {},
       wallDistance: generated.analysis && generated.analysis.dt ? generated.analysis.dt : [],
       controllerDistance:
         generated.analysis && generated.analysis.controllerDistance
@@ -1993,7 +2647,6 @@ const layoutPlanner = {
       mincutProxy: Array.isArray(generated.placements)
         ? generated.placements.filter((p) => p.type === RAMPART_TYPE).length
         : 0,
-      roads: roadTiles,
       validation: generated.meta.validation || [],
       validStructurePositions: generated.meta.validStructurePositions || {},
       selectedCandidateIndex: selectedCandidate.index,
@@ -2011,7 +2664,7 @@ const layoutPlanner = {
       planningRunId: pipeline.runId,
       planningStatus: pipeline.status || 'running',
       generatedAt: Game.time,
-    });
+    }));
     pipeline.fullPreviewCandidateIndex = selectedCandidate.index;
     pipeline.fullPreviewMutationKey = mutationKey;
     pipeline.fullPreviewDefensePlanningMode = defensePlanningMode;
@@ -2127,15 +2780,17 @@ const layoutPlanner = {
       if (generated) {
         generated.meta = generated.meta || {};
         generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
+        const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
         mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
         mem.layout.theoreticalCandidatePlans[candidate.index] = {
           index: candidate.index,
           anchor: { x: generated.anchor.x, y: generated.anchor.y },
           placements: generated.placements,
-          weightedScore:
-            generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
-              ? generated.evaluation.weightedScore
-              : 0,
+          weightedScore: selectionEvaluation.weightedScore,
+          rawWeightedScore: selectionEvaluation.rawWeightedScore,
+          selectionPenalty: selectionEvaluation.selectionPenalty,
+          selectionRejected: selectionEvaluation.selectionRejected,
+          hardRejectFlags: selectionEvaluation.hardRejectFlags,
           weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
           weightedContributions:
             generated.evaluation && generated.evaluation.contributions
@@ -2180,10 +2835,11 @@ const layoutPlanner = {
         };
         pipeline.results[candidate.index] = {
           index: candidate.index,
-          weightedScore:
-            generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
-              ? generated.evaluation.weightedScore
-              : 0,
+          weightedScore: selectionEvaluation.weightedScore,
+          rawWeightedScore: selectionEvaluation.rawWeightedScore,
+          selectionPenalty: selectionEvaluation.selectionPenalty,
+          selectionRejected: selectionEvaluation.selectionRejected,
+          hardRejectFlags: selectionEvaluation.hardRejectFlags,
           weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
           weightedContributions: generated.evaluation
             ? generated.evaluation.contributions || {}
@@ -2229,6 +2885,8 @@ const layoutPlanner = {
         weightedScore: result ? result.weightedScore : null,
         weightedMetrics: result ? result.weightedMetrics : null,
         weightedContributions: result ? result.weightedContributions : null,
+        selectionRejected: result ? result.selectionRejected === true : false,
+        hardRejectFlags: result ? result.hardRejectFlags || [] : [],
         validation: result ? result.validation : [],
         defenseScore: result ? result.defenseScore : 0,
         completedAt: result ? result.completedAt : null,
@@ -2255,11 +2913,22 @@ const layoutPlanner = {
       return;
     }
 
-    let ranked = Object.values(pipeline.results).sort(
-      (a, b) => (b.weightedScore || 0) - (a.weightedScore || 0),
-    );
-    let best = ranked[0];
-    if (!best) return;
+    let ranked = this._rankPipelineResults(pipeline.results);
+    let best = this._pickBestSelectableResult(ranked);
+    if (!best) {
+      pipeline.status = 'completed';
+      pipeline.completedAt = Game.time;
+      pipeline.bestCandidateIndex = null;
+      mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+        selectedCandidateIndex: null,
+        selectedWeightedScore: 0,
+        refinementDebug: summarizeRefinement(pipeline.refinement),
+        planningStatus: pipeline.status,
+        generatedAt: Game.time,
+      });
+      this._refreshTheoreticalDisplay(roomName);
+      return;
+    }
     const selectedCandidateBeforeRefinement = pipeline.candidates.find((c) => c.index === best.index);
     if (
       selectedCandidateBeforeRefinement &&
@@ -2277,11 +2946,22 @@ const layoutPlanner = {
     this._initializeRefinementIfNeeded(pipeline, ranked);
     if (pipeline.refinement && pipeline.refinement.enabled === true) {
       this._runRefinementStep(roomName, pipeline, mem);
-      ranked = Object.values(pipeline.results).sort(
-        (a, b) => (b.weightedScore || 0) - (a.weightedScore || 0),
-      );
-      best = ranked[0];
-      if (!best) return;
+      ranked = this._rankPipelineResults(pipeline.results);
+      best = this._pickBestSelectableResult(ranked);
+      if (!best) {
+        pipeline.status = 'completed';
+        pipeline.completedAt = Game.time;
+        pipeline.bestCandidateIndex = null;
+        mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+          selectedCandidateIndex: null,
+          selectedWeightedScore: 0,
+          refinementDebug: summarizeRefinement(pipeline.refinement),
+          planningStatus: pipeline.status,
+          generatedAt: Game.time,
+        });
+        this._refreshTheoreticalDisplay(roomName);
+        return;
+      }
       const selectedPlanAfterRefinement =
         mem.layout.theoreticalCandidatePlans &&
         mem.layout.theoreticalCandidatePlans[String(best.index)]
@@ -2318,6 +2998,22 @@ const layoutPlanner = {
         this._refreshTheoreticalDisplay(roomName);
         return;
       }
+    }
+    ranked = this._rerankTopCandidatesWithFullPlans(roomName, pipeline, mem, ranked);
+    best = this._pickBestSelectableResult(ranked);
+    if (!best) {
+      pipeline.status = 'completed';
+      pipeline.completedAt = Game.time;
+      pipeline.bestCandidateIndex = null;
+      mem.layout.theoretical = Object.assign({}, mem.layout.theoretical || {}, {
+        selectedCandidateIndex: null,
+        selectedWeightedScore: 0,
+        refinementDebug: summarizeRefinement(pipeline.refinement),
+        planningStatus: pipeline.status,
+        generatedAt: Game.time,
+      });
+      this._refreshTheoreticalDisplay(roomName);
+      return;
     }
     pipeline.activeCandidate = null;
     pipeline.activeCandidateIndex = null;

@@ -8,6 +8,7 @@ Welcome to the Tyranid Screeps knowledge base. This wiki replaces the legacy `do
 - [[Settings]] - runtime flags under `Memory.settings`
 - [[Console Stats]] - HUD and CLI tooling for observability
 - [[Scheduler]] - central task orchestration entry point
+- [[Layout-Planner]] - intended behavior of theoretical candidate selection, rerank, source logistics, and defense planning
 - [[Baseplanner-Roadmap]] - full dynamic basebuilding implementation specification and phased rollout checklist
 
 ## Core Systems

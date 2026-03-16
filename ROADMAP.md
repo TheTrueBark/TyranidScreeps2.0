@@ -90,7 +90,7 @@
 - [x] HTM Phase-D execution migrated from `scheduler` interval task to budget-gated `htm.runScheduled()` call.
 - [x] Idle-gated runtime rollout: aggressive live fast-path, snapshot split (minimal/full), planning heartbeat cadence, and CPU stop/throttle policy controls.
 - [x] Domain queue backbone (`critical/realtime/background/burstOnly` x domain x priority-band) with binary-heap pop and lazy invalidation.
-- [x] Memory optimization rollout: MemHack runtime cache + theoretical planning memory pruning (top candidates + compact last run only).
+- [x] Memory optimization rollout: MemHack runtime cache + theoretical planning memory pruning (top candidates + compact last run only) + automatic safe memory hygiene/sweeps.
 - [x] Intent diagnostics + control commands (`visual.showIntents`, `visual.retryIntent`, `visual.cancelIntentRun`).
 - [x] HTM overlay telemetry with parent/subtask CPU breakdown (topbound room HUD, absolute CPU precision).
 - [ ] **Hive-level tasks**: expansion, attack, reservation
@@ -206,6 +206,7 @@
 - [x] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling. *(2026-02: `manager.basePlanValidation.js` now covers queue shape/bounds/border, overlap handling, extension RCL-cap normalization, controller-container + lab-range + rampart-connectivity checks, and records validation duration (`durationMs`) for profiling; manual phase initialization remains available for targeted recomputation.)*
 - [x] Harabi-Feinschliff: 3x3-Stamps priorisiert (2x2 nur lokaler Fallback), Source-Logistik mit `road first` vor Source-Link, und Overlay-Rendering für `Road + Rampart` auf derselben Koordinate.
 - [x] Foundation-Plan erweitert: Source-Container + Source-Link + Source-Roads auch im Foundation-Stage, Valid-Placement-Dots berücksichtigen belegte Source/Core-Tiles, und Planning-Checklist/HUD auf 11 Schritte (`Core+Foundations`, `Sources+Resources`, `Valid rough/fine`, `Road Network Evaluation`) aktualisiert.
+- [x] Theoretical Auswahl gehärtet und dokumentiert: harte Foundation-Fehler führen zu `selectionRejected`, Finalisten werden praktisch im `full`-Rerank bewertet, und Source-Links meiden Chokepoint-Durchgänge zugunsten freier Transitkorridore. *(2026-03: `layoutPlanner.js`, `planner.buildCompendium.js`, `README.md`, `TyranidScreeps2.0.wiki/Layout-Planner.md`.)*
 
 ### 🧱 Base-Building Workstream (Next)
 - [x] Runtime stabilisiert für Planner-Debug: Idle-Gating + HTM-Budgeting + strict overlay off-policy.

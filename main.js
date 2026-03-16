@@ -39,6 +39,8 @@ const movementUtils = require("./utils.movement");
 const profilerRegistry = require('./profiler.registry');
 const tickPipeline = require('./manager.tickPipeline');
 const { DomainQueueScheduler } = require('./scheduler.domainQueues');
+const memoryHygiene = require('./memory.hygiene');
+const memoryBreakdown = require('./memory.breakdown');
 
 const energyDemand = require("./manager.hivemind.demand");
 const hiveRoles = require('./hive.roles');
@@ -397,6 +399,65 @@ function compactTickSeries(store, keep = 100) {
 }
 
 function performMemorySweep(mode = 'ownedOnly') {
+  return performMemorySweepWithOptions(mode);
+}
+
+function performLayoutMemoryTrim(roomNames = null, options = {}) {
+  const names = Array.isArray(roomNames) && roomNames.length > 0
+    ? roomNames.map((roomName) => String(roomName))
+    : Object.keys(Memory.rooms || {});
+  const results = [];
+  const totals = {
+    rooms: 0,
+    prunedRooms: 0,
+    skippedUnsafeRooms: 0,
+    removedCandidates: 0,
+    removedCandidatePlans: 0,
+    removedPipelineResults: 0,
+    removedPipelineRuns: 0,
+    compactedCandidatePlans: 0,
+  };
+
+  for (const roomName of names) {
+    totals.rooms += 1;
+    const roomMem = Memory.rooms && Memory.rooms[roomName] ? Memory.rooms[roomName] : null;
+    // Auto hygiene must not compact candidate data for an actively running
+    // theoretical pipeline, or later phases can lose needed placements/debug state.
+    if (options.safeOnly === true && !memoryHygiene.canAutoPruneLayout(roomMem)) {
+      totals.skippedUnsafeRooms += 1;
+      continue;
+    }
+    const summary = layoutPlanner._pruneTheoreticalMemory(roomName, {
+      reason: options.reason || 'manual-trim',
+    });
+    if (!summary) continue;
+    totals.prunedRooms += 1;
+    totals.removedCandidates += Number(summary.removedCandidates || 0);
+    totals.removedCandidatePlans += Number(summary.removedCandidatePlans || 0);
+    totals.removedPipelineResults += Number(summary.removedPipelineResults || 0);
+    totals.removedPipelineRuns += Number(summary.removedPipelineRuns || 0);
+    totals.compactedCandidatePlans += Number(summary.compactedCandidatePlans || 0);
+    results.push(summary);
+  }
+
+  const removedTotal =
+    totals.removedCandidates +
+    totals.removedCandidatePlans +
+    totals.removedPipelineResults +
+    totals.removedPipelineRuns;
+  if (!Memory.stats) Memory.stats = {};
+  Memory.stats.memTrimLast = Object.assign(
+    {
+      tick: Game.time,
+      removedTotal,
+      reason: options.reason || 'manual-trim',
+    },
+    totals,
+  );
+  return { totals, results };
+}
+
+function performMemorySweepWithOptions(mode = 'ownedOnly', options = {}) {
   const normalized = String(mode || 'ownedOnly').toLowerCase();
   const summary = {
     mode: normalized,
@@ -409,6 +470,8 @@ function performMemorySweep(mode = 'ownedOnly') {
     trimmedProfilerBreakdown: 0,
     trimmedIncidents: 0,
     trimmedSavestates: 0,
+    layoutPrunedRooms: 0,
+    skippedLayoutPruneRooms: 0,
     beforeRawBytes: typeof RawMemory !== 'undefined' && typeof RawMemory.get === 'function' ? (RawMemory.get() || '').length : 0,
     afterRawBytes: 0,
   };
@@ -435,9 +498,12 @@ function performMemorySweep(mode = 'ownedOnly') {
   }
 
   if (normalized !== 'statsonly') {
-    for (const roomName in Memory.rooms) {
-      layoutPlanner._pruneTheoreticalMemory(roomName, { reason: `memory-sweep:${normalized}` });
-    }
+    const trimResults = performLayoutMemoryTrim(null, {
+      safeOnly: options.safeLayoutPrune === true,
+      reason: options.reason || `memory-sweep:${normalized}`,
+    });
+    summary.layoutPrunedRooms = Number(trimResults.totals.prunedRooms || 0);
+    summary.skippedLayoutPruneRooms = Number(trimResults.totals.skippedUnsafeRooms || 0);
   }
 
   if (!Memory.stats) Memory.stats = {};
@@ -463,7 +529,7 @@ function performMemorySweep(mode = 'ownedOnly') {
   }
   if (stats.tickPipeline && Array.isArray(stats.tickPipeline.ticks)) {
     const before = stats.tickPipeline.ticks.length;
-    compactTickSeries(stats.tickPipeline, 100);
+    compactTickSeries(stats.tickPipeline, tickPipeline.MAX_TICK_HISTORY || 60);
     summary.trimmedTickPipeline = Math.max(0, before - stats.tickPipeline.ticks.length);
   }
   if (stats.profilerTickBreakdown && Array.isArray(stats.profilerTickBreakdown.ticks)) {
@@ -513,6 +579,167 @@ function performMemorySweep(mode = 'ownedOnly') {
 
   summary.afterRawBytes = typeof RawMemory !== 'undefined' && typeof RawMemory.get === 'function' ? (RawMemory.get() || '').length : 0;
   return summary;
+}
+
+function ensureMemoryHygieneState() {
+  if (!Memory.stats) Memory.stats = {};
+  if (!Memory.stats.memoryHygiene || typeof Memory.stats.memoryHygiene !== 'object') {
+    Memory.stats.memoryHygiene = {
+      lastCheckTick: 0,
+      lastWarnTick: 0,
+      lastTrimTick: 0,
+      lastSweepTick: 0,
+      lastBytes: 0,
+      lastPressure: 'normal',
+      lastAction: 'none',
+      lastReason: '',
+      lastBytesDelta: 0,
+      skippedUnsafeRooms: 0,
+    };
+  }
+  return Memory.stats.memoryHygiene;
+}
+
+function refreshRawMemoryBytes(force = false) {
+  const state = ensureMemHackState();
+  if (
+    typeof RawMemory !== 'undefined' &&
+    typeof RawMemory.get === 'function' &&
+    (force || Game.time % memoryHygiene.CHECK_INTERVAL === 0 || !state.lastRawBytes)
+  ) {
+    const raw = RawMemory.get();
+    state.raw = raw;
+    state.lastRawBytes = raw ? raw.length : 0;
+  }
+  return Number(state.lastRawBytes || 0);
+}
+
+function runAutoMemoryHygiene(runtimeMode = 'live') {
+  const normalizedMode = String(runtimeMode || 'live').toLowerCase();
+  if (normalizedMode === 'maintenance') return null;
+  const hygieneState = ensureMemoryHygieneState();
+  if (
+    !memoryHygiene.shouldCheckAutoMemoryHygiene(
+      Game.time,
+      Number(hygieneState.lastCheckTick || 0),
+      memoryHygiene.CHECK_INTERVAL,
+    )
+  ) {
+    return null;
+  }
+
+  const beforeBytes = refreshRawMemoryBytes(true);
+  hygieneState.lastCheckTick = Game.time;
+  hygieneState.lastBytes = beforeBytes;
+  const action = memoryHygiene.decideAutoMemoryHygieneAction({
+    gameTime: Game.time,
+    runtimeMode: normalizedMode,
+    memoryBytes: beforeBytes,
+    bucket: Game.cpu && typeof Game.cpu.bucket === 'number' ? Game.cpu.bucket : 10000,
+    lastSweepTick: Number(hygieneState.lastSweepTick || 0),
+  });
+  hygieneState.lastPressure = action.pressure || 'normal';
+  hygieneState.lastAction = action.action || 'none';
+  hygieneState.lastReason = action.reason || '';
+
+  if (action.action === 'none') return action;
+
+  if (action.action === 'warn') {
+    if (
+      !hygieneState.lastWarnTick ||
+      Game.time - Number(hygieneState.lastWarnTick || 0) >= memoryHygiene.WARN_COOLDOWN
+    ) {
+      hygieneState.lastWarnTick = Game.time;
+      statsConsole.log(
+        `[memoryHygiene] RawMemory high (${beforeBytes} bytes, ${action.reason})`,
+        3,
+      );
+    }
+    return action;
+  }
+
+  let outcome = null;
+  if (action.action === 'trim') {
+    outcome = performLayoutMemoryTrim(null, {
+      safeOnly: true,
+      reason: `auto-${action.reason}`,
+    });
+    hygieneState.lastTrimTick = Game.time;
+    hygieneState.skippedUnsafeRooms = Number(outcome.totals.skippedUnsafeRooms || 0);
+  } else if (action.action === 'sweep') {
+    outcome = performMemorySweepWithOptions('ownedOnly', {
+      safeLayoutPrune: true,
+      reason: `auto-${action.reason}`,
+    });
+    hygieneState.lastSweepTick = Game.time;
+    hygieneState.skippedUnsafeRooms = Number(outcome.skippedLayoutPruneRooms || 0);
+  }
+
+  const afterBytes = refreshRawMemoryBytes(true);
+  const delta = Math.max(0, beforeBytes - afterBytes);
+  hygieneState.lastBytes = afterBytes;
+  hygieneState.lastBytesDelta = delta;
+  if (!outcome) return action;
+
+  const removedTotal =
+    outcome.totals && typeof outcome.totals.removedCandidates === 'number'
+      ? Number(outcome.totals.removedCandidates || 0) +
+        Number(outcome.totals.removedCandidatePlans || 0) +
+        Number(outcome.totals.removedPipelineResults || 0) +
+        Number(outcome.totals.removedPipelineRuns || 0)
+      : Number(outcome.removedRooms || 0) +
+        Number(outcome.layoutPrunedRooms || 0) +
+        Number(outcome.trimmedLogs || 0) +
+        Number(outcome.trimmedTaskLogs || 0);
+  if (delta > 0 || removedTotal > 0 || hygieneState.skippedUnsafeRooms > 0) {
+    statsConsole.log(
+      `[memoryHygiene] auto ${action.action}: bytes=${beforeBytes}->${afterBytes} delta=${delta} skippedActive=${hygieneState.skippedUnsafeRooms}`,
+      2,
+    );
+  }
+  return Object.assign({}, action, { beforeBytes, afterBytes, delta, outcome });
+}
+
+function captureMemoryBreakdown(options = {}) {
+  if (!Memory.stats) Memory.stats = {};
+  const topN =
+    typeof options.topN === 'number' && Number.isFinite(options.topN)
+      ? options.topN
+      : memoryBreakdown.DEFAULT_TOP_N;
+  const roomLimit =
+    typeof options.roomLimit === 'number' && Number.isFinite(options.roomLimit)
+      ? options.roomLimit
+      : memoryBreakdown.DEFAULT_ROOM_LIMIT;
+  const payload = memoryBreakdown.buildMemoryBreakdown(Memory, {
+    gameTime: Game.time,
+    rawMemoryBytes: refreshRawMemoryBytes(true),
+    topN,
+    roomLimit,
+    reason: options.reason || 'manual',
+  });
+  Memory.stats.memoryBreakdown = payload;
+  return payload;
+}
+
+function maybeCaptureMemoryBreakdown(force = false, options = {}) {
+  if (!Memory.stats) Memory.stats = {};
+  const cached = Memory.stats.memoryBreakdown || null;
+  const lastTick = cached && Number.isFinite(Number(cached.tick)) ? Number(cached.tick) : 0;
+  if (
+    force !== true &&
+    !memoryBreakdown.shouldCaptureMemoryBreakdown(
+      Game.time,
+      lastTick,
+      memoryBreakdown.AUTO_INTERVAL,
+    )
+  ) {
+    return cached;
+  }
+  return captureMemoryBreakdown({
+    topN: options.topN,
+    roomLimit: options.roomLimit,
+    reason: force === true ? 'manual' : 'auto',
+  });
 }
 
 function recordTickPhase(ctx, phaseName, fn, extra = {}) {
@@ -1721,10 +1948,14 @@ function primeMemHackForTick() {
     return state;
   }
   try {
-    // Classic memhack: reuse previously parsed Memory only on consecutive ticks.
+    // Classic memhack: reuse previously parsed Memory only on consecutive ticks,
+    // and keep RawMemory._parsed aligned so downstream code sees the same object.
     if (state.enabled !== false && state.parsed && state.tick === Game.time - 1) {
       delete global.Memory;
       global.Memory = state.parsed;
+      if (RawMemory && typeof RawMemory === 'object') {
+        RawMemory._parsed = state.parsed;
+      }
       state.hits += 1;
       state.lastMode = 'hit';
       state.lastAppliedTick = Game.time;
@@ -1749,16 +1980,12 @@ function finalizeMemHackForTick() {
     return;
   }
   try {
-    if (
-      typeof RawMemory !== 'undefined' &&
-      typeof RawMemory.get === 'function' &&
-      (Game.time % 25 === 0 || !state.lastRawBytes)
-    ) {
-      const raw = RawMemory.get();
-      state.raw = raw;
-      state.lastRawBytes = raw ? raw.length : state.lastRawBytes;
-    }
-    state.parsed = global.Memory || Memory || null;
+    refreshRawMemoryBytes(false);
+    state.parsed =
+      (RawMemory && typeof RawMemory === 'object' && RawMemory._parsed) ||
+      global.Memory ||
+      Memory ||
+      null;
     state.tick = Game.time;
   } catch (err) {
     state.lastMode = 'error';
@@ -2138,34 +2365,16 @@ global.visual = {
     return null;
   },
   memTrimNow: function (roomName = null) {
-    const roomNames = roomName
-      ? [String(roomName)]
-      : Object.keys(Memory.rooms || {});
-    const results = [];
-    for (const rn of roomNames) {
-      const summary = layoutPlanner._pruneTheoreticalMemory(rn, { reason: 'manual-trim' });
-      if (summary) results.push(summary);
-    }
-    const totals = results.reduce(
-      (acc, row) => {
-        acc.rooms += 1;
-        acc.removedCandidates += Number(row.removedCandidates || 0);
-        acc.removedCandidatePlans += Number(row.removedCandidatePlans || 0);
-        acc.removedPipelineResults += Number(row.removedPipelineResults || 0);
-        acc.removedPipelineRuns += Number(row.removedPipelineRuns || 0);
-        return acc;
-      },
-      { rooms: 0, removedCandidates: 0, removedCandidatePlans: 0, removedPipelineResults: 0, removedPipelineRuns: 0 },
-    );
+    const roomNames = roomName ? [String(roomName)] : null;
+    const trimResults = performLayoutMemoryTrim(roomNames, { reason: 'manual-trim' });
+    const totals = trimResults.totals;
     const removedTotal =
       totals.removedCandidates +
       totals.removedCandidatePlans +
       totals.removedPipelineResults +
       totals.removedPipelineRuns;
-    if (!Memory.stats) Memory.stats = {};
-    Memory.stats.memTrimLast = Object.assign({ tick: Game.time, removedTotal }, totals);
     statsConsole.log(`MemTrim: rooms=${totals.rooms} removed=${removedTotal}`, 2);
-    return { totals, results };
+    return trimResults;
   },
   memoryFootprint: function (roomName = null) {
     const rawBytes =
@@ -2208,13 +2417,94 @@ global.visual = {
     );
     return payload;
   },
+  memoryBreakdown: function (mode = 'now', topN = memoryBreakdown.DEFAULT_TOP_N, roomLimit = memoryBreakdown.DEFAULT_ROOM_LIMIT) {
+    if (mode === 'cached') {
+      const payload = Memory.stats && Memory.stats.memoryBreakdown ? Memory.stats.memoryBreakdown : null;
+      if (!payload) {
+        statsConsole.log('MemoryBreakdown: no cached snapshot yet', 3);
+        return null;
+      }
+      const leader = Array.isArray(payload.topBranches) && payload.topBranches.length > 0
+        ? payload.topBranches[0]
+        : null;
+      statsConsole.log(
+        `MemoryBreakdown(cached): raw=${Number(payload.rawMemoryBytes || 0)} top=${leader ? `${leader.path}:${leader.bytes}` : 'n/a'}`,
+        2,
+      );
+      return payload;
+    }
+    const resolvedTopN =
+      typeof mode === 'number' && Number.isFinite(mode)
+        ? Number(mode)
+        : Number.isFinite(Number(topN))
+          ? Number(topN)
+          : memoryBreakdown.DEFAULT_TOP_N;
+    const resolvedRoomLimit = Number.isFinite(Number(roomLimit))
+      ? Number(roomLimit)
+      : memoryBreakdown.DEFAULT_ROOM_LIMIT;
+    const payload = maybeCaptureMemoryBreakdown(true, {
+      topN: resolvedTopN,
+      roomLimit: resolvedRoomLimit,
+    });
+    const leader = Array.isArray(payload.topBranches) && payload.topBranches.length > 0
+      ? payload.topBranches[0]
+      : null;
+    statsConsole.log(
+      `MemoryBreakdown: raw=${Number(payload.rawMemoryBytes || 0)} top=${leader ? `${leader.path}:${leader.bytes}` : 'n/a'}`,
+      2,
+    );
+    return payload;
+  },
+  memoryBreakdownReport: function (
+    mode = 'now',
+    topN = memoryBreakdown.DEFAULT_TOP_N,
+    roomLimit = memoryBreakdown.DEFAULT_ROOM_LIMIT,
+    roomBranchLimit = memoryBreakdown.DEFAULT_ROOM_BRANCH_LIMIT,
+  ) {
+    const resolvedTopN =
+      typeof mode === 'number' && Number.isFinite(mode)
+        ? Number(mode)
+        : Number.isFinite(Number(topN))
+          ? Number(topN)
+          : memoryBreakdown.DEFAULT_TOP_N;
+    const resolvedRoomLimit = Number.isFinite(Number(roomLimit))
+      ? Number(roomLimit)
+      : memoryBreakdown.DEFAULT_ROOM_LIMIT;
+    const resolvedRoomBranchLimit = Number.isFinite(Number(roomBranchLimit))
+      ? Number(roomBranchLimit)
+      : memoryBreakdown.DEFAULT_ROOM_BRANCH_LIMIT;
+    const payload =
+      mode === 'cached'
+        ? Memory.stats && Memory.stats.memoryBreakdown
+          ? Memory.stats.memoryBreakdown
+          : null
+        : maybeCaptureMemoryBreakdown(true, {
+          topN: resolvedTopN,
+          roomLimit: resolvedRoomLimit,
+        });
+    if (!payload) {
+      statsConsole.log('MemoryBreakdownReport: no cached snapshot yet', 3);
+      return null;
+    }
+    const lines = memoryBreakdown.formatMemoryBreakdownReport(payload, {
+      topN: resolvedTopN,
+      roomLimit: resolvedRoomLimit,
+      roomBranchLimit: resolvedRoomBranchLimit,
+    });
+    for (const line of lines) console.log(line);
+    statsConsole.log(
+      `MemoryBreakdownReport(${mode === 'cached' ? 'cached' : 'now'}): printed ${lines.length} lines`,
+      2,
+    );
+    return { payload, lines, text: lines.join('\n') };
+  },
   memorySweep: function (mode = 'ownedOnly') {
     const normalized = String(mode || 'ownedOnly').toLowerCase();
     if (!['ownedonly', 'hard', 'statsonly'].includes(normalized)) {
       statsConsole.log("Usage: visual.memorySweep('ownedOnly'|'hard'|'statsOnly')", 3);
       return null;
     }
-    const summary = performMemorySweep(normalized);
+    const summary = performMemorySweepWithOptions(normalized);
     const delta = Number(summary.beforeRawBytes || 0) - Number(summary.afterRawBytes || 0);
     statsConsole.log(
       `MemorySweep(${normalized}): roomsRemoved=${summary.removedRooms} logsTrim=${summary.trimmedLogs} taskLogsTrim=${summary.trimmedTaskLogs} bytesDelta=${delta}`,
@@ -3104,6 +3394,12 @@ function runMainLoop(loopStartCpu = 0) {
     memoryManager.observeEnergyReserveEvents();
   });
 
+  recordTickPhase(tickCtx, 'memory-hygiene', () => {
+    tickCtx.memoryHygiene = runAutoMemoryHygiene(
+      String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase(),
+    );
+  }, { notes: 'auto-memory-hygiene' });
+
   if (String((Memory.settings && Memory.settings.runtimeMode) || 'live').toLowerCase() === 'maintenance') {
     const initCPUUsage = Game.cpu.getUsed() - startCPU;
     const hygieneCpu = recordTickPhase(tickCtx, 'maintenance-hygiene', () => {
@@ -3581,6 +3877,7 @@ module.exports.loop = function () {
     }
     return runMainLoop(loopStartCpu);
   } finally {
+    maybeCaptureMemoryBreakdown(false);
     finalizeMemHackForTick();
     recordLoopEnvelope(loopStartCpu);
   }

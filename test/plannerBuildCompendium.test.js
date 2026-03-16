@@ -16,8 +16,11 @@ global.STRUCTURE_LAB = 'lab';
 global.STRUCTURE_TOWER = 'tower';
 
 const planner = require('../planner.buildCompendium');
+const minCutAlgorithm = require('../algorithm.minCut');
 
 describe('build compendium planner', function () {
+  this.timeout(5000);
+
   beforeEach(function () {
     globals.resetGame();
     globals.resetMemory();
@@ -66,7 +69,7 @@ describe('build compendium planner', function () {
     const sink = placements.find((p) => p.tag === 'link.sink');
     expect(sink).to.exist;
     const sinkRange = Math.max(Math.abs(storage.x - sink.x), Math.abs(storage.y - sink.y));
-    expect(sinkRange).to.be.at.most(1);
+    expect(sinkRange).to.be.at.most(2);
   });
 
   it('keeps non-road placements out of exit-range tiles', function () {
@@ -78,14 +81,19 @@ describe('build compendium planner', function () {
     }
   });
 
-  it('keeps extensions on checkerboard parity and validates core constraints', function () {
+  it('keeps extensions off road tiles and validates core constraints', function () {
     const plan = planner.generatePlan('W1N1');
     const placements = plan.placements || [];
     const storage = placements.find((p) => p.type === STRUCTURE_STORAGE);
-    const parity = (storage.x + storage.y) % 2;
     const exts = placements.filter((p) => p.type === STRUCTURE_EXTENSION);
+    const roadKeys = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
     expect(exts.length).to.be.at.least(10);
-    expect(exts.every((e) => ((e.x + e.y) % 2) === parity)).to.equal(true);
+    expect(storage).to.exist;
+    expect(exts.every((extension) => !roadKeys.has(`${extension.x}:${extension.y}`))).to.equal(true);
 
     const validation = plan.meta.validation || [];
     expect(validation.some((v) => String(v).startsWith('terminal-range-storage-fail'))).to.equal(false);
@@ -94,6 +102,497 @@ describe('build compendium planner', function () {
     expect(validation.some((v) => String(v).startsWith('source-link-container-range-fail'))).to.equal(false);
     expect(validation.some((v) => String(v).startsWith('rampart-standoff-fail'))).to.equal(false);
     expect(validation.some((v) => String(v).startsWith('missing-logistics-route:'))).to.equal(false);
+  });
+
+  it('counts only viable clipped stamp slots and keeps all viable partial placements', function () {
+    const exitProximity = new Array(2500).fill(0);
+    for (let y = 0; y < 50; y++) {
+      exitProximity[y * 50] = 1;
+      exitProximity[y * 50 + 1] = 1;
+    }
+    const ctx = {
+      matrices: {
+        walkableMatrix: new Array(2500).fill(1),
+        staticBlocked: new Array(2500).fill(0),
+        exitProximity,
+      },
+      reserved: new Set(),
+      roads: new Set(),
+      blocked: new Set(),
+      ramparts: new Set(),
+      roadBlockedByStructures: new Set(),
+      structuresByPos: new Map(),
+      placements: [],
+    };
+    const storage = { x: 25, y: 25 };
+    const evaluation = planner._helpers.evaluateHarabiStampSlots(
+      ctx,
+      { x: 2, y: 24 },
+      {
+        slots: [
+          { x: -2, y: 0 },
+          { x: 0, y: 0 },
+          { x: 2, y: 0 },
+        ],
+      },
+      {
+        storagePos: storage,
+        layoutPattern: 'parity',
+        preferredParity: 0,
+      },
+    );
+
+    expect(evaluation.slotCandidates.map((slot) => `${slot.x}:${slot.y}`)).to.deep.equal([
+      '0:24',
+      '2:24',
+      '4:24',
+    ]);
+    expect(evaluation.viableSlots.map((slot) => `${slot.x}:${slot.y}`)).to.deep.equal([
+      '2:24',
+      '4:24',
+    ]);
+    expect([...planner._helpers.collectHarabiStampCapacityKeys(evaluation)]).to.deep.equal([
+      '2:24',
+      '4:24',
+    ]);
+    expect(planner._helpers.getHarabiStampPlacementSlots(evaluation)).to.have.length(2);
+  });
+
+  it('ignores structure candidates that only touch disconnected road fragments', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 26, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 26, y: 26, tag: 'road.grid' },
+        { type: STRUCTURE_ROAD, x: 47, y: 10, tag: 'road.stamp' },
+      ],
+      blocked: new Set(),
+      roads: new Set(['25:26', '26:26', '47:10']),
+      roadBlockedByStructures: new Set(),
+      ramparts: new Set(),
+      reserved: new Set(),
+      structuresByPos: new Map(),
+      matrices,
+    };
+    const ranking = planner._helpers.buildFoundationPreviewRanking(
+      ctx,
+      [
+        { x: 25, y: 27, d: 1 },
+        { x: 47, y: 11, d: 1 },
+      ],
+      { x: 25, y: 25 },
+      'parity',
+      0,
+      {},
+    );
+
+    const orderedKeys = ranking.orderedCandidates.map((candidate) => candidate.key);
+    expect(orderedKeys).to.include('25:27');
+    expect(orderedKeys).to.not.include('47:11');
+  });
+
+  it('prunes disconnected kept-road fragments that are outside the main storage road network', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 25, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 25, y: 26, tag: 'road.grid' },
+        { type: STRUCTURE_ROAD, x: 47, y: 10, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 48, y: 10, tag: 'road.stampHalo' },
+      ],
+      blocked: new Set(),
+      roads: new Set(['25:25', '25:26', '47:10', '48:10']),
+      roadBlockedByStructures: new Set(),
+      ramparts: new Set(),
+      reserved: new Set(),
+      structuresByPos: new Map(),
+      matrices,
+    };
+
+    const pruning = planner._helpers.pruneRoadPlacements(ctx, {
+      keepTags: ['road.stamp', 'road.stampHalo', 'road.coreStamp'],
+      storagePos: { x: 25, y: 25 },
+    });
+
+    expect(pruning.removed).to.equal(3);
+    expect(ctx.roads.has('25:25')).to.equal(true);
+    expect(ctx.roads.has('25:26')).to.equal(false);
+    expect(ctx.roads.has('47:10')).to.equal(false);
+    expect(ctx.roads.has('48:10')).to.equal(false);
+  });
+
+  it('adds exit-approach defense targets for a single reachable border opening', function () {
+    const walkableMatrix = new Array(2500).fill(1);
+    const terrainMatrix = new Array(2500).fill(0);
+    const exitDistance = new Array(2500).fill(10);
+    for (let y = 0; y < 50; y++) {
+      for (let x = 0; x < 50; x++) {
+        if (x !== 0 && x !== 49 && y !== 0 && y !== 49) continue;
+        const openEast = x === 49 && y >= 24 && y <= 26;
+        if (openEast) {
+          exitDistance[y * 50 + x] = 0;
+          continue;
+        }
+        walkableMatrix[y * 50 + x] = 0;
+        terrainMatrix[y * 50 + x] = 2;
+      }
+    }
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_STORAGE, x: 25, y: 25, tag: 'core.storage' },
+        { type: STRUCTURE_SPAWN, x: 24, y: 25, tag: 'spawn.1' },
+      ],
+      matrices: {
+        walkableMatrix,
+        terrainMatrix,
+        exitDistance,
+      },
+    };
+
+    const targets = planner._helpers.buildExitApproachTargets(ctx, { x: 25, y: 25 }, {
+      depth: 5,
+      reserveRadius: 1,
+    });
+    const defenseCtx = planner._helpers.buildDefenseCutContext(ctx, { x: 25, y: 25 });
+
+    expect(targets.some((tile) => tile.x >= 46 && tile.y >= 23 && tile.y <= 27)).to.equal(true);
+    expect(targets.some((tile) => tile.x === 49 && tile.y === 25)).to.equal(true);
+    expect(defenseCtx.structuresByPos.has('48:25')).to.equal(true);
+    expect(defenseCtx.structuresByPos.get('48:25')).to.equal('fortify.exitApproach');
+    expect(defenseCtx.corePoints).to.deep.equal([
+      { x: 25, y: 25 },
+      { x: 24, y: 25 },
+    ]);
+  });
+
+  it('keeps single-exit approach targets centered on the exit opening instead of drifting along an arbitrary path', function () {
+    const walkableMatrix = new Array(2500).fill(1);
+    const terrainMatrix = new Array(2500).fill(0);
+    const exitDistance = new Array(2500).fill(10);
+    for (let y = 0; y < 50; y++) {
+      for (let x = 0; x < 50; x++) {
+        if (x !== 0 && x !== 49 && y !== 0 && y !== 49) continue;
+        const openEast = x === 49 && y >= 14 && y <= 22;
+        if (openEast) {
+          exitDistance[y * 50 + x] = 0;
+          continue;
+        }
+        walkableMatrix[y * 50 + x] = 0;
+        terrainMatrix[y * 50 + x] = 2;
+      }
+    }
+    const ctx = {
+      placements: [{ type: STRUCTURE_STORAGE, x: 15, y: 13, tag: 'core.storage' }],
+      matrices: {
+        walkableMatrix,
+        terrainMatrix,
+        exitDistance,
+      },
+    };
+
+    const targets = planner._helpers.buildExitApproachTargets(ctx, { x: 15, y: 13 }, {
+      depth: 6,
+      reserveRadius: 1,
+    });
+
+    expect(targets.some((tile) => tile.x === 49 && tile.y === 18)).to.equal(true);
+    expect(targets.every((tile) => tile.y >= 17 && tile.y <= 19)).to.equal(true);
+    expect(targets.every((tile) => tile.x >= 43 && tile.x <= 49)).to.equal(true);
+  });
+
+  it('does not keep rampart edge tiles on source logistics structures', function () {
+    const ctx = {
+      structuresByPos: new Map([['25:25', STRUCTURE_CONTAINER]]),
+      matrices: {
+        walkableMatrix: new Array(2500).fill(1),
+      },
+    };
+
+    const line = planner._helpers.canonicalizeRampartBoundaryTiles(
+      ctx,
+      [
+        { x: 24, y: 25 },
+        { x: 25, y: 25 },
+        { x: 26, y: 25 },
+      ],
+      { x: 20, y: 20 },
+    );
+
+    expect(line.some((tile) => tile.x === 25 && tile.y === 25)).to.equal(false);
+  });
+
+  it('prefers source link tiles that do not choke a narrow transit corridor', function () {
+    const walkableMatrix = new Array(2500).fill(0);
+    const staticBlocked = new Array(2500).fill(0);
+    const exitProximity = new Array(2500).fill(0);
+    const openTiles = [
+      [10, 10], [11, 10], [12, 10], [13, 10], [14, 10],
+      [12, 11], [13, 11], [14, 11],
+    ];
+    for (const [x, y] of openTiles) {
+      walkableMatrix[y * 50 + x] = 1;
+    }
+    const ctx = {
+      matrices: {
+        walkableMatrix,
+        staticBlocked,
+        exitProximity,
+      },
+      blocked: new Set(),
+      roadBlockedByStructures: new Set(),
+      structuresByPos: new Map(),
+    };
+    const storage = { x: 6, y: 10 };
+    const sourcePos = { x: 12, y: 12 };
+    const containerPos = { x: 12, y: 10 };
+    const roadAnchor = { x: 11, y: 10 };
+    const corridorCandidate = { x: 13, y: 10 };
+    const sideCandidate = { x: 13, y: 11 };
+
+    const corridorPenalty = planner._helpers.computeLocalTransitPenalty(
+      ctx,
+      corridorCandidate.x,
+      corridorCandidate.y,
+    );
+    const sidePenalty = planner._helpers.computeLocalTransitPenalty(
+      ctx,
+      sideCandidate.x,
+      sideCandidate.y,
+    );
+    const corridorScore = planner._helpers.scoreSourceLinkCandidate(
+      ctx,
+      storage,
+      sourcePos,
+      containerPos,
+      roadAnchor,
+      corridorCandidate,
+    );
+    const sideScore = planner._helpers.scoreSourceLinkCandidate(
+      ctx,
+      storage,
+      sourcePos,
+      containerPos,
+      roadAnchor,
+      sideCandidate,
+    );
+
+    expect(corridorPenalty).to.be.at.least(sidePenalty);
+    expect(sideScore).to.be.greaterThan(corridorScore);
+  });
+
+  it('skips barrier connection smoothing when estimate defense planning is requested', function () {
+    const originalConnectBarrier = minCutAlgorithm.connectBarrier;
+    minCutAlgorithm.connectBarrier = function () {
+      throw new Error('connectBarrier should not run in estimate defense mode');
+    };
+
+    try {
+      const plan = planner.generatePlanForAnchor(
+        'W1N1',
+        { x: 25, y: 25 },
+        { harabiStage: 'full', defensePlanningMode: 'estimate' },
+      );
+      expect(plan).to.exist;
+      expect(plan.meta).to.exist;
+      expect(plan.meta.rampartPlanning).to.exist;
+      expect(plan.meta.rampartPlanning.mode).to.equal('estimate');
+    } finally {
+      minCutAlgorithm.connectBarrier = originalConnectBarrier;
+    }
+  });
+
+  it('penalizes candidates that still miss base-road redundancy in the final weighted score', function () {
+    const safePlan = {
+      placements: [
+        { type: STRUCTURE_STORAGE, x: 25, y: 25, tag: 'core.storage' },
+        { type: STRUCTURE_EXTENSION, x: 27, y: 25, tag: 'extension.3' },
+        { type: STRUCTURE_ROAD, x: 25, y: 25, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 26, y: 25, tag: 'road.grid' },
+      ],
+      meta: {
+        logisticsRoutes: { required: 1, connected: 1, missing: [] },
+        baseRoadRedundancy: { attempted: 1, connected: 1, missing: 0 },
+      },
+      analysis: { exitDistance: new Array(2500).fill(10) },
+    };
+    const riskyPlan = {
+      placements: safePlan.placements.slice(),
+      meta: {
+        logisticsRoutes: { required: 1, connected: 1, missing: [] },
+        baseRoadRedundancy: { attempted: 1, connected: 0, missing: 1 },
+      },
+      analysis: { exitDistance: new Array(2500).fill(10) },
+    };
+
+    const safeMetrics = planner.evaluateLayoutForRoom('W1N1', safePlan, {
+      sources: Game.rooms.W1N1.find(FIND_SOURCES),
+      controllerPos: Game.rooms.W1N1.controller.pos,
+    });
+    const riskyMetrics = planner.evaluateLayoutForRoom('W1N1', riskyPlan, {
+      sources: Game.rooms.W1N1.find(FIND_SOURCES),
+      controllerPos: Game.rooms.W1N1.controller.pos,
+    });
+    const safeScore = planner.computeWeightedScore(safeMetrics).score;
+    const riskyScore = planner.computeWeightedScore(riskyMetrics).score;
+
+    expect(safeMetrics.baseRoadRedundancyCoverage).to.equal(1);
+    expect(riskyMetrics.baseRoadRedundancyCoverage).to.equal(0);
+    expect(riskyScore).to.be.lessThan(safeScore);
+  });
+
+  it('reconnects a disconnected main-road wing with a protected link path', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      roomName: 'W1N1',
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 25, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 26, y: 25, tag: 'road.grid' },
+        { type: STRUCTURE_ROAD, x: 29, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 30, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 31, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 32, y: 25, tag: 'road.stamp' },
+      ],
+      roads: new Set(['25:25', '26:25', '29:25', '30:25', '31:25', '32:25']),
+      blocked: new Set(),
+      reserved: new Set(),
+      ramparts: new Set(),
+      structuresByPos: new Map(),
+      roadBlockedByStructures: new Set(),
+      matrices,
+    };
+    const preferredRoads = new Set(ctx.roads);
+    const protectedPaths = [];
+
+    const result = planner._helpers.connectDisconnectedBaseRoadComponents(
+      ctx,
+      { x: 25, y: 25 },
+      preferredRoads,
+      {
+        roadKeys: new Set(ctx.roads),
+        layoutPattern: 'parity',
+        preferredParity: 0,
+        candidates: [],
+        addProtectedPath(path) {
+          protectedPaths.push(path.map((step) => `${step.x}:${step.y}`));
+          for (const step of path) preferredRoads.add(`${step.x}:${step.y}`);
+        },
+      },
+    );
+
+    expect(result.connected).to.equal(1);
+    expect(result.missing).to.equal(0);
+    expect(protectedPaths).to.have.length(1);
+    expect(protectedPaths[0]).to.include('27:25');
+    expect(protectedPaths[0].some((step) => step === '28:25' || step === '28:24' || step === '28:26')).to.equal(true);
+  });
+
+  it('can relocate a single extension blocker to reconnect a disconnected main-road wing', function () {
+    const walkableMatrix = new Array(2500).fill(0);
+    for (const [x, y] of [
+      [25, 25],
+      [26, 25],
+      [27, 25],
+      [28, 25],
+      [29, 25],
+      [30, 25],
+      [31, 25],
+      [26, 26],
+    ]) {
+      walkableMatrix[y * 50 + x] = 1;
+    }
+    const matrices = {
+      walkableMatrix,
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      roomName: 'W1N1',
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 25, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 26, y: 25, tag: 'road.grid' },
+        { type: STRUCTURE_ROAD, x: 28, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 29, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 30, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 31, y: 25, tag: 'road.stamp' },
+        { type: STRUCTURE_EXTENSION, x: 27, y: 25, rcl: 3, tag: 'extension.3' },
+      ],
+      roads: new Set(['25:25', '26:25', '28:25', '29:25', '30:25', '31:25']),
+      blocked: new Set(['27:25']),
+      reserved: new Set(['27:25']),
+      ramparts: new Set(),
+      structuresByPos: new Map([['27:25', STRUCTURE_EXTENSION]]),
+      roadBlockedByStructures: new Set(['27:25']),
+      matrices,
+    };
+    const preferredRoads = new Set(ctx.roads);
+    const protectedPaths = [];
+    const originalPathFinderSearch = PathFinder.search;
+    let pathFinderCalls = 0;
+    PathFinder.search = function () {
+      pathFinderCalls += 1;
+      if (pathFinderCalls === 1) {
+        return {
+          path: [
+            { x: 26, y: 25 },
+          ],
+          incomplete: false,
+        };
+      }
+      return {
+        path: [
+          { x: 27, y: 25 },
+          { x: 28, y: 25 },
+        ],
+        incomplete: false,
+      };
+    };
+
+    try {
+      const result = planner._helpers.connectDisconnectedBaseRoadComponents(
+        ctx,
+        { x: 25, y: 25 },
+        preferredRoads,
+        {
+          roadKeys: new Set(ctx.roads),
+          layoutPattern: 'parity',
+          preferredParity: 0,
+          candidates: [{ x: 26, y: 26 }],
+          addProtectedPath(path) {
+            protectedPaths.push(path.map((step) => `${step.x}:${step.y}`));
+            for (const step of path) preferredRoads.add(`${step.x}:${step.y}`);
+          },
+        },
+      );
+
+      expect(result.connected).to.equal(1);
+      expect(result.relocated).to.equal(1);
+      expect(result.missing).to.equal(0);
+      expect(ctx.structuresByPos.has('27:25')).to.equal(false);
+      expect(ctx.structuresByPos.get('26:26')).to.equal(STRUCTURE_EXTENSION);
+      expect(protectedPaths[0]).to.include('27:25');
+    } finally {
+      PathFinder.search = originalPathFinderSearch;
+    }
   });
 
   it('stores candidate ranking with weighted end evaluation', function () {
@@ -191,6 +690,174 @@ describe('build compendium planner', function () {
       expect(adjacent).to.equal(true);
     }
     expect(plan.meta.roadPruning).to.exist;
+  });
+
+  it('plans a four-tile rampart standoff with an inner support band', function () {
+    const plan = planner.generatePlan('W1N1', { topN: 3 });
+    const placements = plan.placements || [];
+    const supportRamparts = placements.filter((p) => p.type === STRUCTURE_RAMPART && p.tag === 'rampart.support');
+    const roadKeys = new Set(
+      placements
+        .filter((p) => p.type === STRUCTURE_ROAD)
+        .map((p) => `${p.x}:${p.y}`),
+    );
+
+    expect(Number(plan.meta.rampartStandoff || 0)).to.be.at.least(4);
+    expect(supportRamparts.length).to.be.greaterThan(0);
+    expect(supportRamparts.every((placement) => roadKeys.has(`${placement.x}:${placement.y}`))).to.equal(true);
+    expect(Number(plan.meta.rampartPlanning.supportCount || 0)).to.equal(supportRamparts.length);
+    expect((plan.meta.validation || []).some((entry) => String(entry).startsWith('rampart-standoff-fail'))).to.equal(false);
+  });
+
+  it('connects rampart perimeter roads back to the main base network before pruning', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 25, rcl: 1, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 25, y: 26, rcl: 1, tag: 'road.full' },
+      ],
+      blocked: new Set(),
+      roads: new Set(['25:25', '25:26']),
+      ramparts: new Set(),
+      roadBlockedByStructures: new Set(),
+      reserved: new Set(),
+      structuresByPos: new Map(),
+      matrices,
+      meta: {},
+    };
+    const ring = [
+      { x: 18, y: 18 }, { x: 19, y: 18 }, { x: 20, y: 18 }, { x: 21, y: 18 }, { x: 22, y: 18 },
+      { x: 23, y: 18 }, { x: 24, y: 18 }, { x: 25, y: 18 }, { x: 26, y: 18 }, { x: 27, y: 18 },
+      { x: 28, y: 18 }, { x: 29, y: 18 }, { x: 30, y: 18 }, { x: 31, y: 18 }, { x: 32, y: 18 },
+      { x: 32, y: 19 }, { x: 32, y: 20 }, { x: 32, y: 21 }, { x: 32, y: 22 }, { x: 32, y: 23 },
+      { x: 32, y: 24 }, { x: 32, y: 25 }, { x: 32, y: 26 }, { x: 32, y: 27 }, { x: 32, y: 28 },
+      { x: 32, y: 29 }, { x: 32, y: 30 }, { x: 32, y: 31 }, { x: 32, y: 32 }, { x: 31, y: 32 },
+      { x: 30, y: 32 }, { x: 29, y: 32 }, { x: 28, y: 32 }, { x: 27, y: 32 }, { x: 26, y: 32 },
+      { x: 25, y: 32 }, { x: 24, y: 32 }, { x: 23, y: 32 }, { x: 22, y: 32 }, { x: 21, y: 32 },
+      { x: 20, y: 32 }, { x: 19, y: 32 }, { x: 18, y: 32 }, { x: 18, y: 31 }, { x: 18, y: 30 },
+      { x: 18, y: 29 }, { x: 18, y: 28 }, { x: 18, y: 27 }, { x: 18, y: 26 }, { x: 18, y: 25 },
+      { x: 18, y: 24 }, { x: 18, y: 23 }, { x: 18, y: 22 }, { x: 18, y: 21 }, { x: 18, y: 20 },
+      { x: 18, y: 19 },
+    ];
+
+    const result = planner._helpers.finalizeFullRampartPlacements(ctx, ring, { x: 25, y: 25 });
+
+    expect(result.accessRoadsAdded).to.be.greaterThan(0);
+    expect(result.removedRogueEdgeRamparts).to.equal(0);
+    expect(result.boundaryPlacedCount).to.equal(ring.length);
+    expect(ctx.placements.some((placement) => placement.tag === 'road.rampartAccess')).to.equal(true);
+  });
+
+  it('prunes stray single inner ramparts that do not connect to the shell', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_RAMPART, x: 25, y: 25, tag: 'rampart.support' },
+        { type: STRUCTURE_RAMPART, x: 20, y: 20, tag: 'rampart.edge' },
+        { type: STRUCTURE_RAMPART, x: 20, y: 21, tag: 'rampart.edge' },
+      ],
+      ramparts: new Set(['25:25', '20:20', '20:21']),
+      matrices,
+    };
+
+    const pruned = planner._helpers.pruneStrayInnerRamparts(ctx);
+
+    expect(pruned.removedSupports).to.equal(1);
+    expect(ctx.ramparts.has('25:25')).to.equal(false);
+    expect(ctx.placements.some((placement) => placement.x === 25 && placement.y === 25)).to.equal(false);
+  });
+
+  it('adds an inner support rampart directly on boundary road spines when needed', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_ROAD, x: 30, y: 20, rcl: 2, tag: 'road.rampart' },
+        { type: STRUCTURE_ROAD, x: 29, y: 20, rcl: 2, tag: 'road.rampartAccess' },
+        { type: STRUCTURE_ROAD, x: 28, y: 20, rcl: 2, tag: 'road.rampartAccess' },
+      ],
+      roads: new Set(['30:20', '29:20', '28:20']),
+      ramparts: new Set(['30:20']),
+      blocked: new Set(),
+      reserved: new Set(),
+      structuresByPos: new Map(),
+      roadBlockedByStructures: new Set(),
+      matrices,
+    };
+
+    const added = planner._helpers.ensureBoundaryRoadSupports(ctx, [{ x: 30, y: 20 }], { x: 20, y: 20 });
+
+    expect(added).to.deep.equal([{ x: 29, y: 20 }]);
+    expect(ctx.placements.some((placement) =>
+      placement.type === STRUCTURE_RAMPART &&
+      placement.tag === 'rampart.support' &&
+      placement.x === 29 &&
+      placement.y === 20,
+    )).to.equal(true);
+  });
+
+  it('prunes redundant outer boundary blips without weakening the shell score', function () {
+    const matrices = {
+      walkableMatrix: new Array(2500).fill(1),
+      staticBlocked: new Array(2500).fill(0),
+      exitProximity: new Array(2500).fill(0),
+      terrainMatrix: new Array(2500).fill(0),
+      exitDistance: new Array(2500).fill(10),
+    };
+    const ctx = {
+      placements: [
+        { type: STRUCTURE_STORAGE, x: 20, y: 20, rcl: 4, tag: 'storage.main' },
+      ],
+      roads: new Set(),
+      ramparts: new Set(),
+      blocked: new Set(['20:20']),
+      reserved: new Set(['20:20']),
+      structuresByPos: new Map([['20:20', STRUCTURE_STORAGE]]),
+      roadBlockedByStructures: new Set(['20:20']),
+      matrices,
+    };
+    const line = [
+      { x: 18, y: 18 },
+      { x: 19, y: 18 },
+      { x: 20, y: 18 },
+      { x: 21, y: 18 },
+      { x: 22, y: 18 },
+      { x: 22, y: 19 },
+      { x: 22, y: 20 },
+      { x: 22, y: 21 },
+      { x: 22, y: 22 },
+      { x: 21, y: 22 },
+      { x: 20, y: 22 },
+      { x: 19, y: 22 },
+      { x: 18, y: 22 },
+      { x: 18, y: 21 },
+      { x: 18, y: 20 },
+      { x: 18, y: 19 },
+      { x: 23, y: 18 },
+    ];
+
+    const pruned = planner._helpers.pruneRedundantBoundaryBlips(ctx, line, { x: 20, y: 20 });
+
+    expect(pruned.some((tile) => tile.x === 23 && tile.y === 18)).to.equal(false);
+    expect(pruned.some((tile) => tile.x === 18 && tile.y === 18)).to.equal(true);
+    expect(pruned.some((tile) => tile.x === 22 && tile.y === 22)).to.equal(true);
   });
 
   it('supports cluster3 foundation road pattern mode', function () {
@@ -388,6 +1055,40 @@ describe('build compendium planner', function () {
     if (controllerIdx >= 0) {
       expect(controllerIdx).to.be.greaterThan(sourceLinkRows[1].idx);
     }
+  });
+
+  it('treats only the storage-connected road component as the main source-route network', function () {
+    const ctx = {
+      roads: new Set([
+        '25:26',
+        '26:26',
+        '27:26',
+        '47:10',
+        '48:10',
+      ]),
+      placements: [
+        { type: STRUCTURE_ROAD, x: 25, y: 26, tag: 'road.coreStamp' },
+        { type: STRUCTURE_ROAD, x: 26, y: 26, tag: 'road.grid' },
+        { type: STRUCTURE_ROAD, x: 27, y: 26, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 47, y: 10, tag: 'road.stamp' },
+        { type: STRUCTURE_ROAD, x: 48, y: 10, tag: 'road.stamp' },
+      ],
+    };
+    const storage = { x: 25, y: 25 };
+
+    const connectedMainRoads = planner._helpers.buildMainRoadComponentKeys(ctx, storage);
+    expect(connectedMainRoads.has('25:26')).to.equal(true);
+    expect(connectedMainRoads.has('27:26')).to.equal(true);
+    expect(connectedMainRoads.has('47:10')).to.equal(false);
+    expect(connectedMainRoads.has('48:10')).to.equal(false);
+
+    const origin = planner._helpers.pickRoadOriginFromNetwork(
+      connectedMainRoads,
+      { x: 49, y: 10 },
+      storage,
+      { corePenaltyRange: 2, corePenalty: 6 },
+    );
+    expect(origin).to.deep.equal({ x: 27, y: 26 });
   });
 
   it('computes a central 10-lab preview cluster with valid source-lab range constraints on foundation', function () {

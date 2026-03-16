@@ -226,8 +226,27 @@ The theoretical planner now prunes memory aggressively after completed/stale run
 
 - Keeps only top candidate rows (plus explicitly selected overlay candidate when needed).
 - Keeps only compact candidate plan fields for retained entries.
+- Compacts completed `layout.theoretical` payloads down to HUD/overlay essentials.
+- Stores compact base-plan planner debug summaries instead of duplicate full preview arrays.
 - Keeps only one compact latest `pipelineRuns` entry per room.
 - Stores last prune summary under `Memory.rooms[room].layout.memTrimLast`.
+- Live runtime performs additional automatic hygiene:
+  - checks memory pressure every 25 ticks,
+  - warns around `1.5 MB`,
+  - trims only safe, non-active planner branches around `1.8 MB`,
+  - runs an `ownedOnly` safe sweep around `1.95 MB`,
+  - and performs a periodic safe sweep every 500 ticks.
+- `Memory.stats.tickPipeline` keeps only the latest 60 committed ticks.
+- `Memory.stats.memoryBreakdown` stores a compact size snapshot every 100 ticks, highlighting heavy branches such as `stats.tickPipeline.byTick`, top-level memory roots, and the largest room-local branches.
+- the breakdown also keeps the heaviest individual `stats.tickPipeline.byTick` entries so bloated single-tick snapshots are visible.
+
+Manual inspection helpers:
+
+- `visual.memoryFootprint(room?)` for a quick planner-focused room overview.
+- `visual.memoryBreakdown()` to force-refresh the stored breakdown.
+- `visual.memoryBreakdown('cached')` to read the last captured snapshot without recomputing it.
+- `visual.memoryBreakdownReport()` to print a shareable multi-line report into the Screeps console.
+- `visual.memoryBreakdownReport('cached')` to reprint the last stored report source without recomputing it.
 
 This reduces persistent memory bloat and helps lower idle CPU from memory parse/serialize overhead.
 
@@ -504,10 +523,7 @@ Memory.rooms['W1N1'].layout = {
     26: {
       25: {
         structureType: STRUCTURE_EXTENSION,
-        rcl: 2,
-        planned: true,
-        plannedBy: 'layoutPlanner',
-        blockedUntil: 20500
+        rcl: 2
       }
     }
   },
@@ -515,7 +531,7 @@ Memory.rooms['W1N1'].layout = {
     26: { 25: true }
   },
   roadMatrix: {
-    26: { 26: { planned: true, rcl: 1, plannedBy: 'layoutPlanner' } }
+    26: { 26: { rcl: 1 } }
   },
   mode: 'theoretical',
   theoreticalPipeline: {
@@ -528,17 +544,18 @@ Memory.rooms['W1N1'].layout = {
     results: {/* weighted score results by index */}
   },
   theoreticalCandidatePlans: {
-    0: { anchor: { x: 25, y: 24 }, placements: [/* candidate plan */], weightedScore: 0.81 },
-    1: { anchor: { x: 24, y: 26 }, placements: [/* candidate plan */], weightedScore: 0.79 }
+    0: { anchor: { x: 25, y: 24 }, placements: [/* selected/displayed candidate plan */], weightedScore: 0.81, compacted: false },
+    1: { anchor: { x: 24, y: 26 }, structureCounts: { road: 88, extension: 60 }, weightedScore: 0.79, compacted: true }
   },
   currentDisplayCandidateIndex: 0,
   theoretical: {
+    compacted: true,
     selectedCandidateIndex: 2,
     currentlyViewingCandidate: 0,
     selectedWeightedScore: 0.847,
-    candidates: [/* full candidate comparison rows for overlays */],
+    candidates: [/* compact candidate comparison rows for overlays */],
     checklist: { stages: [/* Candidate Scan -> Persist Overlay */] },
-    selectedContributions: {/* weighted breakdown for active winner */},
+    sourceContainers: [{ x: 12, y: 14 }, { x: 36, y: 33 }],
     generatedAt: 12350
   },
   rebuildLayout: false,
@@ -554,8 +571,7 @@ Memory.rooms['W1N1'].layout = {
 };
 ```
 
-Tiles listed under `reserved` are blocked from other planners. Future
-versions may include `blockedUntil` timestamps for temporary holds.
+Tiles listed under `reserved` are blocked from other planners.
 
 `roadMatrix` mirrors the structure matrix but tracks planned road tiles.
 
@@ -563,11 +579,21 @@ In theoretical mode the planner also stores:
 
 - `theoreticalPipeline` for in-flight HTM candidate tasks (`PLAN_LAYOUT_CANDIDATES` + `PLAN_LAYOUT_CANDIDATE`).
 - `theoreticalPipeline.activeCandidateIndex` marks the candidate currently being processed.
-- `theoreticalCandidatePlans` caches per-candidate placements so overlay view can switch without re-planning.
+- in `harabi/full`, the pipeline reranks the leading candidates once more on real full-materialized plans before winner selection; that rerank intentionally uses the cheaper `estimate` defense pass so `theoreticalPipeline.results[*].weightedScore` reflects practical full-plan penalties without re-running the heaviest minCut smoothing on every finalist.
+- candidate-stage scores already include penalties for hard foundation validation failures (for example incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors), so broken seeds are pushed down before the finalist rerank ever starts.
+- if a candidate hits those hard foundation failures, the planner now persists it as `selectionRejected: true` with `hardRejectFlags`, and winner selection skips it entirely instead of merely accepting a worse score.
+- source-link candidate selection also retains enough debug state in candidate validation and logistics snapshots to explain why a side-pocket link beat a closer corridor tile in a chokepoint room.
+- `theoreticalCandidatePlans` keeps explicitly requested overlay candidates renderable and compacts the persisted winner down to score/debug summaries (`compacted: true`) once `basePlan` already covers the final layout.
 - `currentDisplayCandidateIndex` stores which candidate is currently rendered in the building overlay.
-- `theoretical.candidates` with pre-score and weighted end-evaluation values for overlay debugging.
+- completed `theoretical` payloads are compacted to HUD/overlay essentials; heavy arrays like distance maps, flood tiles, and duplicate preview placements are dropped after persistence.
+- `theoretical.candidates` keeps compact score rows for overlay debugging.
+- `theoretical.fullSelectionRerank` and `basePlan.plannerDebug.fullSelectionRerank` summarize that last rerank pass (defense mode used, how many finalists were reranked, which candidate won, and how much validation penalty each finalist took).
 - `theoretical.checklist` for stage-progress display (`X`, `n/5`, `✔`).
-- `theoretical.selectedContributions` containing per-metric weighted score components.
+- persisted `basePlan` keeps a compact `buildQueue` for runtime/building consumers instead of duplicating a second full `structures` map; overlays and dumps can reconstruct counts from that queue.
+- `basePlan.plannerDebug` keeps summary diagnostics for labs, structure ranking, refinement, and valid-structure counts instead of full duplicate placement arrays.
+- `Memory.stats.tickPipeline` keeps the most recent 60 tick snapshots.
+
+For the full intended selection and logistics rules, see [[Layout-Planner]].
 
 Set `rebuildLayout` to `true` if you want the planner to wipe and
 recalculate the layout on the next tick. It resets automatically after

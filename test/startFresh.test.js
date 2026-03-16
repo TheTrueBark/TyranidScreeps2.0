@@ -16,6 +16,8 @@ describe('startFresh command', function() {
       spawns: { s1: {} },
       roleEval: { lastRun: 5 },
       nextSpawnId: 3,
+      debug: { incidents: { a: { created: 1 } } },
+      energyReserves: { e1: { amount: 100 } },
       settings: { enableVisuals: false },
     });
   });
@@ -30,6 +32,11 @@ describe('startFresh command', function() {
       expect(Memory).to.not.have.property(k);
     }
     expect(Memory.settings).to.deep.equal({ enableVisuals: false });
+  });
+
+  it('supports explicit full wipe mode via wipe=all', function() {
+    startFresh({ wipe: 'all' });
+    expect(Object.keys(Memory)).to.deep.equal([]);
   });
 
   it('pauses bot when requested', function() {

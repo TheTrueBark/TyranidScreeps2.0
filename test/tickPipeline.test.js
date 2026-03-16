@@ -81,4 +81,17 @@ describe('tickPipeline', function() {
     expect(Memory.stats.tickPipeline.byTick[String(Game.time)].phases.bootstrap.cpu).to.equal(0.22);
     expect(Memory.stats.tickPipeline.byTick[String(Game.time)].runtime.state).to.equal('idle');
   });
+
+  it('retains only the most recent tick snapshots', function() {
+    for (let i = 0; i < tickPipeline.MAX_TICK_HISTORY + 5; i++) {
+      Game.time = 42 + i;
+      const ctx = tickPipeline.bootstrapTick();
+      ctx.runtimeState = `state-${i}`;
+      tickPipeline.commitTick(ctx);
+    }
+
+    expect(Memory.stats.tickPipeline.ticks).to.have.lengthOf(tickPipeline.MAX_TICK_HISTORY);
+    expect(Memory.stats.tickPipeline.byTick['42']).to.equal(undefined);
+    expect(Memory.stats.tickPipeline.byTick[String(Game.time)].runtime.state).to.equal(`state-${tickPipeline.MAX_TICK_HISTORY + 4}`);
+  });
 });

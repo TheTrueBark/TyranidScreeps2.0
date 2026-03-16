@@ -213,6 +213,9 @@ function computeRampartCut(ctx, options = {}) {
   if (!points.length) {
     return { line: [], meta: { method: 'flow-mincut', candidates: 0, reason: 'no-structures' } };
   }
+  const corePoints = Array.isArray(ctx.corePoints) && ctx.corePoints.length > 0
+    ? ctx.corePoints.filter((p) => p && inBounds(p.x, p.y))
+    : points;
 
   const walkable = (ctx.matrices && ctx.matrices.walkableMatrix) || new Array(2500).fill(1);
   const terrain = (ctx.matrices && ctx.matrices.terrainMatrix) || new Array(2500).fill(0);
@@ -237,7 +240,7 @@ function computeRampartCut(ctx, options = {}) {
   let maxX = 0;
   let minY = 49;
   let maxY = 0;
-  for (const p of points) {
+  for (const p of corePoints) {
     minX = Math.min(minX, p.x);
     maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y);

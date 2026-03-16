@@ -1,4 +1,5 @@
 // stampManager.js
+const visualizer = require('./manager.visualizer');
 
 const stamps = {
   main: {
@@ -79,20 +80,20 @@ module.exports = {
     }
 
     const rotatedStamp = rotateStamp(stamp, angle);
-    const visual = new RoomVisual(room.name);
-
-    for (const [structureType, positions] of Object.entries(
-      rotatedStamp.structures,
-    )) {
+    const placements = [];
+    for (const [structureType, positions] of Object.entries(rotatedStamp.structures)) {
       for (const pos of positions) {
-        if (pos.rcl <= rcl) {
-          const x = room.memory.spawnPos.x + pos.x;
-          const y = room.memory.spawnPos.y + pos.y;
-          const abbreviation = structureMapping[structureType] || structureType;
-          visual.text(`${abbreviation}`, x, y, { color: "yellow", font: 0.5 });
-        }
+        if (!pos || pos.rcl > rcl) continue;
+        placements.push({
+          x: room.memory.spawnPos.x + pos.x,
+          y: room.memory.spawnPos.y + pos.y,
+          roomName: room.name,
+          type: structureType,
+        });
       }
     }
+
+    visualizer.drawStructurePlacements(placements, { opacity: 0.6 });
   },
 
   decodeStamp: function (encodedStamp) {

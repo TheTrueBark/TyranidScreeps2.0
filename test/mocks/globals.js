@@ -65,12 +65,12 @@ if (!global.PathFinder) {
 
 if (typeof global.RoomVisual === 'undefined') {
   global.RoomVisual = function () {
-    this.circle = () => {};
-    this.line = () => {};
-    this.text = () => {};
-    this.rect = () => {};
-    this.structure = () => {};
-    this.connectRoads = () => {};
+    this.circle = () => this;
+    this.line = () => this;
+    this.text = () => this;
+    this.rect = () => this;
+    this.structure = () => this;
+    this.connectRoads = () => this;
   };
 }
 

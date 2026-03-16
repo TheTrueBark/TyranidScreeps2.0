@@ -39,13 +39,16 @@ function groupPlacementsByType(placements = []) {
 }
 
 function toStructureCounts(basePlan) {
-  const counts = {};
-  const structures = basePlan && basePlan.structures ? basePlan.structures : {};
-  for (const type of Object.keys(structures)) {
-    const rows = Array.isArray(structures[type]) ? structures[type] : [];
-    counts[type] = rows.length;
+  if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
+    const counts = {};
+    const structures = basePlan.structures;
+    for (const type of Object.keys(structures)) {
+      const rows = Array.isArray(structures[type]) ? structures[type] : [];
+      counts[type] = rows.length;
+    }
+    return counts;
   }
-  return counts;
+  return toCountMap(basePlan && Array.isArray(basePlan.buildQueue) ? basePlan.buildQueue : []);
 }
 
 function sortedCountEntries(counts) {
@@ -78,6 +81,22 @@ function placementsFromStructures(structuresByType = {}) {
         tag: row.tag || null,
       });
     }
+  }
+  return placements;
+}
+
+function placementsFromBuildQueue(buildQueue = []) {
+  const placements = [];
+  if (!Array.isArray(buildQueue)) return placements;
+  for (const entry of buildQueue) {
+    if (!entry || !entry.pos || typeof entry.type !== 'string') continue;
+    if (typeof entry.pos.x !== 'number' || typeof entry.pos.y !== 'number') continue;
+    placements.push({
+      type: entry.type,
+      x: entry.pos.x,
+      y: entry.pos.y,
+      tag: entry.tag || null,
+    });
   }
   return placements;
 }
@@ -255,7 +274,9 @@ function buildLayoutPlanDump(roomName) {
   const plannerDebug = effectivePlan.plannerDebug || {};
   const stampStats = plannerDebug.stampStats || {};
   const inferredPlacements = basePlan
-    ? placementsFromStructures(effectivePlan.structures || {})
+    ? effectivePlan.structures && typeof effectivePlan.structures === 'object'
+      ? placementsFromStructures(effectivePlan.structures || {})
+      : placementsFromBuildQueue(effectivePlan.buildQueue || [])
     : activeCandidate && Array.isArray(activeCandidate.placements)
       ? activeCandidate.placements
       : [];
@@ -320,6 +341,10 @@ function buildLayoutPlanDump(roomName) {
     refinementDebug:
       plannerDebug.refinementDebug && typeof plannerDebug.refinementDebug === 'object'
         ? plannerDebug.refinementDebug
+        : {},
+    fullSelectionRerank:
+      plannerDebug.fullSelectionRerank && typeof plannerDebug.fullSelectionRerank === 'object'
+        ? plannerDebug.fullSelectionRerank
         : {},
     validStructurePositions:
       plannerDebug.validStructurePositions && typeof plannerDebug.validStructurePositions === 'object'
@@ -521,6 +546,22 @@ function formatLayoutPlanDump(payload, options = {}) {
     lines.push(
       `[layoutPlanDump] refinementDebug scoreBefore=${before.toFixed(4)} scoreAfter=${after.toFixed(4)} improvement=${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}%${refinement.skipReason ? ` skip=${refinement.skipReason}` : ''}`,
     );
+  }
+  const fullSelectionRerank = payload.fullSelectionRerank || {};
+  if (Object.keys(fullSelectionRerank).length > 0) {
+    const candidateRows = Array.isArray(fullSelectionRerank.candidates) ? fullSelectionRerank.candidates : [];
+    lines.push(
+      `[layoutPlanDump] fullSelectionRerank enabled=${fullSelectionRerank.enabled === true ? 'yes' : 'no'} mode=${fullSelectionRerank.defensePlanningMode || 'n/a'} reranked=${Number(fullSelectionRerank.rerankedCount || 0)}/${Number(fullSelectionRerank.topN || 0)} selected=${fullSelectionRerank.selectedIndex !== null && fullSelectionRerank.selectedIndex !== undefined ? fullSelectionRerank.selectedIndex : 'n/a'}`,
+    );
+    if (candidateRows.length > 0) {
+      lines.push(
+        `[layoutPlanDump] fullSelectionRerank.candidates=${candidateRows
+          .map((row) =>
+            `${row.index}:foundation=${Number(row.foundationScore || 0).toFixed(4)} raw=${Number(row.rawWeightedScore || 0).toFixed(4)} final=${Number(row.weightedScore || 0).toFixed(4)} penalty=${Number(row.selectionPenalty || 0).toFixed(2)} critical=${Number(row.criticalCount || 0)} major=${Number(row.majorCount || 0)}`,
+          )
+          .join(' | ')}`,
+      );
+    }
   }
 
   const valid = payload.validStructurePositions || {};

@@ -1,5 +1,6 @@
 const statsConsole = require('console.console');
 const htm = require('./manager.htm');
+const structureVisualizer = require('./manager.visualizer');
 const TYPES = {
   EXTENSION: typeof STRUCTURE_EXTENSION !== 'undefined' ? STRUCTURE_EXTENSION : 'extension',
   STORAGE: typeof STRUCTURE_STORAGE !== 'undefined' ? STRUCTURE_STORAGE : 'storage',
@@ -343,10 +344,37 @@ function fmt(value, digits = 2) {
   return value.toFixed(digits);
 }
 
+function toBuildQueueCells(basePlan, type) {
+  if (!basePlan || !Array.isArray(basePlan.buildQueue) || !type) return [];
+  return basePlan.buildQueue
+    .filter((entry) => entry && entry.type === type && entry.pos)
+    .map((entry) => ({
+      x: entry.pos.x,
+      y: entry.pos.y,
+      rcl: entry.rcl || 1,
+      tag: entry.tag || null,
+    }))
+    .filter((row) => typeof row.x === 'number' && typeof row.y === 'number');
+}
+
 function toPlannedCells(basePlan, type) {
-  if (!basePlan || !basePlan.structures || !type) return [];
-  const rows = Array.isArray(basePlan.structures[type]) ? basePlan.structures[type] : [];
-  return rows.filter((row) => row && typeof row.x === 'number' && typeof row.y === 'number');
+  if (!basePlan || !type) return [];
+  if (basePlan.structures && typeof basePlan.structures === 'object') {
+    const rows = Array.isArray(basePlan.structures[type]) ? basePlan.structures[type] : [];
+    return rows.filter((row) => row && typeof row.x === 'number' && typeof row.y === 'number');
+  }
+  return toBuildQueueCells(basePlan, type);
+}
+
+function getPlannedStructureTypes(basePlan) {
+  if (!basePlan || typeof basePlan !== 'object') return [];
+  if (basePlan.structures && typeof basePlan.structures === 'object') {
+    return Object.keys(basePlan.structures);
+  }
+  if (Array.isArray(basePlan.buildQueue)) {
+    return [...new Set(basePlan.buildQueue.map((entry) => entry && entry.type).filter(Boolean))];
+  }
+  return [];
 }
 
 function toCandidatePlanCells(candidatePlan, type) {
@@ -358,6 +386,32 @@ function toCandidatePlanCells(candidatePlan, type) {
       typeof placement.x === 'number' &&
       typeof placement.y === 'number',
   );
+}
+
+function hasRenderableDebugPositions(debug) {
+  return Boolean(debug && Array.isArray(debug.positions) && debug.positions.length > 0);
+}
+
+function hasRenderableDebugPlacements(debug) {
+  return Boolean(debug && Array.isArray(debug.placements) && debug.placements.length > 0);
+}
+
+function hasRenderableLabPlanning(debug) {
+  return Boolean(
+    debug &&
+      ((Array.isArray(debug.sourceLabs) && debug.sourceLabs.length > 0) ||
+        (Array.isArray(debug.reactionLabs) && debug.reactionLabs.length > 0)),
+  );
+}
+
+function pickDebugSource(entries, predicate) {
+  let fallback = null;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || !entry.value || typeof entry.value !== 'object') continue;
+    if (!fallback) fallback = entry;
+    if (!predicate || predicate(entry.value)) return entry;
+  }
+  return fallback;
 }
 
 function resolveCandidateIndex(theoretical, preferredIndex) {
@@ -627,6 +681,7 @@ const layoutVisualizer = {
       const activeCandidateIndex = overlayState.activeCandidateIndex;
       const activeCandidate = overlayState.activeCandidate;
       const hasFinalSpawnSelection = overlayState.hasFinalSpawnSelection;
+      const showPlannerDebug = Boolean(Memory.settings && Memory.settings.debugVisuals);
       const basePlan = room.memory.basePlan || null;
       const candidatePlans =
         room.memory.layout &&
@@ -667,68 +722,50 @@ const layoutVisualizer = {
             selectedCandidateIndex !== null &&
             preferredCandidateIndex === selectedCandidateIndex,
         );
-      const validStructureDebug =
-        (basePlan &&
-          basePlan.plannerDebug &&
-          basePlan.plannerDebug.validStructurePositions &&
-          typeof basePlan.plannerDebug.validStructurePositions === 'object'
-          ? basePlan.plannerDebug.validStructurePositions
-          : null) ||
-        (theoretical &&
-          theoretical.validStructurePositions &&
-          typeof theoretical.validStructurePositions === 'object'
-          ? theoretical.validStructurePositions
-          : null) ||
-        (!preferBasePlanOverlay &&
-          activeCandidatePlan &&
-          activeCandidatePlan.validStructurePositions &&
-          typeof activeCandidatePlan.validStructurePositions === 'object'
-          ? activeCandidatePlan.validStructurePositions
-          : null);
-      const labPlanningDebug =
-        (basePlan &&
-          basePlan.plannerDebug &&
-          basePlan.plannerDebug.labPlanning &&
-          typeof basePlan.plannerDebug.labPlanning === 'object'
-          ? basePlan.plannerDebug.labPlanning
-          : null) ||
-        (theoretical &&
-          theoretical.labPlanning &&
-          typeof theoretical.labPlanning === 'object'
-          ? theoretical.labPlanning
-          : null) ||
-        (!preferBasePlanOverlay &&
-          activeCandidatePlan &&
-          activeCandidatePlan.labPlanning &&
-          typeof activeCandidatePlan.labPlanning === 'object'
-          ? activeCandidatePlan.labPlanning
-          : null);
-      let structurePlanningDebug = null;
-      let structurePlanningDebugSource = null;
-      if (
-        basePlan &&
-        basePlan.plannerDebug &&
-        basePlan.plannerDebug.structurePlanning &&
-        typeof basePlan.plannerDebug.structurePlanning === 'object'
-      ) {
-        structurePlanningDebug = basePlan.plannerDebug.structurePlanning;
-        structurePlanningDebugSource = 'basePlan';
-      } else if (
-        theoretical &&
-        theoretical.structurePlanning &&
-        typeof theoretical.structurePlanning === 'object'
-      ) {
-        structurePlanningDebug = theoretical.structurePlanning;
-        structurePlanningDebugSource = 'theoretical';
-      } else if (
-        !preferBasePlanOverlay &&
-        activeCandidatePlan &&
-        activeCandidatePlan.structurePlanning &&
-        typeof activeCandidatePlan.structurePlanning === 'object'
-      ) {
-        structurePlanningDebug = activeCandidatePlan.structurePlanning;
-        structurePlanningDebugSource = 'candidate';
-      }
+      const debugSources = [
+        {
+          source: 'basePlan',
+          value:
+            basePlan &&
+            basePlan.plannerDebug &&
+            typeof basePlan.plannerDebug === 'object'
+              ? basePlan.plannerDebug
+              : null,
+        },
+        {
+          source: 'theoretical',
+          value: theoretical && typeof theoretical === 'object' ? theoretical : null,
+        },
+        {
+          source: 'candidate',
+          value: activeCandidatePlan && typeof activeCandidatePlan === 'object' ? activeCandidatePlan : null,
+        },
+      ];
+      const validStructureEntry = pickDebugSource(
+        debugSources.map((entry) => ({
+          source: entry.source,
+          value: entry.value && entry.value.validStructurePositions,
+        })),
+        hasRenderableDebugPositions,
+      );
+      const validStructureDebug = validStructureEntry ? validStructureEntry.value : null;
+      const labPlanningEntry = pickDebugSource(
+        debugSources.map((entry) => ({
+          source: entry.source,
+          value: entry.value && entry.value.labPlanning,
+        })),
+        hasRenderableLabPlanning,
+      );
+      const labPlanningDebug = labPlanningEntry ? labPlanningEntry.value : null;
+      const structurePlanningEntry = pickDebugSource(
+        debugSources.map((entry) => ({
+          source: entry.source,
+          value: entry.value && entry.value.structurePlanning,
+        })),
+        hasRenderableDebugPlacements,
+      );
+      const structurePlanningDebug = structurePlanningEntry ? structurePlanningEntry.value : null;
+      const structurePlanningDebugSource = structurePlanningEntry ? structurePlanningEntry.source : null;
       const hasFullOptimizationDebug =
         (structurePlanningDebugSource === 'basePlan' &&
           basePlan &&
@@ -820,14 +857,51 @@ const layoutVisualizer = {
         }
       }
 
+      const useStructureRenderer = overlayView === 'plan';
       const roadMap = new Map();
       const rampartMap = new Map();
       const roadSet = {};
+      const planStructurePlacements = [];
+      const queuedPlanStructureKeys = new Set();
       const drawnStructureKeys = new Set();
+      const queuePlanStructurePlacement = (type, x, y, opts = null) => {
+        if (!useStructureRenderer || !type || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+        const structureKey = `${x}:${y}:${type}`;
+        if (queuedPlanStructureKeys.has(structureKey)) return false;
+        const placement = { x, y, roomName, type };
+        if (opts && typeof opts === 'object') {
+          placement.opts = Object.assign({}, opts);
+        }
+        planStructurePlacements.push(placement);
+        queuedPlanStructureKeys.add(structureKey);
+        return true;
+      };
+      const drawStructureTile = (cell, x, y, rcl = null) => {
+        if (!cell || !cell.structureType || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        if (useStructureRenderer) {
+          queuePlanStructurePlacement(cell.structureType, x, y);
+        } else {
+          vis.text(getLabelForCell(cell), x, y + 0.1, {
+            color: getColor(cell.structureType),
+            font: 0.52,
+            align: 'center',
+          });
+        }
+        if (rcl) {
+          vis.text(String(rcl), x + 0.31, y + 0.32, {
+            color: '#a9a9a9',
+            font: 0.33,
+            align: 'left',
+          });
+        }
+      };
       const addRoadTile = (x, y, rcl = null) => {
         const k = `${x}:${y}`;
         roadSet[k] = true;
-        if (!roadMap.has(k)) roadMap.set(k, { x, y, rcl });
+        if (!roadMap.has(k)) {
+          roadMap.set(k, { x, y, rcl });
+          queuePlanStructurePlacement(TYPES.ROAD, x, y);
+        }
       };
       const addRampartTile = (x, y) => {
         const k = `${x}:${y}`;
@@ -847,19 +921,7 @@ const layoutVisualizer = {
             continue;
           }
           drawnStructureKeys.add(`${px}:${py}:${cell.structureType}`);
-          const color = getColor(cell.structureType);
-          vis.text(getLabelForCell(cell), px, py + 0.1, {
-            color,
-            font: 0.52,
-            align: 'center',
-          });
-          if (cell.rcl) {
-            vis.text(String(cell.rcl), px + 0.31, py + 0.32, {
-              color: '#a9a9a9',
-              font: 0.33,
-              align: 'left',
-            });
-          }
+          drawStructureTile(cell, px, py, cell.rcl);
         }
       }
 
@@ -883,32 +945,14 @@ const layoutVisualizer = {
           addRampartTile(tile.x, tile.y);
         }
       }
-      if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
-        for (const type of Object.keys(basePlan.structures)) {
-          if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
-          const tiles = toPlannedCells(basePlan, type);
-          for (const tile of tiles) {
-            const drawnKey = `${tile.x}:${tile.y}:${type}`;
-            if (drawnStructureKeys.has(drawnKey)) continue;
-            vis.text(
-              getLabelForCell({ structureType: type, tag: tile.tag || null }),
-              tile.x,
-              tile.y + 0.1,
-              {
-                color: getColor(type),
-                font: 0.52,
-                align: 'center',
-              },
-            );
-            if (tile.rcl) {
-              vis.text(String(tile.rcl), tile.x + 0.31, tile.y + 0.32, {
-                color: '#a9a9a9',
-                font: 0.33,
-                align: 'left',
-              });
-            }
-            drawnStructureKeys.add(drawnKey);
-          }
+      for (const type of getPlannedStructureTypes(basePlan)) {
+        if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
+        const tiles = toPlannedCells(basePlan, type);
+        for (const tile of tiles) {
+          const drawnKey = `${tile.x}:${tile.y}:${type}`;
+          if (drawnStructureKeys.has(drawnKey)) continue;
+          drawStructureTile({ structureType: type, tag: tile.tag || null }, tile.x, tile.y, tile.rcl);
+          drawnStructureKeys.add(drawnKey);
         }
       }
       if (!preferBasePlanOverlay && activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
@@ -917,28 +961,17 @@ const layoutVisualizer = {
           if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
           const drawnKey = `${placement.x}:${placement.y}:${placement.type}`;
           if (drawnStructureKeys.has(drawnKey)) continue;
-          vis.text(
-            getLabelForCell({ structureType: placement.type, tag: placement.tag || null }),
+          drawStructureTile(
+            { structureType: placement.type, tag: placement.tag || null },
             placement.x,
-            placement.y + 0.1,
-            {
-              color: getColor(placement.type),
-              font: 0.52,
-              align: 'center',
-            },
+            placement.y,
+            placement.rcl,
           );
-          if (placement.rcl) {
-            vis.text(String(placement.rcl), placement.x + 0.31, placement.y + 0.32, {
-              color: '#a9a9a9',
-              font: 0.33,
-              align: 'left',
-            });
-          }
           drawnStructureKeys.add(drawnKey);
         }
       }
 
-      // Keep labs readable even when road lines cross them.
+      // Keep lab previews readable even when road lines cross them.
       const labKeys = new Set();
       for (const x in matrix) {
         for (const y in matrix[x]) {
@@ -965,94 +998,112 @@ const layoutVisualizer = {
         }
       }
 
+      if (useStructureRenderer) {
+        for (const tile of rampartMap.values()) {
+          const overlapRoad = roadMap.has(`${tile.x}:${tile.y}`);
+          queuePlanStructurePlacement(TYPES.RAMPART, tile.x, tile.y, {
+            opacity: overlapRoad ? 0.65 : 0.85,
+            rampartStrokeWidth: overlapRoad ? 0.1 : 0.12,
+          });
+        }
+        for (const k of labKeys) {
+          const [lx, ly] = k.split(':').map(Number);
+          if (!Number.isFinite(lx) || !Number.isFinite(ly)) continue;
+          queuePlanStructurePlacement(TYPES.LAB, lx, ly, { opacity: 0.55 });
+        }
+        structureVisualizer.drawStructurePlacements(planStructurePlacements, { opacity: 0.5 });
+      }
+
       const roadTiles = [...roadMap.values()];
       for (const tile of roadTiles) {
         const tx = tile.x;
         const ty = tile.y;
-        const hasLeft = Boolean(roadSet[`${tx - 1}:${ty}`]);
-        const hasRight = Boolean(roadSet[`${tx + 1}:${ty}`]);
-        const hasUp = Boolean(roadSet[`${tx}:${ty - 1}`]);
-        const hasDown = Boolean(roadSet[`${tx}:${ty + 1}`]);
-        const hasUpLeft = Boolean(roadSet[`${tx - 1}:${ty - 1}`]);
-        const hasUpRight = Boolean(roadSet[`${tx + 1}:${ty - 1}`]);
-        const hasDownLeft = Boolean(roadSet[`${tx - 1}:${ty + 1}`]);
-        const hasDownRight = Boolean(roadSet[`${tx + 1}:${ty + 1}`]);
-        const roadColor = getColor(TYPES.ROAD);
-        if (typeof vis.line === 'function') {
-          if (hasLeft) {
-            vis.line(tx, ty, tx - 1, ty, {
-              color: roadColor,
-              width: 0.12,
-              opacity: 1,
-            });
+        if (!useStructureRenderer) {
+          const hasLeft = Boolean(roadSet[`${tx - 1}:${ty}`]);
+          const hasRight = Boolean(roadSet[`${tx + 1}:${ty}`]);
+          const hasUp = Boolean(roadSet[`${tx}:${ty - 1}`]);
+          const hasDown = Boolean(roadSet[`${tx}:${ty + 1}`]);
+          const hasUpLeft = Boolean(roadSet[`${tx - 1}:${ty - 1}`]);
+          const hasUpRight = Boolean(roadSet[`${tx + 1}:${ty - 1}`]);
+          const hasDownLeft = Boolean(roadSet[`${tx - 1}:${ty + 1}`]);
+          const hasDownRight = Boolean(roadSet[`${tx + 1}:${ty + 1}`]);
+          const roadColor = getColor(TYPES.ROAD);
+          if (typeof vis.line === 'function') {
+            if (hasLeft) {
+              vis.line(tx, ty, tx - 1, ty, {
+                color: roadColor,
+                width: 0.12,
+                opacity: 1,
+              });
+            }
+            if (hasRight) {
+              vis.line(tx, ty, tx + 1, ty, {
+                color: roadColor,
+                width: 0.12,
+                opacity: 1,
+              });
+            }
+            if (hasUp) {
+              vis.line(tx, ty, tx, ty - 1, {
+                color: roadColor,
+                width: 0.12,
+                opacity: 1,
+              });
+            }
+            if (hasDown) {
+              vis.line(tx, ty, tx, ty + 1, {
+                color: roadColor,
+                width: 0.12,
+                opacity: 1,
+              });
+            }
+            if (hasUpLeft) {
+              vis.line(tx, ty, tx - 1, ty - 1, {
+                color: roadColor,
+                width: 0.1,
+                opacity: 1,
+              });
+            }
+            if (hasUpRight) {
+              vis.line(tx, ty, tx + 1, ty - 1, {
+                color: roadColor,
+                width: 0.1,
+                opacity: 1,
+              });
+            }
+            if (hasDownLeft) {
+              vis.line(tx, ty, tx - 1, ty + 1, {
+                color: roadColor,
+                width: 0.1,
+                opacity: 1,
+              });
+            }
+            if (hasDownRight) {
+              vis.line(tx, ty, tx + 1, ty + 1, {
+                color: roadColor,
+                width: 0.1,
+                opacity: 1,
+              });
+            }
+            if (!hasLeft && !hasRight && !hasUp && !hasDown && !hasUpLeft && !hasUpRight && !hasDownLeft && !hasDownRight) {
+              vis.text('·', tx, ty + 0.08, {
+                color: roadColor,
+                font: 0.52,
+                align: 'center',
+              });
+            }
+          } else {
+            vis.text(
+              getRoadGlyph({ left: hasLeft, right: hasRight, up: hasUp, down: hasDown }),
+              tx,
+              ty + 0.08,
+              {
+                color: roadColor,
+                font: 0.54,
+                align: 'center',
+              },
+            );
           }
-          if (hasRight) {
-            vis.line(tx, ty, tx + 1, ty, {
-              color: roadColor,
-              width: 0.12,
-              opacity: 1,
-            });
-          }
-          if (hasUp) {
-            vis.line(tx, ty, tx, ty - 1, {
-              color: roadColor,
-              width: 0.12,
-              opacity: 1,
-            });
-          }
-          if (hasDown) {
-            vis.line(tx, ty, tx, ty + 1, {
-              color: roadColor,
-              width: 0.12,
-              opacity: 1,
-            });
-          }
-          if (hasUpLeft) {
-            vis.line(tx, ty, tx - 1, ty - 1, {
-              color: roadColor,
-              width: 0.1,
-              opacity: 1,
-            });
-          }
-          if (hasUpRight) {
-            vis.line(tx, ty, tx + 1, ty - 1, {
-              color: roadColor,
-              width: 0.1,
-              opacity: 1,
-            });
-          }
-          if (hasDownLeft) {
-            vis.line(tx, ty, tx - 1, ty + 1, {
-              color: roadColor,
-              width: 0.1,
-              opacity: 1,
-            });
-          }
-          if (hasDownRight) {
-            vis.line(tx, ty, tx + 1, ty + 1, {
-              color: roadColor,
-              width: 0.1,
-              opacity: 1,
-            });
-          }
-          if (!hasLeft && !hasRight && !hasUp && !hasDown && !hasUpLeft && !hasUpRight && !hasDownLeft && !hasDownRight) {
-            vis.text('·', tx, ty + 0.08, {
-              color: roadColor,
-              font: 0.52,
-              align: 'center',
-            });
-          }
-        } else {
-          vis.text(
-            getRoadGlyph({ left: hasLeft, right: hasRight, up: hasUp, down: hasDown }),
-            tx,
-            ty + 0.08,
-            {
-              color: roadColor,
-              font: 0.54,
-              align: 'center',
-            },
-          );
         }
         if (showRoadRclLabels && tile.rcl) {
           vis.text(String(tile.rcl), tx + 0.31, ty + 0.32, {
@@ -1065,22 +1116,19 @@ const layoutVisualizer = {
 
       for (const tile of rampartMap.values()) {
         const overlapRoad = roadMap.has(`${tile.x}:${tile.y}`);
-        vis.rect(tile.x - 0.5, tile.y - 0.5, 1, 1, {
-          fill: getColor(TYPES.RAMPART),
-          opacity: overlapRoad ? 0.22 : 0.28,
-          stroke: getColor(TYPES.RAMPART),
-          strokeWidth: overlapRoad ? 0.06 : 0.08,
-        });
-        vis.text(getLabelForCell({ structureType: TYPES.RAMPART, overlapRoad }), tile.x, tile.y + 0.1, {
-          color: '#d9fff7',
-          font: overlapRoad ? 0.26 : 0.34,
-          align: 'center',
-        });
+        if (!useStructureRenderer) {
+          vis.text(getLabelForCell({ structureType: TYPES.RAMPART, overlapRoad }), tile.x, tile.y + 0.1, {
+            color: '#d9fff7',
+            font: overlapRoad ? 0.26 : 0.34,
+            align: 'center',
+          });
+        }
       }
 
       for (const k of labKeys) {
         const [lx, ly] = k.split(':').map(Number);
         if (!Number.isFinite(lx) || !Number.isFinite(ly)) continue;
+        if (useStructureRenderer) continue;
         vis.text('L', lx, ly + 0.1, {
           color: getColor(TYPES.LAB),
           font: 0.54,
@@ -1092,29 +1140,54 @@ const layoutVisualizer = {
         structurePlanningDebug &&
         Array.isArray(structurePlanningDebug.placements)
       ) {
+        const previewStructurePlacements = [];
+        const previewDebugLabelRows = [];
         for (const placement of structurePlanningDebug.placements) {
           if (!placement || !placement.type) continue;
           if (placement.type === TYPES.ROAD || placement.type === TYPES.RAMPART) continue;
           if (typeof placement.x !== 'number' || typeof placement.y !== 'number') continue;
-          vis.text(
-            getLabelForCell({ structureType: placement.type, tag: placement.tag || null }),
-            placement.x,
-            placement.y + 0.1,
-            {
-              color: getColor(placement.type),
-              font: 0.52,
-              align: 'center',
-            },
-          );
+          if (useStructureRenderer) {
+            previewStructurePlacements.push({
+              x: placement.x,
+              y: placement.y,
+              roomName,
+              type: placement.type,
+            });
+          } else {
+            vis.text(
+              getLabelForCell({ structureType: placement.type, tag: placement.tag || null }),
+              placement.x,
+              placement.y + 0.1,
+              {
+                color: getColor(placement.type),
+                font: 0.52,
+                align: 'center',
+              },
+            );
+          }
           const debugLabels = previewDebugLabelsByPos.get(`${placement.x}:${placement.y}`) || null;
-          if (debugLabels) {
-            drawPreviewDebugLabels(vis, placement.x, placement.y, debugLabels);
+          if (showPlannerDebug && debugLabels) {
+            if (useStructureRenderer) {
+              previewDebugLabelRows.push({
+                x: placement.x,
+                y: placement.y,
+                labels: debugLabels,
+              });
+            } else {
+              drawPreviewDebugLabels(vis, placement.x, placement.y, debugLabels);
+            }
+          }
+        }
+        if (useStructureRenderer && previewStructurePlacements.length > 0) {
+          structureVisualizer.drawStructurePlacements(previewStructurePlacements, { opacity: 0.5 });
+          for (const row of previewDebugLabelRows) {
+            drawPreviewDebugLabels(vis, row.x, row.y, row.labels);
           }
         }
       }
 
-      // Draw valid structure positions after roads/ramparts so they remain visible.
-      if (validStructureDebug && Array.isArray(validStructureDebug.positions)) {
+      // Keep optional planner diagnostics behind the shared debug toggle.
+      if (showPlannerDebug && validStructureDebug && Array.isArray(validStructureDebug.positions)) {
         const occupiedStructureTiles = new Set();
         const markOccupied = (x, y) => {
           if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -1128,12 +1201,10 @@ const layoutVisualizer = {
             markOccupied(parseInt(mx, 10), parseInt(my, 10));
           }
         }
-        if (basePlan && basePlan.structures && typeof basePlan.structures === 'object') {
-          for (const type of Object.keys(basePlan.structures)) {
-            if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
-            for (const tile of toPlannedCells(basePlan, type)) {
-              markOccupied(tile.x, tile.y);
-            }
+        for (const type of getPlannedStructureTypes(basePlan)) {
+          if (type === TYPES.ROAD || type === TYPES.RAMPART) continue;
+          for (const tile of toPlannedCells(basePlan, type)) {
+            markOccupied(tile.x, tile.y);
           }
         }
         if (!preferBasePlanOverlay && activeCandidatePlan && Array.isArray(activeCandidatePlan.placements)) {
@@ -1192,7 +1263,7 @@ const layoutVisualizer = {
           },
         );
       }
-      if (previewDistanceOrigin) {
+      if (showPlannerDebug && previewDistanceOrigin) {
         // Mark the exact DT/range origin used for preview distance evaluation.
         if (typeof vis.circle === 'function') {
           vis.circle(previewDistanceOrigin.x, previewDistanceOrigin.y, {
@@ -1218,7 +1289,15 @@ const layoutVisualizer = {
             align: 'center',
           });
         }
-        if (Array.isArray(theoretical.upgraderSlots)) {
+        const theoreticalStructurePlacements = [];
+        const queueTheoreticalPlacement = (type, x, y) => {
+          if (!useStructureRenderer || !Number.isFinite(x) || !Number.isFinite(y) || !type) return;
+          const key = `${x}:${y}:${type}`;
+          if (drawnStructureKeys.has(key)) return;
+          theoreticalStructurePlacements.push({ x, y, roomName, type });
+          drawnStructureKeys.add(key);
+        };
+        if (!useStructureRenderer && Array.isArray(theoretical.upgraderSlots)) {
           for (const slot of theoretical.upgraderSlots) {
             vis.rect(slot.x - 0.5, slot.y - 0.5, 1, 1, {
               fill: '#56c271',
@@ -1229,27 +1308,39 @@ const layoutVisualizer = {
           }
         }
         if (theoretical.controllerContainer) {
-          vis.text('C', theoretical.controllerContainer.x, theoretical.controllerContainer.y + 0.1, {
-            color: getColor(TYPES.CONTAINER),
-            font: 0.52,
-            align: 'center',
-          });
-        }
-        if (Array.isArray(theoretical.sourceContainers)) {
-          for (const src of theoretical.sourceContainers) {
-            vis.text('C', src.x, src.y + 0.1, {
+          if (useStructureRenderer) {
+            queueTheoreticalPlacement(TYPES.CONTAINER, theoretical.controllerContainer.x, theoretical.controllerContainer.y);
+          } else {
+            vis.text('C', theoretical.controllerContainer.x, theoretical.controllerContainer.y + 0.1, {
               color: getColor(TYPES.CONTAINER),
               font: 0.52,
               align: 'center',
             });
           }
         }
+        if (Array.isArray(theoretical.sourceContainers)) {
+          for (const src of theoretical.sourceContainers) {
+            if (useStructureRenderer) {
+              queueTheoreticalPlacement(TYPES.CONTAINER, src.x, src.y);
+            } else {
+              vis.text('C', src.x, src.y + 0.1, {
+                color: getColor(TYPES.CONTAINER),
+                font: 0.52,
+                align: 'center',
+              });
+            }
+          }
+        }
         if (theoretical.spawnCandidate && !hasFinalSpawnSelection) {
-          vis.text('S', theoretical.spawnCandidate.x, theoretical.spawnCandidate.y + 0.1, {
-            color: getColor(TYPES.SPAWN),
-            font: 0.52,
-            align: 'center',
-          });
+          if (useStructureRenderer) {
+            queueTheoreticalPlacement(TYPES.SPAWN, theoretical.spawnCandidate.x, theoretical.spawnCandidate.y);
+          } else {
+            vis.text('S', theoretical.spawnCandidate.x, theoretical.spawnCandidate.y + 0.1, {
+              color: getColor(TYPES.SPAWN),
+              font: 0.52,
+              align: 'center',
+            });
+          }
           vis.text(
             'TH-SP',
             theoretical.spawnCandidate.x + 0.55,
@@ -1260,6 +1351,9 @@ const layoutVisualizer = {
               align: 'left',
             },
           );
+        }
+        if (theoreticalStructurePlacements.length > 0) {
+          structureVisualizer.drawStructurePlacements(theoreticalStructurePlacements, { opacity: 0.55 });
         }
 
         if (candidateRows.length > 0) {
@@ -1399,7 +1493,7 @@ const layoutVisualizer = {
         }
       }
 
-      if (Memory.settings.showLayoutLegend !== false) {
+      if (!useStructureRenderer && Memory.settings.showLayoutLegend !== false) {
       const legendStart = Game.cpu.getUsed();
       const legend = isTheoretical
         ? [
@@ -1419,7 +1513,6 @@ const layoutVisualizer = {
             [TYPES.EXTRACTOR, 'Planned Extractor'],
             [TYPES.RAMPART, 'Planned Rampart'],
             [{ structureType: TYPES.RAMPART, overlapRoad: true }, 'Road + Rampart Overlap'],
-            [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ]
         : [
             [TYPES.SPAWN, 'Spawn (S/S2/S3)'],
@@ -1434,8 +1527,10 @@ const layoutVisualizer = {
             [TYPES.POWER_SPAWN, 'Power Spawn (PS)'],
             [TYPES.RAMPART, 'Rampart'],
             [{ structureType: TYPES.RAMPART, overlapRoad: true }, 'Road + Rampart Overlap'],
-            [TYPES.EXTENSION, 'Valid Structure Tile (debug dot)'],
           ];
+      if (showPlannerDebug) {
+        legend.push([TYPES.EXTENSION, 'Valid Structure Tile (debug dot)']);
+      }
       const baseX = 2;
       const rowStep = 0.8;
       const extraRows = isTheoretical ? 1.2 : 0.2; // room for upgrader-slot note in theoretical mode
@@ -1476,20 +1571,6 @@ const layoutVisualizer = {
           align: 'center',
         });
         vis.text(label, baseX + 0.5, y + 0.1, {
-          color: '#dddddd',
-          font: 0.5,
-          align: 'left',
-        });
-      }
-      if (isTheoretical) {
-        const y = baseY + legend.length * rowStep + 0.3;
-        vis.rect(baseX - 0.17, y - 0.25, 0.34, 0.34, {
-          fill: '#56c271',
-          opacity: 0.35,
-          stroke: '#56c271',
-          strokeWidth: 0.04,
-        });
-        vis.text('Reserved Upgrader Slot (2x4)', baseX + 0.5, y + 0.05, {
           color: '#dddddd',
           font: 0.5,
           align: 'left',

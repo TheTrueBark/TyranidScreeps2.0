@@ -26,9 +26,13 @@ const STRUCTURES = {
 
 const TERRAIN_WALL_MASK = typeof TERRAIN_MASK_WALL !== 'undefined' ? TERRAIN_MASK_WALL : 1;
 const TERRAIN_SWAMP_MASK = typeof TERRAIN_MASK_SWAMP !== 'undefined' ? TERRAIN_MASK_SWAMP : 2;
-const FIND_SOURCES_CONST = typeof FIND_SOURCES !== 'undefined' ? FIND_SOURCES : 'FIND_SOURCES';
-const FIND_MINERALS_CONST =
-  typeof FIND_MINERALS !== 'undefined' ? FIND_MINERALS : 'FIND_MINERALS';
+function findSourcesConst() {
+  return typeof FIND_SOURCES !== 'undefined' ? FIND_SOURCES : 'FIND_SOURCES';
+}
+
+function findMineralsConst() {
+  return typeof FIND_MINERALS !== 'undefined' ? FIND_MINERALS : 'FIND_MINERALS';
+}
 const LOOK_STRUCTURES_CONST =
   typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
 const DEFAULT_PRE_WEIGHTS = {
@@ -60,6 +64,10 @@ const DEFAULT_FINAL_WEIGHTS = {
   logisticsCoverage: 0.1,
   infraCost: 0.05,
 };
+
+const RAMPART_TARGET_STANDOFF = 4;
+const RAMPART_EXIT_APPROACH_DEPTH = 7;
+const RAMPART_DRAGONTOOTH_RESERVE_RADIUS = 1;
 
 function key(x, y) {
   return `${x}:${y}`;
@@ -251,6 +259,8 @@ function createPlanContext(room, matrices) {
         smallPlaced: 0,
         capacitySlots: 0,
         requiredSlots: 0,
+        partialPlaced: 0,
+        partialPlacedSlots: 0,
         smallFallbackReasons: {},
         bigCenters: [],
         smallCenters: [],
@@ -304,18 +314,26 @@ function isTileWalkableForPlacement(ctx, x, y) {
 function canPlaceStructure(ctx, type, x, y, options = {}) {
   if (!inBounds(x, y)) return false;
   const id = idx(x, y);
+  const tileKey = key(x, y);
   if (type !== STRUCTURES.ROAD) {
-    if (type === STRUCTURES.RAMPART && ctx.matrices.walkableMatrix[id] !== 1) return false;
+    if (type === STRUCTURES.RAMPART) {
+      if (ctx.matrices.walkableMatrix[id] !== 1) return false;
+      if (ctx.matrices.exitProximity[id] === 1) return false;
+      // Perimeter and support ramparts may overlap roads, but they should never
+      // be planned directly on top of logistics/core structures.
+      if (ctx.roadBlockedByStructures && ctx.roadBlockedByStructures.has(tileKey)) return false;
+      if (ctx.structuresByPos.has(tileKey)) return false;
+    }
     if (ctx.matrices.exitProximity[id] === 1) return false;
-    if (type !== STRUCTURES.RAMPART && !options.ignoreReservation && ctx.reserved.has(key(x, y))) {
+    if (type !== STRUCTURES.RAMPART && !options.ignoreReservation && ctx.reserved.has(tileKey)) {
       return false;
     }
-    if (type !== STRUCTURES.RAMPART && !options.allowOnRoad && ctx.roads.has(key(x, y))) return false;
+    if (type !== STRUCTURES.RAMPART && !options.allowOnRoad && ctx.roads.has(tileKey)) return false;
     if (!options.allowOnBlocked && !isTileWalkableForPlacement(ctx, x, y)) return false;
   } else {
     if (ctx.matrices.walkableMatrix[id] !== 1) return false;
-    if (ctx.roadBlockedByStructures && ctx.roadBlockedByStructures.has(key(x, y))) return false;
-    if (ctx.structuresByPos.has(key(x, y))) return false;
+    if (ctx.roadBlockedByStructures && ctx.roadBlockedByStructures.has(tileKey)) return false;
+    if (ctx.structuresByPos.has(tileKey)) return false;
   }
   return true;
 }
@@ -350,6 +368,29 @@ function addPlacement(ctx, type, x, y, rcl, tag = null, options = {}) {
     ctx.structuresByPos.set(k, type);
   }
   return true;
+}
+
+function removePlacementAt(ctx, x, y, predicate = null) {
+  if (!ctx || !Array.isArray(ctx.placements)) return null;
+  const placementKey = key(x, y);
+  const index = ctx.placements.findIndex((placement) => {
+    if (!placement || placement.x !== x || placement.y !== y) return false;
+    return typeof predicate === 'function' ? predicate(placement) : true;
+  });
+  if (index < 0) return null;
+  const [removed] = ctx.placements.splice(index, 1);
+  if (!removed) return null;
+  if (removed.type === STRUCTURES.ROAD) {
+    ctx.roads.delete(placementKey);
+  } else if (removed.type === STRUCTURES.RAMPART) {
+    ctx.ramparts.delete(placementKey);
+  } else {
+    ctx.structuresByPos.delete(placementKey);
+    ctx.blocked.delete(placementKey);
+    ctx.roadBlockedByStructures.delete(placementKey);
+    ctx.reserved.delete(placementKey);
+  }
+  return removed;
 }
 
 function cloneSerializable(value) {
@@ -583,6 +624,78 @@ function countWalkableNeighbors(ctx, x, y) {
   return count;
 }
 
+function computeLocalTransitPenalty(ctx, x, y, options = {}) {
+  const radius = Math.max(1, Number(options.radius || 2));
+  const localWalkable = new Set();
+  for (let tx = x - radius; tx <= x + radius; tx++) {
+    for (let ty = y - radius; ty <= y + radius; ty++) {
+      if (!inBounds(tx, ty) || (tx === x && ty === y)) continue;
+      const id = idx(tx, ty);
+      const tileKey = key(tx, ty);
+      if (ctx.matrices.walkableMatrix[id] !== 1) continue;
+      if (ctx.matrices.staticBlocked[id] === 1) continue;
+      if (ctx.matrices.exitProximity && ctx.matrices.exitProximity[id] === 1) continue;
+      if (ctx.blocked && ctx.blocked.has(tileKey)) continue;
+      if (ctx.roadBlockedByStructures && ctx.roadBlockedByStructures.has(tileKey)) continue;
+      if (ctx.structuresByPos && ctx.structuresByPos.has(tileKey)) continue;
+      localWalkable.add(tileKey);
+    }
+  }
+
+  const adjacentKeys = neighbors8(x, y)
+    .filter((n) => localWalkable.has(key(n.x, n.y)))
+    .map((n) => key(n.x, n.y));
+  if (adjacentKeys.length <= 1) return 0;
+
+  const visited = new Set();
+  const queue = [adjacentKeys[0]];
+  visited.add(adjacentKeys[0]);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const pos = parseKey(current);
+    for (const next of neighbors8(pos.x, pos.y)) {
+      const nextKey = key(next.x, next.y);
+      if (!localWalkable.has(nextKey) || visited.has(nextKey)) continue;
+      visited.add(nextKey);
+      queue.push(nextKey);
+    }
+  }
+
+  let penalty = 0;
+  const disconnectedNeighbors = adjacentKeys.filter((tileKey) => !visited.has(tileKey)).length;
+  if (disconnectedNeighbors > 0) penalty += 4 + disconnectedNeighbors;
+  if (adjacentKeys.length <= 2) penalty += 1.5;
+  else if (adjacentKeys.length === 3) penalty += 0.5;
+  return penalty;
+}
+
+function scoreSourceLinkCandidate(ctx, storage, sourcePos, containerPos, roadAnchor, pos) {
+  const sourcePenalty = chebyshev(pos, sourcePos) === 1 ? 0 : 1;
+  const containerPenalty = Math.max(0, chebyshev(pos, containerPos) - 1) * 1.4;
+  const transitPenalty = computeLocalTransitPenalty(ctx, pos.x, pos.y);
+  const opennessBonus = countWalkableNeighbors(ctx, pos.x, pos.y) * 0.15;
+  let continuationPenalty = 0;
+  if (roadAnchor) {
+    const dx = Math.sign(containerPos.x - roadAnchor.x);
+    const dy = Math.sign(containerPos.y - roadAnchor.y);
+    const continuation = { x: containerPos.x + dx, y: containerPos.y + dy };
+    if (pos.x === continuation.x && pos.y === continuation.y) {
+      continuationPenalty = 4;
+    }
+  }
+  const corridorPenalty =
+    roadAnchor && chebyshev(pos, roadAnchor) <= 1 && manhattan(pos, containerPos) === 1 ? 0.35 : 0;
+  return (
+    -manhattan(storage, pos) -
+    sourcePenalty -
+    containerPenalty -
+    transitPenalty -
+    continuationPenalty -
+    corridorPenalty +
+    opennessBonus
+  );
+}
+
 function findBestByCandidates(candidates, scorer) {
   let best = null;
   let bestScore = -Infinity;
@@ -708,6 +821,57 @@ function projectStampSlots(center, slotOffsets) {
     slots.push({ x: center.x + o.x, y: center.y + o.y, dx: o.x, dy: o.y });
   }
   return slots;
+}
+
+function evaluateHarabiStampSlots(ctx, candidateNode, stamp, options = {}) {
+  if (!ctx || !candidateNode || !stamp) {
+    return { slotCandidates: [], viableSlots: [] };
+  }
+  const storagePos = options.storagePos || null;
+  const layoutPattern = options.layoutPattern || 'parity';
+  const preferredParity = Number.isFinite(options.preferredParity)
+    ? Number(options.preferredParity)
+    : storagePos
+    ? checkerboard.parityAt(storagePos.x, storagePos.y)
+    : 0;
+  const foundationOnly = options.foundationOnly === true;
+  const slotCandidates = projectStampSlots(candidateNode, stamp.slots).filter((p) =>
+    inBounds(p.x, p.y) &&
+    (
+      checkerboard.classifyTileByPattern(p.x, p.y, storagePos, {
+        pattern: layoutPattern,
+        preferredParity,
+      }) === 'structure' ||
+      (p.dx === 0 && p.dy === 0)
+    ) &&
+    ctx.matrices.walkableMatrix[idx(p.x, p.y)] === 1 &&
+    ctx.matrices.staticBlocked[idx(p.x, p.y)] !== 1 &&
+    !ctx.reserved.has(key(p.x, p.y)) &&
+    !ctx.roads.has(key(p.x, p.y)) &&
+    !ctx.structuresByPos.has(key(p.x, p.y))
+  );
+  const viableSlots = foundationOnly
+    ? []
+    : slotCandidates.filter((p) => canPlaceStructure(ctx, STRUCTURES.EXTENSION, p.x, p.y));
+  return { slotCandidates, viableSlots };
+}
+
+function collectHarabiStampCapacityKeys(evaluation) {
+  return new Set(
+    (evaluation && Array.isArray(evaluation.viableSlots) ? evaluation.viableSlots : [])
+      .filter((slot) => slot && typeof slot.x === 'number' && typeof slot.y === 'number')
+      .map((slot) => key(slot.x, slot.y)),
+  );
+}
+
+function getHarabiStampPlacementSlots(evaluation, options = {}) {
+  if (options.foundationOnly === true) return [];
+  const viableSlots =
+    evaluation && Array.isArray(evaluation.viableSlots) ? evaluation.viableSlots : [];
+  const maxSlots = Number.isFinite(options.maxSlots)
+    ? Math.max(0, Math.trunc(Number(options.maxSlots)))
+    : viableSlots.length;
+  return viableSlots.slice(0, maxSlots);
 }
 
 function stampCrossSlots(center) {
@@ -1279,13 +1443,17 @@ function buildFoundationPreviewRanking(
         'road.controllerStamp',
         'road.grid',
       ]);
-  const allowedRoadKeys = useAllRoads
+  const rawAllowedRoadKeys = useAllRoads
     ? new Set(ctx.roads || [])
     : new Set(
       (ctx.placements || [])
         .filter((p) => p && p.type === STRUCTURES.ROAD && allowedRoadTags.has(String(p.tag || '')))
         .map((p) => key(p.x, p.y)),
     );
+  const allowedRoadKeys = (() => {
+    const connectedKeys = buildMainRoadComponentKeys(ctx, storage, rawAllowedRoadKeys);
+    return connectedKeys.size > 0 ? connectedKeys : rawAllowedRoadKeys;
+  })();
   const summary = {
     mode: String(options.mode || 'strict-buildable-v1'),
     revisit: String(options.revisit || 'dual-layer-debug-candidates'),
@@ -1860,6 +2028,148 @@ function pathRoads(ctx, from, to, options = {}) {
   });
 }
 
+function isRelocatableRoadBlocker(placement) {
+  if (!placement) return false;
+  if (placement.type !== STRUCTURES.EXTENSION) return false;
+  return String(placement.tag || '').startsWith('extension.');
+}
+
+function pathRoadsAllowingSingleRelocation(ctx, from, to, options = {}) {
+  if (!from || !to || typeof PathFinder === 'undefined' || typeof PathFinder.search !== 'function') {
+    return { path: [], blockerKey: null };
+  }
+  if (typeof RoomPosition === 'undefined') return { path: [], blockerKey: null };
+  const preferredRoads = options.preferredRoads || null;
+  const avoidKeys = options.avoidKeys || null;
+  const avoidPenalty = Number.isFinite(options.avoidPenalty) ? options.avoidPenalty : 15;
+  const targetRange = Number.isFinite(options.targetRange)
+    ? Math.max(0, Math.trunc(Number(options.targetRange)))
+    : 1;
+  const relocatableKeys = options.relocatableKeys instanceof Set ? options.relocatableKeys : new Set();
+  const fromKey = key(from.x, from.y);
+  const toKey = key(to.x, to.y);
+  const reachesTarget = (path) => {
+    if (!Array.isArray(path) || path.length === 0) return false;
+    const last = path[path.length - 1];
+    return Boolean(last && Number.isFinite(last.x) && Number.isFinite(last.y) && chebyshev(last, to) <= targetRange);
+  };
+  const res = PathFinder.search(
+    new RoomPosition(from.x, from.y, ctx.roomName),
+    { pos: new RoomPosition(to.x, to.y, ctx.roomName), range: targetRange },
+    {
+      plainCost: 1,
+      swampCost: 1,
+      maxOps: 10000,
+      roomCallback: () => {
+        if (!PathFinder.CostMatrix) return false;
+        const costs = new PathFinder.CostMatrix();
+        for (let y = 0; y <= 49; y++) {
+          for (let x = 0; x <= 49; x++) {
+            const id = idx(x, y);
+            if (ctx.matrices.walkableMatrix[id] !== 1) {
+              costs.set(x, y, 255);
+              continue;
+            }
+            const tileKey = key(x, y);
+            if (
+              ctx.roadBlockedByStructures &&
+              ctx.roadBlockedByStructures.has(tileKey) &&
+              tileKey !== fromKey &&
+              tileKey !== toKey &&
+              !relocatableKeys.has(tileKey)
+            ) {
+              costs.set(x, y, 255);
+              continue;
+            }
+            if (ctx.structuresByPos.has(tileKey) && tileKey !== fromKey && tileKey !== toKey) {
+              if (relocatableKeys.has(tileKey)) {
+                costs.set(x, y, 9);
+              } else {
+                costs.set(x, y, 255);
+              }
+              continue;
+            }
+            if (avoidKeys && avoidKeys.has(tileKey)) {
+              costs.set(x, y, avoidPenalty);
+              continue;
+            }
+            if (ctx.roads.has(tileKey) || (preferredRoads && preferredRoads.has(tileKey))) {
+              costs.set(x, y, 1);
+            }
+          }
+        }
+        return costs;
+      },
+    },
+  );
+  const mappedPath = res && Array.isArray(res.path) ? res.path.map((p) => ({ x: p.x, y: p.y })) : [];
+  const buildFallbackPath = () => {
+    const path = [];
+    const visited = new Set([fromKey]);
+    const blockerKeys = new Set();
+    let current = { x: from.x, y: from.y };
+    let guard = 0;
+    while (chebyshev(current, to) > targetRange && guard < 250) {
+      guard += 1;
+      const candidates = neighbors8(current.x, current.y)
+        .filter((next) => {
+          const nextKey = key(next.x, next.y);
+          if (visited.has(nextKey)) return false;
+          const id = idx(next.x, next.y);
+          if (ctx.matrices.walkableMatrix[id] !== 1) return false;
+          const isRelocatable = relocatableKeys.has(nextKey);
+          if (
+            ctx.roadBlockedByStructures &&
+            ctx.roadBlockedByStructures.has(nextKey) &&
+            nextKey !== fromKey &&
+            nextKey !== toKey &&
+            !isRelocatable
+          ) {
+            return false;
+          }
+          if (ctx.structuresByPos.has(nextKey) && nextKey !== fromKey && nextKey !== toKey && !isRelocatable) {
+            return false;
+          }
+          if (isRelocatable && blockerKeys.size >= 1 && !blockerKeys.has(nextKey)) return false;
+          return true;
+        })
+        .sort((left, right) => {
+          const leftKey = key(left.x, left.y);
+          const rightKey = key(right.x, right.y);
+          const leftRelocatable = relocatableKeys.has(leftKey) ? 4 : 0;
+          const rightRelocatable = relocatableKeys.has(rightKey) ? 4 : 0;
+          const leftScore =
+            chebyshev(left, to) +
+            leftRelocatable +
+            (avoidKeys && avoidKeys.has(leftKey) ? avoidPenalty : 0) -
+            ((ctx.roads.has(leftKey) || (preferredRoads && preferredRoads.has(leftKey))) ? 0.25 : 0);
+          const rightScore =
+            chebyshev(right, to) +
+            rightRelocatable +
+            (avoidKeys && avoidKeys.has(rightKey) ? avoidPenalty : 0) -
+            ((ctx.roads.has(rightKey) || (preferredRoads && preferredRoads.has(rightKey))) ? 0.25 : 0);
+          return leftScore - rightScore || manhattan(left, to) - manhattan(right, to);
+        });
+      if (!candidates.length) return { path: [], blockerKey: null };
+      const next = candidates[0];
+      const nextKey = key(next.x, next.y);
+      if (relocatableKeys.has(nextKey)) blockerKeys.add(nextKey);
+      path.push(next);
+      visited.add(nextKey);
+      current = next;
+    }
+    if (chebyshev(current, to) > targetRange || blockerKeys.size > 1) {
+      return { path: [], blockerKey: null };
+    }
+    return { path, blockerKey: [...blockerKeys][0] || null };
+  };
+  const resolvedPath = reachesTarget(mappedPath) ? mappedPath : buildFallbackPath().path;
+  if (!reachesTarget(resolvedPath)) return { path: [], blockerKey: null };
+  const blockerKeys = [...new Set(resolvedPath.map((step) => key(step.x, step.y)).filter((tileKey) => relocatableKeys.has(tileKey)))];
+  if (blockerKeys.length > 1) return { path: [], blockerKey: null };
+  return { path: resolvedPath, blockerKey: blockerKeys[0] || null };
+}
+
 function terrainMoveCost(terrainType) {
   if (terrainType === 1) return 10;
   if (terrainType === 2) return 255;
@@ -1979,16 +2289,214 @@ function isCoreDefenseStructure(placement, storagePos) {
   return true;
 }
 
+function collectExitRegions(ctx) {
+  const regions = [];
+  if (!ctx || !ctx.matrices || !Array.isArray(ctx.matrices.walkableMatrix)) return regions;
+  const seen = new Set();
+  for (let y = 0; y <= 49; y++) {
+    for (let x = 0; x <= 49; x++) {
+      if (x !== 0 && x !== 49 && y !== 0 && y !== 49) continue;
+      if (ctx.matrices.walkableMatrix[idx(x, y)] !== 1) continue;
+      const regionKey = key(x, y);
+      if (seen.has(regionKey)) continue;
+      const region = [];
+      const queue = [{ x, y }];
+      seen.add(regionKey);
+      for (let i = 0; i < queue.length; i++) {
+        const current = queue[i];
+        region.push(current);
+        for (const next of neighbors8(current.x, current.y)) {
+          if (!inBounds(next.x, next.y)) continue;
+          if (next.x !== 0 && next.x !== 49 && next.y !== 0 && next.y !== 49) continue;
+          if (ctx.matrices.walkableMatrix[idx(next.x, next.y)] !== 1) continue;
+          const nextKey = key(next.x, next.y);
+          if (seen.has(nextKey)) continue;
+          seen.add(nextKey);
+          queue.push(next);
+        }
+      }
+      if (region.length > 0) regions.push(region);
+    }
+  }
+  return regions;
+}
+
+function findWalkablePathToAny(ctx, start, targets) {
+  if (!ctx || !ctx.matrices || !Array.isArray(ctx.matrices.walkableMatrix) || !start) return [];
+  const targetKeys = new Set(
+    (targets || [])
+      .filter((tile) => tile && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  if (targetKeys.size === 0) return [];
+  const startKey = key(start.x, start.y);
+  const queue = [{ x: start.x, y: start.y }];
+  const parentByKey = new Map([[startKey, null]]);
+  let reachedKey = targetKeys.has(startKey) ? startKey : null;
+  for (let i = 0; i < queue.length && !reachedKey; i++) {
+    const current = queue[i];
+    for (const next of neighbors8(current.x, current.y)) {
+      if (!inBounds(next.x, next.y)) continue;
+      if (ctx.matrices.walkableMatrix[idx(next.x, next.y)] !== 1) continue;
+      const nextKey = key(next.x, next.y);
+      if (parentByKey.has(nextKey)) continue;
+      parentByKey.set(nextKey, key(current.x, current.y));
+      if (targetKeys.has(nextKey)) {
+        reachedKey = nextKey;
+        break;
+      }
+      queue.push(next);
+    }
+  }
+  if (!reachedKey) return [];
+  const path = [];
+  let cursor = reachedKey;
+  while (cursor) {
+    path.push(parseKey(cursor));
+    cursor = parentByKey.get(cursor) || null;
+  }
+  path.reverse();
+  return path;
+}
+
+function selectExitRegionCenter(region = []) {
+  const rows = Array.isArray(region) ? region.filter((tile) => tile && inBounds(tile.x, tile.y)) : [];
+  if (rows.length === 0) return null;
+  const sideCounts = {
+    left: rows.filter((tile) => tile.x === 0).length,
+    right: rows.filter((tile) => tile.x === 49).length,
+    top: rows.filter((tile) => tile.y === 0).length,
+    bottom: rows.filter((tile) => tile.y === 49).length,
+  };
+  const dominantSide = Object.keys(sideCounts).sort((a, b) => sideCounts[b] - sideCounts[a])[0];
+  const edgeRows = rows.filter((tile) => {
+    if (dominantSide === 'left') return tile.x === 0;
+    if (dominantSide === 'right') return tile.x === 49;
+    if (dominantSide === 'top') return tile.y === 0;
+    return tile.y === 49;
+  });
+  const candidates = edgeRows.length > 0 ? edgeRows : rows;
+  candidates.sort((a, b) => {
+    if (dominantSide === 'left' || dominantSide === 'right') {
+      return a.y - b.y || a.x - b.x;
+    }
+    return a.x - b.x || a.y - b.y;
+  });
+  const center = candidates[Math.floor((candidates.length - 1) / 2)];
+  let inward = { x: 0, y: 0 };
+  let lateral = { x: 0, y: 1 };
+  if (dominantSide === 'left') {
+    inward = { x: 1, y: 0 };
+    lateral = { x: 0, y: 1 };
+  } else if (dominantSide === 'right') {
+    inward = { x: -1, y: 0 };
+    lateral = { x: 0, y: 1 };
+  } else if (dominantSide === 'top') {
+    inward = { x: 0, y: 1 };
+    lateral = { x: 1, y: 0 };
+  } else {
+    inward = { x: 0, y: -1 };
+    lateral = { x: 1, y: 0 };
+  }
+  return { center, inward, lateral, dominantSide };
+}
+
+function buildExitApproachTargets(ctx, storagePos, options = {}) {
+  if (!ctx || !storagePos) return [];
+  const exitRegions = collectExitRegions(ctx);
+  if (exitRegions.length === 0) return [];
+  if (options.force !== true && exitRegions.length !== 1) return [];
+  const approachDepth = Number.isFinite(options.depth)
+    ? Math.max(2, Math.trunc(Number(options.depth)))
+    : RAMPART_EXIT_APPROACH_DEPTH;
+  const reserveRadius = Number.isFinite(options.reserveRadius)
+    ? Math.max(0, Math.trunc(Number(options.reserveRadius)))
+    : RAMPART_DRAGONTOOTH_RESERVE_RADIUS;
+  const targets = new Map();
+  for (const region of exitRegions) {
+    const approach = selectExitRegionCenter(region);
+    if (!approach || !approach.center) continue;
+    const includeRegion = options.includeRegion === true;
+    const exitBandHalfWidth = Math.max(
+      0,
+      Math.min(
+        reserveRadius,
+        Math.floor(((Array.isArray(region) ? region.length : 1) - 1) / 2),
+      ),
+    );
+
+    const addTarget = (x, y) => {
+      if (!inBounds(x, y)) return;
+      if (ctx.matrices.walkableMatrix[idx(x, y)] !== 1) return;
+      targets.set(key(x, y), { x, y });
+    };
+
+    for (let offset = -exitBandHalfWidth; offset <= exitBandHalfWidth; offset++) {
+      addTarget(
+        approach.center.x + approach.lateral.x * offset,
+        approach.center.y + approach.lateral.y * offset,
+      );
+    }
+
+    if (includeRegion) {
+      for (const tile of region) {
+        addTarget(tile.x, tile.y);
+      }
+    }
+
+    for (let step = 1; step <= approachDepth; step++) {
+      const baseX = approach.center.x + approach.inward.x * step;
+      const baseY = approach.center.y + approach.inward.y * step;
+      for (let dx = -reserveRadius; dx <= reserveRadius; dx++) {
+        const x = baseX + approach.lateral.x * dx;
+        const y = baseY + approach.lateral.y * dx;
+        addTarget(x, y);
+      }
+    }
+  }
+  return [...targets.values()];
+}
+
 function buildDefenseCutContext(ctx, storagePos) {
   const defenseMap = new Map();
+  const corePoints = [];
   for (const placement of ctx.placements || []) {
     if (!isCoreDefenseStructure(placement, storagePos)) continue;
     defenseMap.set(key(placement.x, placement.y), placement.type);
+    corePoints.push({ x: placement.x, y: placement.y });
+  }
+  const exitApproachTargets = buildExitApproachTargets(ctx, storagePos);
+  for (const target of exitApproachTargets) {
+    defenseMap.set(key(target.x, target.y), 'fortify.exitApproach');
   }
   return {
     structuresByPos: defenseMap,
+    corePoints,
     matrices: ctx.matrices,
+    exitApproachTargets,
   };
+}
+
+function findRelocationPosition(ctx, placement, storagePos, layoutPattern, preferredParity, candidates, options = {}) {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  const avoidKeys = options.avoidKeys instanceof Set ? options.avoidKeys : new Set();
+  for (const candidate of rows) {
+    if (!candidate || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) continue;
+    const candidateKey = key(candidate.x, candidate.y);
+    if (avoidKeys.has(candidateKey)) continue;
+    if (
+      checkerboard.classifyTileByPattern(candidate.x, candidate.y, storagePos, {
+        pattern: layoutPattern,
+        preferredParity,
+      }) !== 'structure'
+    ) {
+      continue;
+    }
+    if (!neighbors8(candidate.x, candidate.y).some((tile) => ctx.roads.has(key(tile.x, tile.y)))) continue;
+    if (!canPlaceStructure(ctx, placement.type, candidate.x, candidate.y)) continue;
+    return { x: candidate.x, y: candidate.y };
+  }
+  return null;
 }
 
 function computeRampartInteriorMetrics(ctx, rampartLine, storagePos, options = {}) {
@@ -2112,7 +2620,9 @@ function computeRampartInteriorMetrics(ctx, rampartLine, storagePos, options = {
 }
 
 function scoreRampartLineCandidate(ctx, rampartLine, storagePos, options = {}) {
-  const targetStandoff = Number.isFinite(options.targetStandoff) ? Number(options.targetStandoff) : 3;
+  const targetStandoff = Number.isFinite(options.targetStandoff)
+    ? Number(options.targetStandoff)
+    : RAMPART_TARGET_STANDOFF;
   const metrics =
     options.metrics && typeof options.metrics === 'object'
       ? options.metrics
@@ -2182,6 +2692,17 @@ function shouldProtectControllerWithRamparts(storagePos, controllerPos, rampartL
   return Number.isFinite(bestBoundaryDistance) && bestBoundaryDistance <= 5;
 }
 
+function isMainRoadSeedTag(tag) {
+  return (
+    tag === 'road.coreStamp' ||
+    tag === 'road.stamp' ||
+    tag === 'road.controllerStamp' ||
+    tag === 'road.grid' ||
+    tag === 'road.full' ||
+    tag === 'road.protected'
+  );
+}
+
 function buildMainRoadSeedKeys(ctx, storagePos) {
   const seeds = new Set();
   const placements = ctx && Array.isArray(ctx.placements) ? ctx.placements : [];
@@ -2189,14 +2710,7 @@ function buildMainRoadSeedKeys(ctx, storagePos) {
     if (!placement || placement.type !== STRUCTURES.ROAD) continue;
     const placementKey = key(placement.x, placement.y);
     const tag = String(placement.tag || '');
-    if (
-      tag === 'road.coreStamp' ||
-      tag === 'road.stamp' ||
-      tag === 'road.controllerStamp' ||
-      tag === 'road.grid' ||
-      tag === 'road.full' ||
-      tag === 'road.protected'
-    ) {
+    if (isMainRoadSeedTag(tag)) {
       seeds.add(placementKey);
     }
   }
@@ -2207,6 +2721,82 @@ function buildMainRoadSeedKeys(ctx, storagePos) {
     }
   }
   return seeds;
+}
+
+// Seed the "main road" component from the closest storage-adjacent roads only so
+// clipped stamp fragments or one-gap wings near storage do not masquerade as the
+// connected base network.
+function buildStorageConnectedRoadSeedKeys(ctx, storagePos, roadKeys = null) {
+  const seeds = new Set();
+  const roads = roadKeys instanceof Set ? roadKeys : ctx && ctx.roads instanceof Set ? ctx.roads : new Set();
+  const placements = ctx && Array.isArray(ctx.placements) ? ctx.placements : [];
+  if (storagePos && typeof storagePos.x === 'number' && typeof storagePos.y === 'number') {
+    let bestDistance = Infinity;
+    for (const roadKey of roads) {
+      const pos = parseKey(roadKey);
+      const distance = chebyshev(pos, storagePos);
+      if (distance > 3) continue;
+      if (distance < bestDistance) {
+        seeds.clear();
+        bestDistance = distance;
+      }
+      if (distance === bestDistance) seeds.add(roadKey);
+    }
+    if (seeds.size > 0) return seeds;
+  }
+  for (const placement of placements) {
+    if (!placement || placement.type !== STRUCTURES.ROAD) continue;
+    const placementKey = key(placement.x, placement.y);
+    if (roads.size > 0 && !roads.has(placementKey)) continue;
+    if (String(placement.tag || '') !== 'road.coreStamp') continue;
+    seeds.add(placementKey);
+  }
+  if (seeds.size > 0) return seeds;
+  let bestDistance = Infinity;
+  for (const placement of placements) {
+    if (!placement || placement.type !== STRUCTURES.ROAD) continue;
+    const placementKey = key(placement.x, placement.y);
+    if (roads.size > 0 && !roads.has(placementKey)) continue;
+    const tag = String(placement.tag || '');
+    if (!isMainRoadSeedTag(tag)) continue;
+    const distance =
+      storagePos && typeof storagePos.x === 'number' && typeof storagePos.y === 'number'
+        ? chebyshev(placement, storagePos)
+        : 0;
+    if (distance < bestDistance) {
+      seeds.clear();
+      bestDistance = distance;
+    }
+    if (distance === bestDistance) {
+      seeds.add(placementKey);
+    }
+  }
+  if (seeds.size > 0) return seeds;
+  if (roads.size > 0) {
+    let fallbackKey = null;
+    let fallbackDistance = Infinity;
+    for (const roadKey of roads) {
+      const pos = parseKey(roadKey);
+      const distance =
+        storagePos && typeof storagePos.x === 'number' && typeof storagePos.y === 'number'
+          ? chebyshev(pos, storagePos)
+          : 0;
+      if (distance < fallbackDistance) {
+        fallbackKey = roadKey;
+        fallbackDistance = distance;
+      }
+    }
+    if (fallbackKey) seeds.add(fallbackKey);
+  }
+  return seeds;
+}
+
+function buildMainRoadComponentKeys(ctx, storagePos, roadKeys = null) {
+  const roads = roadKeys instanceof Set ? roadKeys : ctx && ctx.roads instanceof Set ? ctx.roads : new Set();
+  if (!(roads instanceof Set) || roads.size === 0) return new Set();
+  const seedKeys = buildStorageConnectedRoadSeedKeys(ctx, storagePos, roads);
+  if (seedKeys.size === 0) return new Set();
+  return buildConnectedRoadKeys(roads, seedKeys);
 }
 
 function isRoadCompatibleRampartTile(ctx, x, y) {
@@ -2293,7 +2883,7 @@ function chooseDiagonalBridgeTile(ctx, orthoA, orthoB, storagePos) {
         score:
           (ctx.roads.has(tileKey) ? -4 : 0) +
           (roadCompatible ? -2 : 0) +
-          (storagePos ? chebyshev(tile, storagePos) * 0.1 : 0) +
+          (storagePos ? chebyshev(tile, storagePos) * 2 + manhattan(tile, storagePos) * 0.05 : 0) +
           deterministicJitter(tile.x, tile.y, 17) * 0.01,
       };
     })
@@ -2374,48 +2964,301 @@ function canonicalizeRampartBoundaryTiles(ctx, tiles, storagePos) {
   line = selectBestBoundaryComponent(ctx, components, storagePos);
   line = repairDiagonalBoundaryGaps(ctx, line, storagePos);
   line = pruneUnsupportedBoundaryLeafTiles(ctx, line);
+  line = pruneRedundantBoundaryBlips(ctx, line, storagePos);
   return normalizeRampartBoundaryTiles(ctx, line);
+}
+
+function chooseRampartSupportTile(ctx, boundaryTile, storagePos, boundaryKeys, supportKeys) {
+  if (!ctx || !boundaryTile || !storagePos) return null;
+  const boundaryKey = key(boundaryTile.x, boundaryTile.y);
+  const boundaryHasRoad = ctx.roads.has(boundaryKey);
+  const boundaryDist = chebyshev(boundaryTile, storagePos);
+  const candidates = neighbors8(boundaryTile.x, boundaryTile.y)
+    .filter((tile) => inBounds(tile.x, tile.y))
+    .filter((tile) => chebyshev(tile, storagePos) < boundaryDist)
+    .filter((tile) => !boundaryKeys.has(key(tile.x, tile.y)) && !supportKeys.has(key(tile.x, tile.y)))
+    .filter((tile) =>
+      canPlaceStructure(ctx, STRUCTURES.RAMPART, tile.x, tile.y, { allowOnBlocked: true }),
+    )
+    .map((tile) => {
+      const tileKey = key(tile.x, tile.y);
+      const tileDist = chebyshev(tile, storagePos);
+      let boundaryAdjacency = 0;
+      let supportAdjacency = 0;
+      let inwardRoadNeighbors = 0;
+      for (const neighbor of neighbors8(tile.x, tile.y)) {
+        const neighborKey = key(neighbor.x, neighbor.y);
+        if (boundaryKeys.has(neighborKey)) boundaryAdjacency += 1;
+        if (supportKeys.has(neighborKey)) supportAdjacency += 1;
+        if (ctx.roads.has(neighborKey) && chebyshev(neighbor, storagePos) < tileDist) {
+          inwardRoadNeighbors += 1;
+        }
+      }
+      const tileHasRoad = ctx.roads.has(tileKey);
+      return {
+        tile,
+        score:
+          (boundaryHasRoad && tileHasRoad ? -28 : 0) +
+          (tileHasRoad ? -12 : 0) -
+          inwardRoadNeighbors * 10 -
+          boundaryAdjacency * 6 -
+          supportAdjacency * 4 -
+          (boundaryDist - tileDist) * 2 +
+          deterministicJitter(tile.x, tile.y, 29) * 0.01,
+      };
+    })
+    .sort((left, right) => left.score - right.score);
+  return candidates.length > 0 ? candidates[0].tile : null;
+}
+
+function addRampartSupportBand(ctx, rampartLine, storagePos) {
+  if (!ctx || !storagePos || !Array.isArray(rampartLine) || rampartLine.length === 0) return [];
+  const boundaryKeys = new Set(
+    rampartLine
+      .filter((tile) => tile && typeof tile.x === 'number' && typeof tile.y === 'number')
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  const supportKeys = new Set(
+    (ctx.placements || [])
+      .filter(
+        (placement) =>
+          placement &&
+          placement.type === STRUCTURES.RAMPART &&
+          String(placement.tag || '') === 'rampart.support',
+      )
+      .map((placement) => key(placement.x, placement.y)),
+  );
+  const orderedBoundary = rampartLine
+    .slice()
+    .sort((left, right) => {
+      const leftRoad = Number(ctx.roads.has(key(left.x, left.y)));
+      const rightRoad = Number(ctx.roads.has(key(right.x, right.y)));
+      const leftNeighbors = neighbors8(left.x, left.y).filter((tile) => boundaryKeys.has(key(tile.x, tile.y))).length;
+      const rightNeighbors = neighbors8(right.x, right.y).filter((tile) => boundaryKeys.has(key(tile.x, tile.y))).length;
+      return (
+        rightRoad - leftRoad ||
+        rightNeighbors - leftNeighbors ||
+        chebyshev(left, storagePos) - chebyshev(right, storagePos) ||
+        left.y - right.y ||
+        left.x - right.x
+      );
+    });
+  const added = [];
+  for (const boundaryTile of orderedBoundary) {
+    const supportTile = chooseRampartSupportTile(
+      ctx,
+      boundaryTile,
+      storagePos,
+      boundaryKeys,
+      supportKeys,
+    );
+    if (!supportTile) continue;
+    if (
+      addPlacement(ctx, STRUCTURES.RAMPART, supportTile.x, supportTile.y, 2, 'rampart.support', {
+        allowOnBlocked: true,
+      })
+    ) {
+      const supportKey = key(supportTile.x, supportTile.y);
+      supportKeys.add(supportKey);
+      added.push({ x: supportTile.x, y: supportTile.y });
+    }
+  }
+  return added;
+}
+
+function ensureBoundaryRoadSupports(ctx, rampartLine, storagePos) {
+  if (!ctx || !storagePos || !Array.isArray(rampartLine) || rampartLine.length === 0) return [];
+  const boundaryKeys = new Set(
+    rampartLine
+      .filter((tile) => tile && typeof tile.x === 'number' && typeof tile.y === 'number')
+      .map((tile) => key(tile.x, tile.y)),
+  );
+  const added = [];
+  for (const boundaryTile of rampartLine) {
+    if (!boundaryTile || typeof boundaryTile.x !== 'number' || typeof boundaryTile.y !== 'number') continue;
+    const boundaryKey = key(boundaryTile.x, boundaryTile.y);
+    if (!ctx.roads.has(boundaryKey)) continue;
+    const boundaryDist = chebyshev(boundaryTile, storagePos);
+    const hasInnerRampart = neighbors8(boundaryTile.x, boundaryTile.y).some((tile) => {
+      if (!inBounds(tile.x, tile.y)) return false;
+      if (chebyshev(tile, storagePos) >= boundaryDist) return false;
+      return ctx.ramparts.has(key(tile.x, tile.y));
+    });
+    if (hasInnerRampart) continue;
+    const candidate = neighbors8(boundaryTile.x, boundaryTile.y)
+      .filter((tile) => inBounds(tile.x, tile.y))
+      .filter((tile) => chebyshev(tile, storagePos) < boundaryDist)
+      .filter((tile) => ctx.roads.has(key(tile.x, tile.y)))
+      .filter((tile) => !boundaryKeys.has(key(tile.x, tile.y)) && !ctx.ramparts.has(key(tile.x, tile.y)))
+      .filter((tile) =>
+        canPlaceStructure(ctx, STRUCTURES.RAMPART, tile.x, tile.y, { allowOnBlocked: true }),
+      )
+      .map((tile) => {
+        const tileDist = chebyshev(tile, storagePos);
+        const deeperRoadNeighbors = neighbors8(tile.x, tile.y).filter((neighbor) => {
+          if (!inBounds(neighbor.x, neighbor.y)) return false;
+          const neighborKey = key(neighbor.x, neighbor.y);
+          return ctx.roads.has(neighborKey) && chebyshev(neighbor, storagePos) < tileDist;
+        }).length;
+        const rampartAdjacency = neighbors8(tile.x, tile.y).filter((neighbor) =>
+          ctx.ramparts.has(key(neighbor.x, neighbor.y)),
+        ).length;
+        return {
+          tile,
+          score:
+            deeperRoadNeighbors * -20 -
+            rampartAdjacency * 8 +
+            tileDist +
+            manhattan(tile, storagePos) * 0.05 +
+            deterministicJitter(tile.x, tile.y, 31) * 0.01,
+        };
+      })
+      .sort((left, right) => left.score - right.score)[0];
+    if (!candidate) continue;
+    if (
+      addPlacement(ctx, STRUCTURES.RAMPART, candidate.tile.x, candidate.tile.y, 2, 'rampart.support', {
+        allowOnBlocked: true,
+      })
+    ) {
+      added.push({ x: candidate.tile.x, y: candidate.tile.y });
+    }
+  }
+  return added;
 }
 
 function addRampartCorridorGuards(ctx, rampartLine, storagePos, options = {}) {
   if (!ctx || !storagePos || !Array.isArray(rampartLine) || rampartLine.length === 0) return [];
-  const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, Math.trunc(Number(options.maxDepth))) : 2;
+  const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(1, Math.trunc(Number(options.maxDepth))) : 3;
   const added = [];
   const claimed = new Set();
   const roadKeys = new Set(ctx.roads || []);
+  const visited = new Set();
+  const queue = [];
   for (const boundary of rampartLine) {
     if (!boundary || typeof boundary.x !== 'number' || typeof boundary.y !== 'number') continue;
-    if (!roadKeys.has(key(boundary.x, boundary.y))) continue;
-    let current = { x: boundary.x, y: boundary.y };
-    let previousKey = null;
-    for (let depth = 0; depth < maxDepth; depth++) {
-      const currentDist = chebyshev(current, storagePos);
-      const next = neighbors8(current.x, current.y)
-        .filter((tile) => roadKeys.has(key(tile.x, tile.y)))
-        .filter((tile) => key(tile.x, tile.y) !== previousKey)
-        .filter((tile) => chebyshev(tile, storagePos) < currentDist)
-        .sort((left, right) => {
-          const leftDist = chebyshev(left, storagePos);
-          const rightDist = chebyshev(right, storagePos);
-          return leftDist - rightDist || manhattan(left, storagePos) - manhattan(right, storagePos);
-        })[0];
-      if (!next) break;
-      previousKey = key(current.x, current.y);
-      current = next;
-      const currentKey = key(current.x, current.y);
-      if (claimed.has(currentKey) || ctx.ramparts.has(currentKey)) continue;
-      if (addPlacement(ctx, STRUCTURES.RAMPART, current.x, current.y, 2, 'rampart.corridor', { allowOnBlocked: true })) {
-        claimed.add(currentKey);
-        added.push({ x: current.x, y: current.y });
+    const boundaryKey = key(boundary.x, boundary.y);
+    if (!roadKeys.has(boundaryKey) || visited.has(boundaryKey)) continue;
+    visited.add(boundaryKey);
+    queue.push({ x: boundary.x, y: boundary.y, depth: 0 });
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const current = queue[i];
+    if (current.depth >= maxDepth) continue;
+    const currentDist = chebyshev(current, storagePos);
+    const nextRoads = neighbors8(current.x, current.y)
+      .filter((tile) => roadKeys.has(key(tile.x, tile.y)))
+      .filter((tile) => {
+        const nextKey = key(tile.x, tile.y);
+        if (visited.has(nextKey)) return false;
+        return chebyshev(tile, storagePos) <= currentDist;
+      })
+      .sort((left, right) => {
+        const leftDist = chebyshev(left, storagePos);
+        const rightDist = chebyshev(right, storagePos);
+        return leftDist - rightDist || manhattan(left, storagePos) - manhattan(right, storagePos);
+      });
+    for (const next of nextRoads) {
+      const nextKey = key(next.x, next.y);
+      visited.add(nextKey);
+      queue.push({ x: next.x, y: next.y, depth: current.depth + 1 });
+      if (claimed.has(nextKey) || ctx.ramparts.has(nextKey)) continue;
+      if (
+        addPlacement(ctx, STRUCTURES.RAMPART, next.x, next.y, 2, 'rampart.corridor', {
+          allowOnBlocked: true,
+        })
+      ) {
+        claimed.add(nextKey);
+        added.push({ x: next.x, y: next.y });
       }
     }
   }
   return added;
 }
 
+function pruneRedundantBoundaryBlips(ctx, tiles, storagePos) {
+  let line = normalizeRampartBoundaryTiles(ctx, tiles);
+  if (!ctx || !storagePos || line.length <= 4) return line;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const currentMetrics = computeRampartInteriorMetrics(ctx, line, storagePos);
+    const currentScore = Number(
+      scoreRampartLineCandidate(ctx, line, storagePos, { metrics: currentMetrics }).score || 0,
+    );
+    const lineKeys = new Set(line.map((tile) => key(tile.x, tile.y)));
+    const candidates = line
+      .map((tile) => {
+        let neighborCount = 0;
+        let wallSupport = false;
+        for (const next of neighbors8(tile.x, tile.y)) {
+          if (lineKeys.has(key(next.x, next.y))) neighborCount += 1;
+          if (!inBounds(next.x, next.y) || ctx.matrices.walkableMatrix[idx(next.x, next.y)] !== 1) {
+            wallSupport = true;
+          }
+        }
+        return { tile, neighborCount, wallSupport };
+      })
+      .filter((entry) => entry.neighborCount <= 2 && !entry.wallSupport)
+      .sort(
+        (left, right) =>
+          chebyshev(right.tile, storagePos) - chebyshev(left.tile, storagePos) ||
+          manhattan(right.tile, storagePos) - manhattan(left.tile, storagePos),
+      );
+    for (const candidate of candidates) {
+      const nextLine = line.filter((tile) => tile.x !== candidate.tile.x || tile.y !== candidate.tile.y);
+      if (buildBoundaryComponents(nextLine).length !== 1) continue;
+      const nextMetrics = computeRampartInteriorMetrics(ctx, nextLine, storagePos);
+      if (nextMetrics.touchesBorder) continue;
+      if (Number(nextMetrics.protectedInsideCount || 0) < Number(currentMetrics.protectedInsideCount || 0)) {
+        continue;
+      }
+      const nextScore = Number(
+        scoreRampartLineCandidate(ctx, nextLine, storagePos, { metrics: nextMetrics }).score || 0,
+      );
+      if (nextScore > currentScore + 0.001) continue;
+      line = normalizeRampartBoundaryTiles(ctx, nextLine);
+      changed = true;
+      break;
+    }
+  }
+  return line;
+}
+
+function pruneStrayInnerRamparts(ctx) {
+  if (!ctx || !Array.isArray(ctx.placements)) return { removedSupports: 0, removedCorridors: 0 };
+  const rampartKeys = new Set(
+    (ctx.placements || [])
+      .filter((placement) => placement && placement.type === STRUCTURES.RAMPART)
+      .map((placement) => key(placement.x, placement.y)),
+  );
+  let removedSupports = 0;
+  let removedCorridors = 0;
+  ctx.placements = ctx.placements.filter((placement) => {
+    if (!placement || placement.type !== STRUCTURES.RAMPART) return true;
+    if (placement.tag !== 'rampart.support' && placement.tag !== 'rampart.corridor') return true;
+    const adjacentRamparts = neighbors8(placement.x, placement.y).filter((tile) =>
+      rampartKeys.has(key(tile.x, tile.y)),
+    ).length;
+    if (adjacentRamparts > 0) return true;
+    ctx.ramparts.delete(key(placement.x, placement.y));
+    if (placement.tag === 'rampart.support') {
+      removedSupports += 1;
+    } else {
+      removedCorridors += 1;
+    }
+    return false;
+  });
+  return { removedSupports, removedCorridors };
+}
+
 function pruneDisconnectedRampartRoadPlacements(ctx, options = {}) {
   if (!ctx || !Array.isArray(ctx.placements) || !(ctx.roads instanceof Set)) {
-    return { removedRoads: 0, removedCorridors: 0, connectedRoadKeys: new Set() };
+    return {
+      removedRoads: 0,
+      removedCorridors: 0,
+      removedSupports: 0,
+      connectedRoadKeys: new Set(),
+    };
   }
   const roadTagsByKey = new Map();
   for (const placement of ctx.placements) {
@@ -2429,7 +3272,12 @@ function pruneDisconnectedRampartRoadPlacements(ctx, options = {}) {
       .filter((placementKey) => roadTagsByKey.has(placementKey) && ctx.roads.has(placementKey)),
   );
   if (seedKeys.size === 0) {
-    return { removedRoads: 0, removedCorridors: 0, connectedRoadKeys: new Set() };
+    return {
+      removedRoads: 0,
+      removedCorridors: 0,
+      removedSupports: 0,
+      connectedRoadKeys: new Set(),
+    };
   }
   const connectedRoadKeys = buildConnectedRoadKeys(ctx.roads, seedKeys);
   const disconnectedRampartRoadKeys = new Set(
@@ -2438,7 +3286,12 @@ function pruneDisconnectedRampartRoadPlacements(ctx, options = {}) {
       .map(([placementKey]) => placementKey),
   );
   if (disconnectedRampartRoadKeys.size === 0) {
-    return { removedRoads: 0, removedCorridors: 0, connectedRoadKeys };
+    return {
+      removedRoads: 0,
+      removedCorridors: 0,
+      removedSupports: 0,
+      connectedRoadKeys,
+    };
   }
 
   let removedRoads = 0;
@@ -2454,16 +3307,22 @@ function pruneDisconnectedRampartRoadPlacements(ctx, options = {}) {
   }
 
   let removedCorridors = 0;
+  let removedSupports = 0;
   ctx.placements = ctx.placements.filter((placement) => {
-    if (!placement || placement.type !== STRUCTURES.RAMPART || placement.tag !== 'rampart.corridor') return true;
+    if (!placement || placement.type !== STRUCTURES.RAMPART) return true;
+    if (placement.tag !== 'rampart.corridor' && placement.tag !== 'rampart.support') return true;
     const placementKey = key(placement.x, placement.y);
     if (ctx.roads.has(placementKey) && connectedRoadKeys.has(placementKey)) return true;
     ctx.ramparts.delete(placementKey);
-    removedCorridors += 1;
+    if (placement.tag === 'rampart.support') {
+      removedSupports += 1;
+    } else {
+      removedCorridors += 1;
+    }
     return false;
   });
 
-  return { removedRoads, removedCorridors, connectedRoadKeys };
+  return { removedRoads, removedCorridors, removedSupports, connectedRoadKeys };
 }
 
 function ensureRoadCoverageUnderRamparts(ctx, rampartPlacements) {
@@ -2486,6 +3345,283 @@ function ensureRoadCoverageUnderRamparts(ctx, rampartPlacements) {
     missingRoadTiles += 1;
   }
   return { addedRoads, missingRoadTiles, skippedStructureTiles };
+}
+
+function connectRampartRoadAccess(ctx, storagePos, rampartPlacements) {
+  if (!ctx || !storagePos || !(ctx.roads instanceof Set)) {
+    return { addedRoads: 0, connectedRoadKeys: new Set(), pathsBuilt: 0 };
+  }
+  let connectedRoadKeys = buildMainRoadComponentKeys(ctx, storagePos);
+  if (connectedRoadKeys.size === 0) {
+    return { addedRoads: 0, connectedRoadKeys, pathsBuilt: 0 };
+  }
+  const targets = (Array.isArray(rampartPlacements) ? rampartPlacements : []).filter((placement) => {
+    if (!placement || typeof placement.x !== 'number' || typeof placement.y !== 'number') return false;
+    const placementKey = key(placement.x, placement.y);
+    return (
+      isRoadCompatibleRampartTile(ctx, placement.x, placement.y) &&
+      ctx.roads.has(placementKey) &&
+      !connectedRoadKeys.has(placementKey)
+    );
+  });
+  if (targets.length === 0) {
+    return { addedRoads: 0, connectedRoadKeys, pathsBuilt: 0 };
+  }
+
+  let addedRoads = 0;
+  let pathsBuilt = 0;
+  for (const component of buildBoundaryComponents(targets)) {
+    const target = component
+      .slice()
+      .sort(
+        (left, right) =>
+          chebyshev(left, storagePos) - chebyshev(right, storagePos) ||
+          manhattan(left, storagePos) - manhattan(right, storagePos),
+      )[0];
+    if (!target) continue;
+    const origin = pickRoadOriginFromNetwork(connectedRoadKeys, target, storagePos, {
+      corePenaltyRange: 0,
+      corePenalty: 0,
+    });
+    if (!origin) continue;
+    const path = buildFallbackRoadPath(ctx, origin, target, {
+      targetRange: 0,
+      preferredRoads: ctx.roads,
+    });
+    if (!Array.isArray(path) || path.length === 0) continue;
+    let pathAdded = false;
+    for (const step of path) {
+      if (addPlacement(ctx, STRUCTURES.ROAD, step.x, step.y, 2, 'road.rampartAccess')) {
+        addedRoads += 1;
+        pathAdded = true;
+      }
+    }
+    if (!pathAdded) continue;
+    pathsBuilt += 1;
+    connectedRoadKeys = buildMainRoadComponentKeys(ctx, storagePos);
+  }
+  return { addedRoads, connectedRoadKeys, pathsBuilt };
+}
+
+function countAdjacentRoadStructures(ctx, component) {
+  if (!ctx || !(ctx.structuresByPos instanceof Map)) return 0;
+  const adjacent = new Set();
+  for (const tile of component || []) {
+    if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) continue;
+    for (const neighbor of neighbors8(tile.x, tile.y)) {
+      const neighborKey = key(neighbor.x, neighbor.y);
+      if (!ctx.structuresByPos.has(neighborKey)) continue;
+      adjacent.add(neighborKey);
+    }
+  }
+  return adjacent.size;
+}
+
+function connectDisconnectedBaseRoadComponents(ctx, storagePos, preferredRoads, options = {}) {
+  // Some road-stamp wings can end up one blocker away from the main lattice on
+  // terrain-heavy rooms. Reconnect those components before pruning so the base
+  // does not collapse into a single trunk route.
+  if (!ctx || !storagePos || !(preferredRoads instanceof Set)) {
+    return {
+      attempted: 0,
+      connected: 0,
+      relocated: 0,
+      skipped: 0,
+      missing: 0,
+    };
+  }
+  const trafficWeight = Number.isFinite(options.trafficWeight) ? Number(options.trafficWeight) : 2;
+  const roadKeys =
+    options.roadKeys instanceof Set
+      ? new Set(options.roadKeys)
+      : new Set(
+          (ctx.placements || [])
+            .filter((placement) => placement && placement.type === STRUCTURES.ROAD)
+            .filter((placement) => isMainRoadSeedTag(String(placement.tag || '')))
+            .map((placement) => key(placement.x, placement.y)),
+        );
+  if (roadKeys.size === 0) {
+    return {
+      attempted: 0,
+      connected: 0,
+      relocated: 0,
+      skipped: 0,
+      missing: 0,
+    };
+  }
+  let networkKeys = new Set([...roadKeys, ...preferredRoads]);
+  let connectedKeys = buildConnectedRoadKeys(
+    networkKeys,
+    buildStorageConnectedRoadSeedKeys(ctx, storagePos, networkKeys),
+  );
+  const candidates = Array.isArray(options.candidates) ? options.candidates : [];
+  const layoutPattern = options.layoutPattern || 'parity';
+  const preferredParity = Number.isFinite(options.preferredParity)
+    ? Number(options.preferredParity)
+    : checkerboard.parityAt(storagePos.x, storagePos.y);
+  const addProtectedPath =
+    typeof options.addProtectedPath === 'function' ? options.addProtectedPath : null;
+  const components = buildBoundaryComponents([...roadKeys].map(parseKey))
+    .map((component) => {
+      const componentKeys = new Set(component.map((tile) => key(tile.x, tile.y)));
+      return {
+        component,
+        componentKeys,
+        adjacentStructures: countAdjacentRoadStructures(ctx, component),
+      };
+    })
+    .filter((row) => row.component.length > 0)
+    .filter((row) => [...row.componentKeys].every((componentKey) => !connectedKeys.has(componentKey)))
+    .filter((row) => row.component.length >= 4 || row.adjacentStructures > 0)
+    .sort(
+      (left, right) =>
+        right.adjacentStructures - left.adjacentStructures ||
+        right.component.length - left.component.length ||
+        manhattan(left.component[0], storagePos) - manhattan(right.component[0], storagePos),
+    );
+  if (components.length === 0) {
+    return {
+      attempted: 0,
+      connected: 0,
+      relocated: 0,
+      skipped: 0,
+      missing: 0,
+    };
+  }
+
+  let attempted = 0;
+  let connected = 0;
+  let relocated = 0;
+  let skipped = 0;
+  for (const row of components) {
+    attempted += 1;
+    const target = row.component
+      .slice()
+      .sort((left, right) => {
+        const leftOrigin = pickRoadOriginFromNetwork(connectedKeys, left, storagePos, {
+          corePenaltyRange: 0,
+          corePenalty: 0,
+        }) || storagePos;
+        const rightOrigin = pickRoadOriginFromNetwork(connectedKeys, right, storagePos, {
+          corePenaltyRange: 0,
+          corePenalty: 0,
+        }) || storagePos;
+        return (
+          chebyshev(left, leftOrigin) - chebyshev(right, rightOrigin) ||
+          manhattan(left, leftOrigin) - manhattan(right, rightOrigin) ||
+          chebyshev(left, storagePos) - chebyshev(right, storagePos)
+        );
+      })[0];
+    const origin = pickRoadOriginFromNetwork(connectedKeys, target, storagePos, {
+      corePenaltyRange: 0,
+      corePenalty: 0,
+    });
+    if (!target || !origin) {
+      skipped += 1;
+      continue;
+    }
+
+    let path = pathRoads(ctx, origin, target, {
+      preferredRoads,
+      targetRange: 0,
+    });
+    let blockerKey = null;
+    if (!path.length) {
+      const relocatableKeys = new Set(
+        (ctx.placements || [])
+          .filter((placement) => isRelocatableRoadBlocker(placement))
+          .map((placement) => key(placement.x, placement.y)),
+      );
+      const relocatedPath = pathRoadsAllowingSingleRelocation(ctx, origin, target, {
+        preferredRoads,
+        targetRange: 0,
+        relocatableKeys,
+      });
+      path = relocatedPath.path;
+      blockerKey = relocatedPath.blockerKey;
+    }
+    if (!path.length) {
+      skipped += 1;
+      continue;
+    }
+
+    let relocatedPlacement = null;
+    if (blockerKey) {
+      const blockerPos = parseKey(blockerKey);
+      relocatedPlacement = removePlacementAt(
+        ctx,
+        blockerPos.x,
+        blockerPos.y,
+        (placement) => isRelocatableRoadBlocker(placement),
+      );
+      if (!relocatedPlacement) {
+        skipped += 1;
+        continue;
+      }
+      const relocation = findRelocationPosition(
+        ctx,
+        relocatedPlacement,
+        storagePos,
+        layoutPattern,
+        preferredParity,
+        candidates,
+        {
+          avoidKeys: new Set([
+            ...networkKeys,
+            ...path.map((step) => key(step.x, step.y)),
+          ]),
+        },
+      );
+      if (!relocation) {
+        addPlacement(
+          ctx,
+          relocatedPlacement.type,
+          relocatedPlacement.x,
+          relocatedPlacement.y,
+          relocatedPlacement.rcl,
+          relocatedPlacement.tag,
+        );
+        skipped += 1;
+        continue;
+      }
+      addPlacement(
+        ctx,
+        relocatedPlacement.type,
+        relocation.x,
+        relocation.y,
+        relocatedPlacement.rcl,
+        relocatedPlacement.tag,
+      );
+      relocated += 1;
+    }
+
+    if (addProtectedPath) {
+      addProtectedPath(path, trafficWeight);
+    } else {
+      for (const step of path) {
+        preferredRoads.add(key(step.x, step.y));
+      }
+    }
+    for (const step of path) {
+      networkKeys.add(key(step.x, step.y));
+    }
+    connectedKeys = buildConnectedRoadKeys(
+      networkKeys,
+      buildStorageConnectedRoadSeedKeys(ctx, storagePos, networkKeys),
+    );
+    connected += 1;
+  }
+  const missing = buildBoundaryComponents([...roadKeys].map(parseKey))
+    .map((component) => new Set(component.map((tile) => key(tile.x, tile.y))))
+    .filter((componentKeys) => [...componentKeys].every((componentKey) => !connectedKeys.has(componentKey)))
+    .length;
+  return {
+    attempted,
+    connected,
+    relocated,
+    skipped,
+    missing,
+  };
 }
 
 function pruneRogueEdgeRamparts(ctx, connectedRoadKeys) {
@@ -2540,6 +3676,9 @@ function analyzeRampartEnclosure(ctx, storagePos, options = {}) {
   const corridorRamparts = placements.filter(
     (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.corridor',
   );
+  const supportRamparts = placements.filter(
+    (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.support',
+  );
   const seedKeys =
     options && options.seedKeys instanceof Set ? new Set(options.seedKeys) : buildMainRoadSeedKeys(ctx, storagePos);
   const connectedRoadKeys =
@@ -2553,11 +3692,19 @@ function analyzeRampartEnclosure(ctx, storagePos, options = {}) {
     const placementKey = key(placement.x, placement.y);
     return !ctx.roads.has(placementKey) || !connectedRoadKeys.has(placementKey);
   }).length;
+  const rogueSupportCount = supportRamparts.filter((placement) => {
+    const placementKey = key(placement.x, placement.y);
+    return !ctx.roads.has(placementKey) || !connectedRoadKeys.has(placementKey);
+  }).length;
   const missingRoadUnderRamparts = placements.filter(
     (placement) =>
       placement &&
       placement.type === STRUCTURES.RAMPART &&
-      (placement.tag === 'rampart.edge' || placement.tag === 'rampart.corridor') &&
+      (
+        placement.tag === 'rampart.edge' ||
+        placement.tag === 'rampart.corridor' ||
+        placement.tag === 'rampart.support'
+      ) &&
       isRoadCompatibleRampartTile(ctx, placement.x, placement.y) &&
       !ctx.roads.has(key(placement.x, placement.y)),
   ).length;
@@ -2575,8 +3722,10 @@ function analyzeRampartEnclosure(ctx, storagePos, options = {}) {
     reachableProtectedCount,
     boundaryCount: edgeRamparts.length,
     corridorCount: corridorRamparts.length,
+    supportCount: supportRamparts.length,
     rogueEdgeCount,
     rogueCorridorCount,
+    rogueSupportCount,
     diagonalGapCount: Number(interiorMetrics.diagonalGapCount || 0),
     missingRoadUnderRamparts,
     disconnectedRampartRoads: edgeRamparts.filter((placement) => {
@@ -2593,20 +3742,26 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
     return {
       boundaryPlacedCount: 0,
       corridorCount: 0,
+      supportCount: 0,
       removedRogueEdgeRamparts: 0,
       removedLegacyCorridors: 0,
       removedLegacyBoundaryRamparts: 0,
       removedLegacyRampartRoads: 0,
       ensuredBoundaryRoads: 0,
+      accessRoadsAdded: 0,
       skippedBoundaryRoadOverlays: 0,
       missingRoadUnderRamparts: 0,
       diagonalGapCount: 0,
       disconnectedRampartRoadsRemoved: 0,
       disconnectedCorridorsRemoved: 0,
+      disconnectedSupportsRemoved: 0,
+      removedStrayCorridors: 0,
+      removedStraySupports: 0,
       sealed: false,
       reachableProtectedCount: 0,
       rogueEdgeCount: 0,
       rogueCorridorCount: 0,
+      rogueSupportCount: 0,
       connectedRoadKeys: new Set(),
     };
   }
@@ -2657,16 +3812,30 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
     (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.edge',
   );
   boundaryPlacedCount = placedBoundaryRamparts.length;
-  const ensuredBoundaryRoads = ensureRoadCoverageUnderRamparts(ctx, placedBoundaryRamparts);
+  addRampartSupportBand(ctx, placedBoundaryRamparts, storagePos);
+  ensureBoundaryRoadSupports(ctx, placedBoundaryRamparts, storagePos);
+  const placedSupportRamparts = ctx.placements.filter(
+    (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.support',
+  );
+  const ensuredBoundaryRoads = ensureRoadCoverageUnderRamparts(
+    ctx,
+    placedBoundaryRamparts.concat(placedSupportRamparts),
+  );
+  const rampartAccess = connectRampartRoadAccess(
+    ctx,
+    storagePos,
+    placedBoundaryRamparts.concat(placedSupportRamparts),
+  );
   const initialConnectivity = pruneDisconnectedRampartRoadPlacements(ctx, {
     seedKeys: buildMainRoadSeedKeys(ctx, storagePos),
     storagePos,
   });
-  const corridorRamparts = addRampartCorridorGuards(ctx, placedBoundaryRamparts, storagePos, { maxDepth: 2 });
+  const corridorRamparts = addRampartCorridorGuards(ctx, placedBoundaryRamparts, storagePos, { maxDepth: 3 });
   const finalConnectivity = pruneDisconnectedRampartRoadPlacements(ctx, {
     seedKeys: buildMainRoadSeedKeys(ctx, storagePos),
     storagePos,
   });
+  const strayInnerRamparts = pruneStrayInnerRamparts(ctx);
   const rogueEdges = pruneRogueEdgeRamparts(ctx, finalConnectivity.connectedRoadKeys);
   const analysis = analyzeRampartEnclosure(ctx, storagePos, {
     seedKeys: buildMainRoadSeedKeys(ctx, storagePos),
@@ -2676,19 +3845,27 @@ function finalizeFullRampartPlacements(ctx, rampartLine, storagePos) {
     corridorCount: (ctx.placements || []).filter(
       (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.corridor',
     ).length,
+    supportCount: (ctx.placements || []).filter(
+      (placement) => placement && placement.type === STRUCTURES.RAMPART && placement.tag === 'rampart.support',
+    ).length,
     removedLegacyBoundaryRamparts,
     removedLegacyCorridors,
     removedOtherRamparts,
     removedLegacyRampartRoads,
     ensuredBoundaryRoads: ensuredBoundaryRoads.addedRoads,
+    accessRoadsAdded: rampartAccess.addedRoads,
     skippedBoundaryRoadOverlays: ensuredBoundaryRoads.skippedStructureTiles,
     missingRoadUnderRamparts: analysis.missingRoadUnderRamparts,
     disconnectedRampartRoadsRemoved: initialConnectivity.removedRoads + finalConnectivity.removedRoads,
     disconnectedCorridorsRemoved: initialConnectivity.removedCorridors + finalConnectivity.removedCorridors,
+    disconnectedSupportsRemoved: initialConnectivity.removedSupports + finalConnectivity.removedSupports,
+    removedStrayCorridors: strayInnerRamparts.removedCorridors,
+    removedStraySupports: strayInnerRamparts.removedSupports,
     removedRogueEdgeRamparts: rogueEdges.removedEdges,
     reachableProtectedCount: analysis.reachableProtectedCount,
     rogueEdgeCount: analysis.rogueEdgeCount,
     rogueCorridorCount: analysis.rogueCorridorCount,
+    rogueSupportCount: analysis.rogueSupportCount,
     diagonalGapCount: analysis.diagonalGapCount,
     disconnectedRampartRoads: analysis.disconnectedRampartRoads,
     sealed: analysis.sealed,
@@ -2722,9 +3899,10 @@ function pickBestRampartCut(ctx, storagePos, options = {}) {
       },
     };
   }
-  const targetStandoff = 3;
+  const targetStandoff = RAMPART_TARGET_STANDOFF;
+  const maxMargin = defensePlanningMode === 'estimate' ? 6 : 8;
   let best = null;
-  for (let margin = 3; margin <= 8; margin++) {
+  for (let margin = 3; margin <= maxMargin; margin++) {
     const cut =
       defensePlanningMode === 'full'
         ? minCutAlgorithm.computeRampartCut(defenseCtx, { margin })
@@ -2734,13 +3912,18 @@ function pickBestRampartCut(ctx, storagePos, options = {}) {
       : estimateRampartEnvelopeFromPoints(defensePoints, margin);
     const normalizedLine = normalizeRampartBoundaryTiles(ctx, rawLine);
     const connectedLine =
-      typeof minCutAlgorithm.connectBarrier === 'function'
+      defensePlanningMode === 'full' && typeof minCutAlgorithm.connectBarrier === 'function'
         ? minCutAlgorithm.connectBarrier(
             normalizedLine.slice(),
             (ctx && ctx.matrices && ctx.matrices.walkableMatrix) || new Array(2500).fill(1),
             (ctx && ctx.matrices && ctx.matrices.terrainMatrix) || new Array(2500).fill(0),
           )
-        : { line: normalizedLine, bridged: 0, components: normalizedLine.length > 0 ? 1 : 0 };
+        : {
+            line: normalizedLine.slice(),
+            bridged: 0,
+            components: null,
+            skipped: defensePlanningMode === 'estimate' ? 'estimate-skip' : null,
+          };
     const line = normalizeRampartBoundaryTiles(ctx, connectedLine.line);
     const standoff = computeMinRampartStandoff(ctx.placements, line, storagePos);
     let exitDistSum = 0;
@@ -2771,7 +3954,10 @@ function pickBestRampartCut(ctx, storagePos, options = {}) {
         : {
             components: connectedLine.components,
             bridgedTiles: Number(connectedLine.bridged || 0),
-            connected: Number(connectedLine.components || 0) <= 1,
+            connected:
+              typeof connectedLine.components === 'number'
+                ? Number(connectedLine.components || 0) <= 1
+                : null,
             skipped: connectedLine.skipped || 'estimate-envelope',
           };
     const metaBase =
@@ -2785,11 +3971,17 @@ function pickBestRampartCut(ctx, storagePos, options = {}) {
           };
     if (metaBase && metaBase.continuity) {
       metaBase.continuity = Object.assign({}, metaBase.continuity, {
-        components: connectedLine.components,
+        components:
+          typeof connectedLine.components === 'number'
+            ? connectedLine.components
+            : metaBase.continuity.components,
         bridgedTiles:
           Number((metaBase.continuity && metaBase.continuity.bridgedTiles) || 0) +
           Number(connectedLine.bridged || 0),
-        connected: Number(connectedLine.components || 0) <= 1,
+        connected:
+          typeof connectedLine.components === 'number'
+            ? Number(connectedLine.components || 0) <= 1
+            : metaBase.continuity.connected,
         skipped: connectedLine.skipped || metaBase.continuity.skipped || null,
       });
     }
@@ -2854,6 +4046,7 @@ function normalizeRampartBoundaryTiles(ctx, tiles) {
     if (!inBounds(tile.x, tile.y)) continue;
     if (ctx && ctx.matrices && ctx.matrices.walkableMatrix[idx(tile.x, tile.y)] !== 1) continue;
     const tileKey = key(tile.x, tile.y);
+    if (ctx && ctx.structuresByPos && ctx.structuresByPos.has(tileKey)) continue;
     if (seen.has(tileKey)) continue;
     seen.add(tileKey);
     out.push({ x: tile.x, y: tile.y, tag: tile.tag || null });
@@ -3414,8 +4607,8 @@ function buildCandidateSet(roomName, options = {}) {
   }
 
   const dt = ensureDistanceTransform(room);
-  const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
-  const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
+  const sources = findFirstNonEmpty(room, [findSourcesConst(), 'FIND_SOURCES', 1]);
+  const minerals = findFirstNonEmpty(room, [findMineralsConst(), 'FIND_MINERALS']);
   const mineral = minerals.length > 0 ? minerals[0] : null;
 
   const matrices = buildTerrainMatrices(room);
@@ -3630,6 +4823,8 @@ function buildPlanForAnchor(room, input) {
         .filter((p) => chebyshev(p, controllerPos) <= 3)
         .map((p) => ({ x: p.x, y: p.y }));
       ctx.meta.upgraderSlots = upgraderSlots.slice();
+    } else {
+      ctx.meta.validation.push('controller-stamp-missing');
     }
   }
 
@@ -3776,11 +4971,9 @@ function buildPlanForAnchor(room, input) {
         : linkCandidates;
     const primaryLinkCandidates = workingLinkCandidates.filter((p) => chebyshev(p, cont) <= 1);
     const candidatePool = primaryLinkCandidates.length > 0 ? primaryLinkCandidates : workingLinkCandidates;
-    const slink = findBestByCandidates(candidatePool, (p) => {
-      const sourcePenalty = chebyshev(p, src.pos) === 1 ? 0 : 1;
-      const containerPenalty = Math.max(0, chebyshev(p, cont) - 1) * 1.4;
-      return -manhattan(storage, p) - sourcePenalty - containerPenalty;
-    });
+    const slink = findBestByCandidates(candidatePool, (p) =>
+      scoreSourceLinkCandidate(ctx, storage, src.pos, cont, roadAnchor, p),
+    );
     if (slink) {
       addPlacement(
         ctx,
@@ -4093,24 +5286,12 @@ function buildPlanForAnchor(room, input) {
         roadTiles.length > 0 &&
         (satisfiedRoadCount >= Math.max(2, Math.ceil(roadTiles.length * 0.45)) ||
           (blockedRoadCount === 0 && missingRoadCount <= 2));
-      const slotCandidates = projectStampSlots(candidateNode, stamp.slots).filter((p) =>
-        inBounds(p.x, p.y) &&
-        (
-          checkerboard.classifyTileByPattern(p.x, p.y, storage, {
-            pattern: layoutPattern,
-            preferredParity: parity,
-          }) === 'structure' ||
-          (p.dx === 0 && p.dy === 0)
-        ) &&
-        ctx.matrices.walkableMatrix[idx(p.x, p.y)] === 1 &&
-        ctx.matrices.staticBlocked[idx(p.x, p.y)] !== 1 &&
-        !ctx.reserved.has(key(p.x, p.y)) &&
-        !ctx.roads.has(key(p.x, p.y)) &&
-        !ctx.structuresByPos.has(key(p.x, p.y)),
-      );
-      const viableSlots = foundationOnly
-        ? []
-        : slotCandidates.filter((p) => canPlaceStructure(ctx, STRUCTURES.EXTENSION, p.x, p.y));
+      const slotData = evaluateHarabiStampSlots(ctx, candidateNode, stamp, {
+        storagePos: storage,
+        layoutPattern,
+        preferredParity: parity,
+        foundationOnly,
+      });
       return {
         stamp,
         roadOk,
@@ -4118,8 +5299,8 @@ function buildPlanForAnchor(room, input) {
         placeableRoadCount,
         blockedRoadCount,
         missingRoadCount,
-        slotCandidates,
-        viableSlots,
+        slotCandidates: slotData.slotCandidates,
+        viableSlots: slotData.viableSlots,
       };
     };
 
@@ -4133,31 +5314,24 @@ function buildPlanForAnchor(room, input) {
 
     const tryApplyStamp = (candidateNode, evaluation, size, fallbackReason = null) => {
       applyRoadStamp(ctx, candidateNode, evaluation.stamp.roads, 'road.stamp');
-      for (const slot of evaluation.slotCandidates || []) {
-        capacitySlotKeys.add(key(slot.x, slot.y));
+      for (const slotKey of collectHarabiStampCapacityKeys(evaluation)) {
+        capacitySlotKeys.add(slotKey);
       }
       if (!foundationOnly) {
-        const viable = evaluation.viableSlots;
-        if (viable.length === evaluation.stamp.slots.length) {
-          const placed = [];
-          for (const p of viable) {
-            if (extIdx >= 60) break;
-            if (placeExtensionTile(p.x, p.y)) placed.push({ x: p.x, y: p.y });
-          }
-          if (placed.length > 0) {
-            addPatternRoadHalo(ctx, placed, storage, layoutPattern, parity);
-          }
-        } else if (viable.length > 0) {
-          const fallback = viable[0];
-          if (placeExtensionTile(fallback.x, fallback.y)) {
-            addPatternRoadHalo(
-              ctx,
-              [{ x: fallback.x, y: fallback.y }],
-              storage,
-              layoutPattern,
-              parity,
-            );
-          }
+        const viable = getHarabiStampPlacementSlots(evaluation, {
+          foundationOnly,
+          maxSlots: 60 - extIdx,
+        });
+        const placed = [];
+        for (const p of viable) {
+          if (placeExtensionTile(p.x, p.y)) placed.push({ x: p.x, y: p.y });
+        }
+        if (placed.length > 0) {
+          addPatternRoadHalo(ctx, placed, storage, layoutPattern, parity);
+        }
+        if (viable.length > 0 && viable.length < evaluation.stamp.slots.length) {
+          ctx.meta.stampStats.partialPlaced += 1;
+          ctx.meta.stampStats.partialPlacedSlots += viable.length;
         }
       }
       stampCenters.push({ x: candidateNode.x, y: candidateNode.y });
@@ -4353,6 +5527,7 @@ function buildPlanForAnchor(room, input) {
       filteredBoundaryTiles: Number(rampartCut.filteredTiles || 0),
       margin: rampartCut.margin,
       standoff: rampartCut.standoff,
+      targetStandoff: RAMPART_TARGET_STANDOFF,
       minCut: ctx.meta.minCut,
       lineMetrics:
         ctx.meta.minCut && ctx.meta.minCut.lineMetrics ? ctx.meta.minCut.lineMetrics : null,
@@ -4653,12 +5828,7 @@ function buildPlanForAnchor(room, input) {
     .filter((p) => p && p.type === STRUCTURES.ROAD)
     .filter((p) => {
       const tag = String(p.tag || '');
-      return (
-        tag === 'road.stamp' ||
-        tag === 'road.coreStamp' ||
-        tag === 'road.controllerStamp' ||
-        tag === 'road.grid'
-      );
+      return isMainRoadSeedTag(tag);
     })
     .map((p) => ({ x: p.x, y: p.y }));
   for (const road of routeOriginRoads) {
@@ -4666,7 +5836,13 @@ function buildPlanForAnchor(room, input) {
   }
   const pickLogisticOrigin = (targetPos) => {
     if (!targetPos) return storage;
-    const network = preferredRoads.size > 0 ? preferredRoads : routeOriginRoads;
+    const connectedPreferredRoads = buildMainRoadComponentKeys(ctx, storage, preferredRoads);
+    const network =
+      connectedPreferredRoads.size > 0
+        ? connectedPreferredRoads
+        : preferredRoads.size > 0
+        ? preferredRoads
+        : routeOriginRoads;
     return pickRoadOriginFromNetwork(network, targetPos, storage, {
       corePenaltyRange: 2,
       corePenalty: 6,
@@ -4720,6 +5896,90 @@ function buildPlanForAnchor(room, input) {
     if (!from || !to) return;
     const path = pathRoads(ctx, from, to, { preferredRoads });
     addRoutePath(path, weight, false);
+    return path;
+  };
+  const tryAddAlternateCoreRoute = (from, to, primaryPath, weight) => {
+    if (!from || !to || !Array.isArray(primaryPath) || primaryPath.length === 0) return false;
+    const primaryKeys = new Set(primaryPath.map((step) => key(step.x, step.y)));
+    let altPath = pathRoads(ctx, from, to, {
+      preferredRoads,
+      avoidKeys: primaryKeys,
+      avoidPenalty: 18,
+    });
+    let blockerKey = null;
+    const distinctAltSteps = new Set(
+      altPath
+        .map((step) => key(step.x, step.y))
+        .filter((stepKey) => !primaryKeys.has(stepKey)),
+    );
+    if (distinctAltSteps.size < 2) {
+      const relocatableKeys = new Set(
+        (ctx.placements || [])
+          .filter((placement) => isRelocatableRoadBlocker(placement))
+          .map((placement) => key(placement.x, placement.y)),
+      );
+      const relocated = pathRoadsAllowingSingleRelocation(ctx, from, to, {
+        preferredRoads,
+        avoidKeys: primaryKeys,
+        avoidPenalty: 18,
+        relocatableKeys,
+      });
+      altPath = relocated.path;
+      blockerKey = relocated.blockerKey;
+    }
+    const distinctKeys = new Set(
+      altPath
+        .map((step) => key(step.x, step.y))
+        .filter((stepKey) => !primaryKeys.has(stepKey)),
+    );
+    if (!altPath.length || distinctKeys.size < 2) return false;
+
+    let relocatedPlacement = null;
+    if (blockerKey) {
+      const blockerPos = parseKey(blockerKey);
+      relocatedPlacement = removePlacementAt(
+        ctx,
+        blockerPos.x,
+        blockerPos.y,
+        (placement) => isRelocatableRoadBlocker(placement),
+      );
+      if (!relocatedPlacement) return false;
+      const relocation = findRelocationPosition(
+        ctx,
+        relocatedPlacement,
+        storage,
+        layoutPattern,
+        parity,
+        sortedFlood,
+        {
+          avoidKeys: new Set([
+            ...primaryKeys,
+            ...altPath.map((step) => key(step.x, step.y)),
+          ]),
+        },
+      );
+      if (!relocation) {
+        addPlacement(
+          ctx,
+          relocatedPlacement.type,
+          relocatedPlacement.x,
+          relocatedPlacement.y,
+          relocatedPlacement.rcl,
+          relocatedPlacement.tag,
+        );
+        return false;
+      }
+      addPlacement(
+        ctx,
+        relocatedPlacement.type,
+        relocation.x,
+        relocation.y,
+        relocatedPlacement.rcl,
+        relocatedPlacement.tag,
+      );
+    }
+    addRoutePath(altPath, weight, false);
+    return true;
   };
   if (!foundationOnly && upgraderSlots && upgraderSlots.length > 0) {
     for (const slot of upgraderSlots) {
@@ -4727,13 +5987,52 @@ function buildPlanForAnchor(room, input) {
       addRoutePath(path, 1, true);
     }
   }
-  if (spawn1) routeAndScorePath(storage, spawn1, 5);
-  if (spawn2) routeAndScorePath(storage, spawn2, 3);
-  if (spawn3) routeAndScorePath(storage, spawn3, 3);
-  if (terminal) routeAndScorePath(storage, terminal, 3);
+  const spawn1Path = spawn1 ? routeAndScorePath(storage, spawn1, 5) : [];
+  const spawn2Path = spawn2 ? routeAndScorePath(storage, spawn2, 3) : [];
+  const spawn3Path = spawn3 ? routeAndScorePath(storage, spawn3, 3) : [];
+  const terminalPath = terminal ? routeAndScorePath(storage, terminal, 3) : [];
   if (sourceLab1) routeAndScorePath(storage, sourceLab1, 2);
   if (sourceLab2) routeAndScorePath(storage, sourceLab2, 2);
   for (const t of towers) routeAndScorePath(storage, t, 2);
+  const redundancyRoadKeys = new Set(routeOriginRoads.map((road) => key(road.x, road.y)));
+  for (const path of [spawn1Path, spawn2Path, spawn3Path, terminalPath]) {
+    for (const step of path || []) redundancyRoadKeys.add(key(step.x, step.y));
+  }
+  if (spawn1Path.length > 0) tryAddAlternateCoreRoute(storage, spawn1, spawn1Path, 3);
+  if (spawn2Path.length > 0) tryAddAlternateCoreRoute(storage, spawn2, spawn2Path, 2);
+  if (spawn3Path.length > 0) tryAddAlternateCoreRoute(storage, spawn3, spawn3Path, 2);
+  if (terminalPath.length > 0) tryAddAlternateCoreRoute(storage, terminal, terminalPath, 2);
+  const wingTargets = Array.isArray(ctx.meta && ctx.meta.stampStats && ctx.meta.stampStats.bigCenters)
+    ? ctx.meta.stampStats.bigCenters
+        .filter((center) => center && chebyshev(center, storage) >= 6)
+        .slice()
+        .sort(
+          (left, right) =>
+            chebyshev(right, storage) - chebyshev(left, storage) ||
+            manhattan(right, storage) - manhattan(left, storage),
+        )
+        .slice(0, 1)
+    : [];
+  for (const wingTarget of wingTargets) {
+    const primaryWingPath = pathRoads(ctx, storage, wingTarget, { preferredRoads });
+    if (primaryWingPath.length > 0) {
+      for (const step of primaryWingPath) redundancyRoadKeys.add(key(step.x, step.y));
+      tryAddAlternateCoreRoute(storage, wingTarget, primaryWingPath, 2);
+    }
+  }
+  ctx.meta.baseRoadRedundancy = connectDisconnectedBaseRoadComponents(
+    ctx,
+    storage,
+    preferredRoads,
+    {
+      roadKeys: redundancyRoadKeys,
+      layoutPattern,
+      preferredParity: parity,
+      candidates: sortedFlood,
+      addProtectedPath: (path, weight) => addRoutePath(path, weight, true),
+      trafficWeight: 2,
+    },
+  );
 
   for (const rk of protectedRoads) {
     const p = parseKey(rk);
@@ -4782,30 +6081,11 @@ function buildPlanForAnchor(room, input) {
       'road.controllerStamp',
     ],
     depthByKey: floodDepthByTile,
+    storagePos: storage,
   });
   ctx.meta.roadPruning = pruning;
 
-  const baseRoadSeedKeys = new Set(
-    (ctx.placements || [])
-      .filter((placement) => placement && placement.type === STRUCTURES.ROAD)
-      .filter((placement) => {
-        const tag = String(placement.tag || '');
-        return (
-          tag === 'road.stamp' ||
-          tag === 'road.coreStamp' ||
-          tag === 'road.controllerStamp' ||
-          tag === 'road.grid'
-        );
-      })
-      .map((placement) => key(placement.x, placement.y)),
-  );
-  if (baseRoadSeedKeys.size === 0) {
-    for (const roadKey of ctx.roads) {
-      const pos = parseKey(roadKey);
-      if (chebyshev(pos, storage) <= 3) baseRoadSeedKeys.add(roadKey);
-    }
-  }
-  const connectedBaseRoadKeys = buildConnectedRoadKeys(ctx.roads, baseRoadSeedKeys);
+  const connectedBaseRoadKeys = buildMainRoadComponentKeys(ctx, storage);
   for (const sourceId in ctx.meta.sourceLogistics) {
     const state = ctx.meta.sourceLogistics[sourceId];
     const anchor = sourceRoadAnchorById.get(sourceId) || null;
@@ -4986,7 +6266,7 @@ function buildPlanForAnchor(room, input) {
   if (
     typeof ctx.meta.rampartStandoff === 'number' &&
     ctx.meta.rampartStandoff > 0 &&
-    ctx.meta.rampartStandoff < 3
+    ctx.meta.rampartStandoff < RAMPART_TARGET_STANDOFF
   ) {
     ctx.meta.validation.push(`rampart-standoff-fail:${ctx.meta.rampartStandoff}`);
   }
@@ -5024,6 +6304,9 @@ function buildPlanForAnchor(room, input) {
     if (seen.size !== ctx.roads.size) {
       ctx.meta.validation.push(`road-network-disconnected:${seen.size}/${ctx.roads.size}`);
     }
+  }
+  if (ctx.meta.baseRoadRedundancy && Number(ctx.meta.baseRoadRedundancy.missing || 0) > 0) {
+    ctx.meta.validation.push(`base-road-redundancy-missing:${Number(ctx.meta.baseRoadRedundancy.missing || 0)}`);
   }
 
   let defenseScore = Infinity;
@@ -5361,6 +6644,7 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     filteredBoundaryTiles: Number(rampartCut.filteredTiles || 0),
     margin: rampartCut.margin,
     standoff: rampartCut.standoff,
+    targetStandoff: RAMPART_TARGET_STANDOFF,
     minCut: ctx.meta.minCut,
     lineMetrics:
       ctx.meta.minCut && ctx.meta.minCut.lineMetrics ? cloneSerializable(ctx.meta.minCut.lineMetrics) : null,
@@ -5464,6 +6748,7 @@ function buildHarabiFullPlanFromFoundation(room, input) {
         ? foundationPlan.analysis.flood.map((tile) => [key(tile.x, tile.y), Number(tile.d || 0)])
         : [],
     ),
+    storagePos: storage,
   });
   ctx.meta.roadPruning = pruning;
   const rampartFinalization = finalizeFullRampartPlacements(ctx, rampartLine, storage);
@@ -5477,20 +6762,31 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     );
   }
   const finalCorridorCount = Number(rampartFinalization.corridorCount || 0);
+  const finalSupportCount = Number(rampartFinalization.supportCount || 0);
   if (ctx.meta.rampartPlanning) {
     ctx.meta.rampartPlanning.boundaryPlacedCount = Number(rampartFinalization.boundaryPlacedCount || addedEdgeRamparts);
     ctx.meta.rampartPlanning.corridorCount = finalCorridorCount;
+    ctx.meta.rampartPlanning.supportCount = finalSupportCount;
     ctx.meta.rampartPlanning.disconnectedRampartRoadsRemoved =
       Number(rampartFinalization.disconnectedRampartRoadsRemoved || 0);
     ctx.meta.rampartPlanning.disconnectedCorridorsRemoved =
       Number(rampartFinalization.disconnectedCorridorsRemoved || 0);
+    ctx.meta.rampartPlanning.disconnectedSupportsRemoved =
+      Number(rampartFinalization.disconnectedSupportsRemoved || 0);
+    ctx.meta.rampartPlanning.removedStrayCorridors =
+      Number(rampartFinalization.removedStrayCorridors || 0);
+    ctx.meta.rampartPlanning.removedStraySupports =
+      Number(rampartFinalization.removedStraySupports || 0);
     ctx.meta.rampartPlanning.missingRoadUnderRamparts =
       Number(rampartFinalization.missingRoadUnderRamparts || 0);
+    ctx.meta.rampartPlanning.accessRoadsAdded =
+      Number(rampartFinalization.accessRoadsAdded || 0);
     ctx.meta.rampartPlanning.skippedBoundaryRoadOverlays =
       Number(rampartFinalization.skippedBoundaryRoadOverlays || 0);
     ctx.meta.rampartPlanning.diagonalGapCount = Number(rampartFinalization.diagonalGapCount || 0);
     ctx.meta.rampartPlanning.rogueEdgeCount = Number(rampartFinalization.rogueEdgeCount || 0);
     ctx.meta.rampartPlanning.rogueCorridorCount = Number(rampartFinalization.rogueCorridorCount || 0);
+    ctx.meta.rampartPlanning.rogueSupportCount = Number(rampartFinalization.rogueSupportCount || 0);
     ctx.meta.rampartPlanning.removedRogueEdgeRamparts =
       Number(rampartFinalization.removedRogueEdgeRamparts || 0);
     ctx.meta.rampartPlanning.sealed = rampartFinalization.sealed === true;
@@ -5687,7 +6983,7 @@ function buildHarabiFullPlanFromFoundation(room, input) {
   if (
     typeof ctx.meta.rampartStandoff === 'number' &&
     ctx.meta.rampartStandoff > 0 &&
-    ctx.meta.rampartStandoff < 3
+    ctx.meta.rampartStandoff < RAMPART_TARGET_STANDOFF
   ) {
     validation.push(`rampart-standoff-fail:${ctx.meta.rampartStandoff}`);
   }
@@ -5723,6 +7019,9 @@ function buildHarabiFullPlanFromFoundation(room, input) {
     if (seen.size !== ctx.roads.size) {
       validation.push(`road-network-disconnected:${seen.size}/${ctx.roads.size}`);
     }
+  }
+  if (ctx.meta.baseRoadRedundancy && Number(ctx.meta.baseRoadRedundancy.missing || 0) > 0) {
+    validation.push(`base-road-redundancy-missing:${Number(ctx.meta.baseRoadRedundancy.missing || 0)}`);
   }
   const rampartPlanning = ctx.meta && ctx.meta.rampartPlanning ? ctx.meta.rampartPlanning : {};
   if (rampartPlanning.sealed === false) {
@@ -5920,6 +7219,8 @@ function pruneRoadPlacements(ctx, options = {}) {
   const protectedRoads = options.protectedRoads || new Set();
   const keepTags = new Set(options.keepTags || []);
   const depthByKey = options.depthByKey || new Map();
+  const removeDisconnected = options.removeDisconnected !== false;
+  const storagePos = options.storagePos || null;
 
   const roadByKey = new Map();
   for (const placement of ctx.placements) {
@@ -5947,8 +7248,14 @@ function pruneRoadPlacements(ctx, options = {}) {
 
   const removeKeys = new Set();
   const protectedKeys = [];
+  const connectedRoadKeys =
+    removeDisconnected && storagePos ? buildMainRoadComponentKeys(ctx, storagePos) : new Set();
   for (const road of candidates) {
     const rk = key(road.x, road.y);
+    if (connectedRoadKeys.size > 0 && !connectedRoadKeys.has(rk)) {
+      removeKeys.add(rk);
+      continue;
+    }
     if (protectedRoads.has(rk)) {
       protectedKeys.push(rk);
       continue;
@@ -6042,10 +7349,22 @@ function evaluateLayout(plan, roomName, options = {}) {
   const hubQuality = evaluateHubQuality(placements);
   const logistics =
     plan && plan.meta && plan.meta.logisticsRoutes ? plan.meta.logisticsRoutes : null;
-  const logisticsCoverage =
+  const baseLogisticsCoverage =
     logistics && logistics.required > 0
       ? clamp01((logistics.connected || 0) / logistics.required)
       : 1;
+  const baseRoadRedundancy =
+    plan && plan.meta && plan.meta.baseRoadRedundancy ? plan.meta.baseRoadRedundancy : null;
+  const redundancyCoverage =
+    baseRoadRedundancy && Number(baseRoadRedundancy.attempted || 0) > 0
+      ? clamp01(
+          Math.max(
+            0,
+            Number(baseRoadRedundancy.connected || 0) - Number(baseRoadRedundancy.missing || 0),
+          ) / Number(baseRoadRedundancy.attempted || 1),
+        )
+      : 1;
+  const logisticsCoverage = Math.min(baseLogisticsCoverage, redundancyCoverage);
   const edgeRamparts = ramparts.filter((r) => r.tag === 'rampart.edge');
   const protectedStructures = placements.filter((p) => isCoreDefenseStructure(p, storage));
   let minEdgeDistance = 0;
@@ -6078,6 +7397,7 @@ function evaluateLayout(plan, roomName, options = {}) {
     hubQuality,
     rangedBuffer,
     logisticsCoverage,
+    baseRoadRedundancyCoverage: redundancyCoverage,
     infrastructureCost,
   };
 
@@ -6103,7 +7423,7 @@ function computeWeightedScore(metrics, weights = DEFAULT_FINAL_WEIGHTS) {
     openAreaEff: clamp01(metrics.openAreaEfficiency || 0),
     labQuality: clamp01(metrics.labQuality || 0),
     hubQuality: clamp01(metrics.hubQuality || 0),
-    rangedBuffer: clamp01(((metrics.rangedBuffer || 0) - 3) / 4),
+    rangedBuffer: clamp01(((metrics.rangedBuffer || 0) - RAMPART_TARGET_STANDOFF) / 4),
     logisticsCoverage: clamp01(metrics.logisticsCoverage || 0),
     infraCost: clamp01(1 - (metrics.infrastructureCost || 0) / 300000),
   };
@@ -6233,8 +7553,8 @@ function generatePlanForAnchor(roomName, anchorInput, options = {}) {
   if (!room || !room.controller || !room.controller.my) return null;
 
   const dt = ensureDistanceTransform(room);
-  const sources = findFirstNonEmpty(room, [FIND_SOURCES_CONST, 'FIND_SOURCES', 1]);
-  const minerals = findFirstNonEmpty(room, [FIND_MINERALS_CONST, 'FIND_MINERALS']);
+  const sources = findFirstNonEmpty(room, [findSourcesConst(), 'FIND_SOURCES', 1]);
+  const minerals = findFirstNonEmpty(room, [findMineralsConst(), 'FIND_MINERALS']);
   const mineral = minerals.length > 0 ? minerals[0] : null;
 
   const matrices = buildTerrainMatrices(room);
@@ -6408,10 +7728,16 @@ module.exports = {
   _helpers: {
     analyzeRampartEnclosure,
     assignExtensionRcl,
+    buildDefenseCutContext,
+    buildExitApproachTargets,
     canPlaceStructure,
     canonicalizeRampartBoundaryTiles,
+    collectHarabiStampCapacityKeys,
+    connectDisconnectedBaseRoadComponents,
+    ensureBoundaryRoadSupports,
     finalizeFullRampartPlacements,
     floodFill: floodFillAlgorithm.floodFill,
+    buildMainRoadComponentKeys,
     buildMainRoadSeedKeys,
     buildRampartCoverageTargets,
     computeTowerDamage,
@@ -6420,15 +7746,22 @@ module.exports = {
     buildConnectedRoadKeys,
     buildFoundationPreviewRanking,
     computeStaticBlockedMatrix,
+    computeLocalTransitPenalty,
     computeRampartInteriorMetrics,
     isSourceRoadAnchored,
+    evaluateHarabiStampSlots,
+    getHarabiStampPlacementSlots,
     pickRoadOriginFromNetwork,
     planTowerPlacements,
     planFoundationStructurePreview,
+    pruneRedundantBoundaryBlips,
+    pruneRoadPlacements,
+    pruneStrayInnerRamparts,
     pruneDisconnectedRampartRoadPlacements,
     rankFoundationSelectableCandidates,
     scoreRampartLineCandidate,
     scoreCandidate,
+    scoreSourceLinkCandidate,
     detectCandidateDtThreshold,
   },
 };

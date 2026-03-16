@@ -72,6 +72,9 @@ Memory.settings.debugHiveGaze = true
 Memory.settings.debugVisuals = true
 ```
 
+Enables planner-only diagnostics such as preview distance/controller labels,
+the `DT0` origin marker, and green valid-structure dots in layout overlays.
+
 ### `enableBaseBuilderPlanning` (default `true`)
 ```javascript
 Memory.settings.enableBaseBuilderPlanning = true
@@ -101,6 +104,9 @@ Memory.settings.buildPreviewOnly = true
 ```javascript
 Memory.settings.showLayoutLegend = true
 ```
+
+Controls the old shorthand legend used by non-`plan` overlay views. The
+`plan` overlay now relies on `RoomVisual` silhouettes instead of a HUD legend.
 
 ### `showLayoutOverlayLabels` (default `false`)
 ```javascript
@@ -300,6 +306,7 @@ debug.setSpawnLimit('W1N1', 'hauler', 3)
 debug.setSpawnLimit('W1N1', 'hauler', 'auto')
 startFresh()
 startFresh(true)
+startFresh({ wipe: 'all' })
 startFresh({ theoreticalBuildingMode: true })
 startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })
 layoutPlanDump('W1N1')
@@ -313,6 +320,9 @@ can rebuild state from scratch.
 
 `startFresh(true)` does the same wipe and then sets `Memory.settings.pauseBot = true`.
 
+`startFresh({ wipe: 'all' })` performs an explicit full top-level Memory wipe. In
+that mode no previous settings are preserved automatically.
+
 `startFresh({ theoreticalBuildingMode: true })` wipes runtime memory and enters
 theoretical planning mode (`buildPreviewOnly`, layout overlay, legend, labels,
 theoretical planner mode + default plan view). It also schedules a full
@@ -324,6 +334,11 @@ After a plan is generated, run `layoutPlanDump('W1N1')` to print:
 - big/small road stamp counts and slot coverage (`capacitySlots/requiredSlots`)
 - planned structure totals by type
 - full `buildQueue` entries (type, rcl, priority, position, tag) for troubleshooting
+- finalist rerank diagnostics for `harabi/full` runs (foundation score vs reranked full-plan score and validation penalty)
+- rerank debug also shows which defense mode was used; finalists currently rerank on the cheaper `estimate` defense pass to avoid CPU spikes during theoretical selection
+- candidate rows can now also show `selectionRejected`/`hardRejectFlags` semantics indirectly in dump output, meaning some candidates were not merely outscored but fully disqualified from winner selection due to hard foundation failures
+
+For the broader intended planner behavior and candidate-selection rules, see [[Layout-Planner]].
 
 To keep visual debugging usable after a wipe, these settings are preserved and restored:
 

@@ -46,9 +46,8 @@ describe('layoutPlanner.populateDynamicLayout', function() {
     expect(Memory.rooms['W1N1'].layout.mode).to.equal('theoretical');
     expect(Memory.rooms['W1N1'].layout.planVersion).to.equal(2);
     const firstCell = matrix[Object.keys(matrix)[0]][Object.keys(matrix[Object.keys(matrix)[0]])[0]];
-    expect(firstCell).to.have.property('planned', true);
-    expect(firstCell).to.have.property('plannedBy', 'layoutPlanner');
-    expect(firstCell).to.have.property('blockedUntil');
+    expect(firstCell).to.have.property('structureType');
+    expect(firstCell).to.have.property('rcl');
   });
 
   it('still produces a plan when some tiles are occupied', function() {

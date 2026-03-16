@@ -9,6 +9,8 @@ global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
 global.STRUCTURE_ROAD = 'road';
 global.FIND_SOURCES = 2;
+global.TERRAIN_MASK_WALL = 1;
+global.TERRAIN_MASK_SWAMP = 2;
 const globals = require('./mocks/globals');
 
 const layoutPlanner = require('../layoutPlanner');
@@ -72,20 +74,31 @@ describe('layoutPlanner.plan', function() {
     expect(layout.mode).to.equal('theoretical');
     expect(layout.planVersion).to.equal(2);
     expect(layout.theoretical).to.exist;
+    expect(layout.theoretical.compacted).to.equal(true);
     expect(layout.theoretical.spawnCandidate).to.include.keys('x', 'y', 'score');
-    expect(layout.theoretical.upgraderSlots).to.be.an('array').that.has.lengthOf(8);
     expect(layout.theoretical.sourceContainers).to.be.an('array').that.has.lengthOf(2);
-    expect(layout.theoretical.floodTiles).to.be.an('array').that.is.not.empty;
+    expect(layout.theoretical).to.not.have.property('floodTiles');
+    expect(layout.theoretical).to.not.have.property('wallDistance');
+    expect(layout.theoretical).to.not.have.property('controllerDistance');
     expect(layout.theoretical).to.have.property('selectedWeightedScore');
     expect(layout.theoretical.candidates).to.be.an('array').that.is.not.empty;
     expect(layout.roadMatrix).to.be.an('object');
     expect(Memory.rooms['W1N1'].basePlan).to.exist;
     expect(Memory.rooms['W1N1'].basePlan).to.have.property('spawnPos');
+    expect(Memory.rooms['W1N1'].basePlan.compacted).to.equal(true);
+    expect(Memory.rooms['W1N1'].basePlan).to.not.have.property('structures');
     expect(Memory.rooms['W1N1'].basePlan).to.have.property('buildQueue');
     expect(Memory.rooms['W1N1'].basePlan.buildQueue).to.be.an('array').that.is.not.empty;
+    expect(Memory.rooms['W1N1'].basePlan.buildQueue[0]).to.not.have.property('priority');
+    expect(Memory.rooms['W1N1'].basePlan.buildQueue[0]).to.not.have.property('sequence');
+    expect(Memory.rooms['W1N1'].basePlan.buildQueue[0]).to.not.have.property('depth');
+    expect(Memory.rooms['W1N1'].basePlan.buildQueue[0]).to.not.have.property('tag');
     expect(Memory.rooms['W1N1'].basePlan).to.have.property('evaluation');
     expect(Memory.rooms['W1N1'].basePlan).to.have.property('validation');
     expect(Memory.rooms['W1N1'].basePlan.validation).to.have.property('valid');
+    expect(Memory.rooms['W1N1'].basePlan.plannerDebug.compacted).to.equal(true);
+    expect(Memory.rooms['W1N1'].basePlan.plannerDebug.structurePlanning).to.not.have.property('placements');
+    expect(Memory.rooms['W1N1'].basePlan.plannerDebug.validStructurePositions).to.not.have.property('positions');
   });
 
   it('splits theoretical candidate planning into HTM subtasks', function() {
@@ -111,7 +124,8 @@ describe('layoutPlanner.plan', function() {
       ? firstContainer.tasks.filter((t) => t.name === 'PLAN_LAYOUT_CANDIDATE')
       : [];
     if (firstPipeline.status === 'running') {
-      expect(candidateTasks.length).to.be.at.least(1);
+      const completedResults = firstPipeline.results ? Object.keys(firstPipeline.results).length : 0;
+      expect(candidateTasks.length + completedResults).to.be.at.least(1);
     }
 
     for (let i = 0; i < 6; i++) {
@@ -289,11 +303,13 @@ describe('layoutPlanner.plan', function() {
 
     layoutPlanner.plan('W1N1');
     const plan = Memory.rooms['W1N1'].basePlan;
+    const pipeline = Memory.rooms['W1N1'].layout.theoreticalPipeline;
     expect(plan).to.exist;
-
-    const extensions = (plan.structures && plan.structures[STRUCTURE_EXTENSION]) || [];
-    expect(extensions).to.be.empty;
-    expect(Memory.settings.layoutHarabiStage).to.equal('foundation');
+    expect(plan.plannerDebug.harabiStage).to.equal('full');
+    expect(pipeline.requestedHarabiStage).to.equal('full');
+    expect(pipeline.candidateHarabiStage).to.equal('foundation');
+    expect(pipeline.finalHarabiStage).to.equal('full');
+    expect(Memory.settings.layoutHarabiStage).to.equal('full');
   });
 
   it('uses configured top-N candidate pipeline in theoretical mode when harabi pattern is enabled', function() {
@@ -500,5 +516,207 @@ describe('layoutPlanner.plan', function() {
     expect(pipeline.refinement.acceptedMutations).to.equal(0);
     const best = Object.values(pipeline.results).sort((a, b) => b.weightedScore - a.weightedScore)[0];
     expect(best.index).to.equal(0);
+  });
+
+  it('reranks top full-plan candidates and demotes leaking defense plans', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'full',
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+    const pipeline = {
+      runId: 'test:full-rerank',
+      requestedHarabiStage: 'full',
+      candidateHarabiStage: 'foundation',
+      finalHarabiStage: 'full',
+      candidates: [
+        { index: 0, anchor: { x: 25, y: 25 } },
+        { index: 1, anchor: { x: 26, y: 26 } },
+      ],
+      results: {
+        0: { index: 0, weightedScore: 0.95, completedAt: Game.time },
+        1: { index: 1, weightedScore: 0.7, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: false,
+        status: 'disabled',
+      },
+    };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      const idx = options && options.candidateMeta ? options.candidateMeta.index : 0;
+      expect(options.defensePlanningMode).to.equal('estimate');
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [{ type: 'spawn', x: anchorInput.x, y: anchorInput.y }],
+        evaluation: { weightedScore: idx === 0 ? 0.98 : 0.74, metrics: {}, contributions: {} },
+        meta: {
+          validation: idx === 0 ? ['rampart-boundary-leak:1', 'defense-score-low:900'] : [],
+          defenseScore: idx === 0 ? 900 : 2400,
+          validStructurePositions: {},
+        },
+      };
+    };
+
+    try {
+      const ranked = layoutPlanner._rankPipelineResults(pipeline.results);
+      const reranked = layoutPlanner._rerankTopCandidatesWithFullPlans(
+        'W1N1',
+        pipeline,
+        Memory.rooms.W1N1,
+        ranked,
+      );
+      expect(reranked[0].index).to.equal(1);
+      expect(pipeline.results[0].rawWeightedScore).to.equal(0.98);
+      expect(pipeline.results[0].weightedScore).to.be.below(0);
+      expect(pipeline.results[1].weightedScore).to.equal(0.74);
+      expect(pipeline.fullSelectionRerank.selectedIndex).to.equal(1);
+      expect(pipeline.fullSelectionRerank.rerankedCount).to.equal(2);
+      expect(pipeline.fullSelectionRerank.defensePlanningMode).to.equal('estimate');
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+  });
+
+  it('demotes foundation candidates with hard validation failures before winner selection', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'foundation',
+      layoutPlanningTopCandidates: 2,
+      layoutPlanningCandidatesPerTick: 5,
+    };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      const idx = options && options.candidateMeta ? options.candidateMeta.index : 0;
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [{ type: 'spawn', x: anchorInput.x, y: anchorInput.y }],
+        evaluation: { weightedScore: idx === 0 ? 0.95 : 0.7, metrics: {}, contributions: {} },
+        analysis: { dt: [], controllerDistance: {}, flood: [] },
+        meta: {
+          validation: idx === 0 ? ['controller-stamp-incomplete', 'road-network-disconnected:5/12'] : [],
+          defenseScore: idx === 0 ? 0 : 1800,
+          validStructurePositions: {},
+        },
+      };
+    };
+
+    try {
+      layoutPlanner.buildTheoreticalLayout('W1N1');
+      const layout = Memory.rooms.W1N1.layout;
+      expect(layout.theoretical.selectedCandidateIndex).to.equal(1);
+      expect(layout.theoretical.selectedWeightedScore).to.equal(0.7);
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+  });
+
+  it('does not select a winner when every candidate has hard foundation failures', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'foundation',
+      layoutPlanningTopCandidates: 2,
+      layoutPlanningCandidatesPerTick: 5,
+    };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput) {
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [{ type: 'spawn', x: anchorInput.x, y: anchorInput.y }],
+        evaluation: { weightedScore: 0.95, metrics: {}, contributions: {} },
+        analysis: { dt: [], controllerDistance: {}, flood: [] },
+        meta: {
+          validation: ['controller-stamp-incomplete', 'road-network-disconnected:5/12'],
+          defenseScore: 0,
+          validStructurePositions: {},
+        },
+      };
+    };
+
+    try {
+      layoutPlanner.buildTheoreticalLayout('W1N1');
+      const layout = Memory.rooms.W1N1.layout;
+      expect(layout.theoretical.selectedCandidateIndex).to.equal(null);
+      expect(layout.theoretical.selectedWeightedScore).to.equal(0);
+      expect(layout.theoretical.planningStatus).to.equal('completed');
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+  });
+
+  it('persists full-plan rerank score into the final theoretical layout', function() {
+    Memory.rooms.W1N1.layout = {};
+    const pipeline = {
+      runId: 'test:write-rerank',
+      bestCandidateIndex: 0,
+      candidates: [{ index: 0, anchor: { x: 25, y: 25 }, initialScore: 0.8 }],
+      results: {
+        0: {
+          index: 0,
+          weightedScore: 0.41,
+          rawWeightedScore: 0.91,
+          selectionPenalty: 0.5,
+          weightedMetrics: {},
+          weightedContributions: {},
+          validation: [],
+          defenseScore: 1800,
+          completedAt: Game.time,
+        },
+      },
+      refinement: {
+        enabled: false,
+        status: 'done',
+      },
+      fullSelectionRerank: {
+        enabled: true,
+        rerankedCount: 1,
+        topN: 1,
+        selectedIndex: 0,
+        candidates: [
+          {
+            index: 0,
+            foundationScore: 0.8,
+            rawWeightedScore: 0.91,
+            weightedScore: 0.41,
+            selectionPenalty: 0.5,
+            criticalCount: 0,
+            majorCount: 1,
+          },
+        ],
+      },
+    };
+
+    layoutPlanner._writeTheoreticalLayoutFromPlan(
+      Game.rooms.W1N1,
+      {
+        anchor: { x: 25, y: 25, score: 0.8 },
+        placements: [{ type: 'spawn', x: 25, y: 25 }],
+        analysis: { dt: [], controllerDistance: {}, flood: [] },
+        evaluation: { weightedScore: 0.91, metrics: {}, contributions: {}, weights: {} },
+        meta: {
+          validation: [],
+          foundationDebug: {},
+          sourceResourceDebug: {},
+          logisticsRoutes: {},
+          labPlanning: {},
+          structurePlanning: {},
+          validStructurePositions: {},
+        },
+      },
+      pipeline,
+    );
+
+    expect(Memory.rooms.W1N1.layout.theoretical.selectedWeightedScore).to.equal(0.41);
+    expect(Memory.rooms.W1N1.basePlan.evaluation.weightedScore).to.equal(0.41);
+    expect(Memory.rooms.W1N1.basePlan.plannerDebug.fullSelectionRerank.enabled).to.equal(true);
   });
 });

@@ -7,6 +7,10 @@ global.STRUCTURE_TOWER = 'tower';
 global.STRUCTURE_STORAGE = 'storage';
 global.STRUCTURE_LINK = 'link';
 global.STRUCTURE_CONTAINER = 'container';
+global.STRUCTURE_ROAD = 'road';
+global.STRUCTURE_RAMPART = 'rampart';
+global.STRUCTURE_LAB = 'lab';
+global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
 global.FIND_SOURCES = 2;
 global.TERRAIN_MASK_WALL = 1;
 global.TERRAIN_MASK_SWAMP = 2;
@@ -25,6 +29,14 @@ describe('layoutVisualizer.drawLayout', function() {
     globals.resetMemory();
     htm.init();
     global.RoomVisual = function() {};
+    global.RoomVisual.prototype.structure = function(...args) {
+      drawn.push({ type: 'structure', args });
+      return this;
+    };
+    global.RoomVisual.prototype.connectRoads = function(...args) {
+      drawn.push({ type: 'connectRoads', args });
+      return this;
+    };
     global.RoomVisual.prototype.text = function(...args) { drawn.push({ type: 'text', args }); };
     global.RoomVisual.prototype.rect = function(...args) { drawn.push({ type: 'rect', args }); };
     global.RoomVisual.prototype.circle = function(...args) { drawn.push({ type: 'circle', args }); };
@@ -56,14 +68,19 @@ describe('layoutVisualizer.drawLayout', function() {
     layoutPlanner.plan('W1N1');
   });
 
-  it('draws planned labels', function() {
+  it('renders plan view structures through RoomVisual.structure and keeps only numeric overlays', function() {
     visualizer.drawLayout('W1N1');
     const types = drawn.map(d => d.type);
+    expect(types).to.include('structure');
+    expect(types).to.include('connectRoads');
     expect(types).to.include('text');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === '2')).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_SPAWN)).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'E')).to.be.false;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Layout Legend')).to.be.false;
   });
 
-  it('renders ramparts as tile tint without A glyph so roads stay readable', function() {
+  it('renders ramparts as connected outlines with only a subtle tint fill', function() {
     Memory.rooms.W1N1.basePlan = {
       structures: {
         road: [{ x: 20, y: 20, rcl: 2, tag: 'road.rampart' }],
@@ -71,7 +88,25 @@ describe('layoutVisualizer.drawLayout', function() {
       },
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 19.5 && d.args[1] === 19.5)).to.be.true;
+    expect(
+      drawn.some(
+        d => d.type === 'line' && d.args[0] === 19.5 && d.args[1] === 19.5 && d.args[2] === 20.5 && d.args[3] === 19.5,
+      ),
+    ).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_RAMPART)).to.be.false;
+    expect(
+      drawn.some(
+        d =>
+          d.type === 'rect' &&
+          d.args[0] === 19.5 &&
+          d.args[1] === 19.5 &&
+          d.args[2] === 1 &&
+          d.args[3] === 1 &&
+          d.args[4] &&
+          d.args[4].strokeWidth === 0 &&
+          d.args[4].opacity < 0.2,
+      ),
+    ).to.be.true;
     expect(
       drawn.some(
         d => d.type === 'text' && d.args[0] === 'A' && d.args[1] === 20 && d.args[2] > 20 && d.args[2] < 20.3,
@@ -99,14 +134,14 @@ describe('layoutVisualizer.drawLayout', function() {
     };
     visualizer.drawLayout('W1N1');
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'TH-SP')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Terminal')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Lab')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Planned Rampart')).to.be.true;
-    const legendY = drawn
-      .filter(d => d.type === 'text' && typeof d.args[1] === 'number' && typeof d.args[2] === 'number')
-      .filter(d => String(d.args[0]).startsWith('Planned ') || d.args[0] === 'Layout Legend' || String(d.args[0]).startsWith('View:'))
-      .map(d => d.args[2]);
-    expect(Math.max(...legendY)).to.be.at.most(49);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Layout Legend')).to.be.false;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_SPAWN)).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_CONTAINER)).to.be.true;
+    expect(
+      drawn.some(
+        d => d.type === 'rect' && d.args[0] === 17.5 && d.args[1] === 19.5 && d.args[2] === 1 && d.args[3] === 1,
+      ),
+    ).to.be.false;
   });
 
   it('renders candidate list and weighted score breakdown views', function() {
@@ -146,6 +181,7 @@ describe('layoutVisualizer.drawLayout', function() {
       sourceContainers: [],
     };
     visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'structure')).to.be.false;
     expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Candidates')).to.be.true;
     expect(
       drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('Eval C2 weighted:')),
@@ -219,7 +255,7 @@ describe('layoutVisualizer.drawLayout', function() {
     ).to.be.true;
   });
 
-  it('renders spawn variant labels (S2) from matrix tags', function() {
+  it('does not render spawn or power spawn shorthand labels in plan view', function() {
     Memory.settings.showLayoutOverlayLabels = true;
     const matrix = Memory.rooms.W1N1.layout.matrix;
     matrix['15'] = matrix['15'] || {};
@@ -242,9 +278,11 @@ describe('layoutVisualizer.drawLayout', function() {
       tag: 'core.powerSpawn',
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S2')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S3')).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'PS')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S2')).to.be.false;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'S3')).to.be.false;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'PS')).to.be.false;
+    expect(drawn.filter(d => d.type === 'structure' && d.args[2] === STRUCTURE_SPAWN).length).to.be.at.least(2);
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_POWER_SPAWN)).to.be.true;
   });
 
   it('renders road+rampart overlap from base plan structures', function() {
@@ -262,20 +300,53 @@ describe('layoutVisualizer.drawLayout', function() {
       },
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'rect' && d.args[0] === 19.5 && d.args[1] === 19.5)).to.be.true;
-    const hasRoadLine = drawn.some(
-      d =>
-        d.type === 'line' &&
-        ((d.args[0] === 20 && d.args[1] === 20) || (d.args[2] === 20 && d.args[3] === 20)),
-    );
-    const hasRoadDotGlyph = drawn.some(
-      d => d.type === 'text' && d.args[0] === '·' && d.args[1] === 20 && d.args[2] === 20.08,
-    );
-    expect(hasRoadLine || hasRoadDotGlyph).to.be.true;
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Road + Rampart Overlap')).to.be.true;
+    expect(
+      drawn.some(
+        d =>
+          d.type === 'rect' &&
+          d.args[0] === 19.5 &&
+          d.args[1] === 19.5 &&
+          d.args[2] === 1 &&
+          d.args[3] === 1 &&
+          d.args[4] &&
+          d.args[4].strokeWidth === 0 &&
+          d.args[4].opacity < 0.2,
+      ),
+    ).to.be.true;
+    expect(
+      drawn.some(d => d.type === 'structure' && d.args[0] === 20 && d.args[1] === 20 && d.args[2] === STRUCTURE_ROAD),
+    ).to.be.true;
+    expect(
+      drawn.some(
+        d => d.type === 'line' && d.args[0] === 19.5 && d.args[1] === 19.5 && d.args[2] === 20.5 && d.args[3] === 19.5,
+      ),
+    ).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[2] === STRUCTURE_RAMPART)).to.be.false;
+    expect(drawn.some(d => d.type === 'connectRoads')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'AR')).to.be.false;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'Road + Rampart Overlap')).to.be.false;
+  });
+
+  it('renders plan structures from compact queue-only basePlan memory', function() {
+    Memory.rooms.W1N1.layout.matrix = {};
+    Memory.rooms.W1N1.basePlan = {
+      compacted: true,
+      buildQueue: [
+        { type: STRUCTURE_SPAWN, pos: { x: 20, y: 20 } },
+        { type: STRUCTURE_ROAD, pos: { x: 19, y: 20 } },
+        { type: STRUCTURE_RAMPART, pos: { x: 19, y: 20 } },
+        { type: STRUCTURE_LAB, pos: { x: 22, y: 22 }, rcl: 6 },
+      ],
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 20 && d.args[1] === 20 && d.args[2] === STRUCTURE_SPAWN)).to.equal(true);
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 22 && d.args[1] === 22 && d.args[2] === STRUCTURE_LAB)).to.equal(true);
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 19 && d.args[1] === 20 && d.args[2] === STRUCTURE_ROAD)).to.equal(true);
+    expect(drawn.some(d => d.type === 'line' && d.args[0] === 18.5 && d.args[1] === 19.5 && d.args[2] === 19.5 && d.args[3] === 19.5)).to.equal(true);
   });
 
   it('renders valid structure debug dots when planner debug positions exist', function() {
+    Memory.settings.debugVisuals = true;
     Memory.rooms.W1N1.basePlan = Memory.rooms.W1N1.basePlan || {};
     Memory.rooms.W1N1.basePlan.plannerDebug = {
       validStructurePositions: {
@@ -294,6 +365,7 @@ describe('layoutVisualizer.drawLayout', function() {
   });
 
   it('renders valid structure debug dots from active theoretical candidate plan fallback', function() {
+    Memory.settings.debugVisuals = true;
     delete Memory.rooms.W1N1.basePlan;
     Memory.rooms.W1N1.layout.theoretical = {};
     Memory.rooms.W1N1.layout.matrix = {};
@@ -313,7 +385,46 @@ describe('layoutVisualizer.drawLayout', function() {
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 19 && d.args[1] === 19)).to.be.true;
   });
 
+  it('falls back to active candidate debug arrays when basePlan only keeps compact summaries', function() {
+    Memory.settings.debugVisuals = true;
+    Memory.rooms.W1N1.basePlan = {
+      plannerDebug: {
+        structurePlanning: {
+          computed: true,
+          counts: { extension: 1 },
+        },
+        validStructurePositions: {
+          structureClear: 2,
+          canPlace: 2,
+          shownPositions: 2,
+        },
+      },
+    };
+    Memory.rooms.W1N1.layout.theoretical = {
+      selectedCandidateIndex: 0,
+    };
+    Memory.rooms.W1N1.layout.currentDisplayCandidateIndex = 0;
+    Memory.rooms.W1N1.layout.theoreticalCandidatePlans = {
+      0: {
+        structurePlanning: {
+          placements: [{ type: 'extension', x: 31, y: 31, tag: 'preview.extension' }],
+        },
+        validStructurePositions: {
+          structureClear: 2,
+          canPlace: 2,
+          positions: [{ x: 31, y: 31 }, { x: 32, y: 31 }],
+          truncated: false,
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 31 && d.args[1] === 31 && d.args[2] === 'extension')).to.equal(true);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 31 && d.args[1] === 31)).to.equal(false);
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 32 && d.args[1] === 31)).to.equal(true);
+  });
+
   it('does not draw valid dots on occupied structure tiles (e.g. labs/extensions)', function() {
+    Memory.settings.debugVisuals = true;
     Memory.settings.layoutPlanningMode = 'theoretical';
     Memory.rooms.W1N1.basePlan = {
       structures: {
@@ -335,17 +446,38 @@ describe('layoutVisualizer.drawLayout', function() {
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 30 && d.args[1] === 30)).to.equal(true);
   });
 
-  it('renders lab tiles as L in overlay', function() {
+  it('renders lab tiles as structures without shorthand labels in plan view', function() {
     Memory.rooms.W1N1.basePlan = {
       structures: {
         lab: [{ x: 22, y: 22, rcl: 6, tag: 'lab.source.1' }],
       },
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'L' && d.args[1] === 22)).to.be.true;
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 22 && d.args[1] === 22 && d.args[2] === 'lab')).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'L' && d.args[1] === 22)).to.be.false;
+  });
+
+  it('renders lab planning preview tiles as structures before final lab placement', function() {
+    Memory.rooms.W1N1.basePlan = {
+      plannerDebug: {
+        labPlanning: {
+          sourceLabs: [{ x: 24, y: 24 }, { x: 25, y: 24 }],
+          reactionLabs: [{ x: 24, y: 25 }, { x: 25, y: 25 }],
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(
+      drawn.some(d => d.type === 'structure' && d.args[0] === 24 && d.args[1] === 24 && d.args[2] === STRUCTURE_LAB),
+    ).to.be.true;
+    expect(
+      drawn.some(d => d.type === 'structure' && d.args[0] === 25 && d.args[1] === 25 && d.args[2] === STRUCTURE_LAB),
+    ).to.be.true;
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'L')).to.be.false;
   });
 
   it('renders structure planning previews and suppresses valid dots on those tiles', function() {
+    Memory.settings.debugVisuals = true;
     Memory.rooms.W1N1.basePlan = {
       plannerDebug: {
         structurePlanning: {
@@ -363,10 +495,37 @@ describe('layoutVisualizer.drawLayout', function() {
       },
     };
     visualizer.drawLayout('W1N1');
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'E' && d.args[1] === 27)).to.equal(true);
-    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'F' && d.args[1] === 28)).to.equal(true);
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 27 && d.args[1] === 27 && d.args[2] === 'extension')).to.equal(true);
+    expect(drawn.some(d => d.type === 'structure' && d.args[0] === 28 && d.args[1] === 27 && d.args[2] === 'factory')).to.equal(true);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'E' && d.args[1] === 27)).to.equal(false);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'F' && d.args[1] === 28)).to.equal(false);
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 27 && d.args[1] === 27)).to.equal(false);
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 28 && d.args[1] === 27)).to.equal(false);
     expect(drawn.some(d => d.type === 'circle' && d.args[0] === 29 && d.args[1] === 27)).to.equal(true);
+  });
+
+  it('hides planner distance labels, valid dots, and DT marker when debug visuals are disabled', function() {
+    Memory.settings.debugVisuals = false;
+    Memory.rooms.W1N1.basePlan = {
+      plannerDebug: {
+        structurePlanning: {
+          placements: [{ type: 'extension', x: 27, y: 27, range: 5, rcl: 4 }],
+          ranking: {
+            spawnStampCenter: { x: 12, y: 12 },
+          },
+        },
+        validStructurePositions: {
+          structureClear: 1,
+          canPlace: 1,
+          positions: [{ x: 29, y: 29, dist: 6, candidateRcl: 4 }],
+          truncated: false,
+        },
+      },
+    };
+    visualizer.drawLayout('W1N1');
+    expect(drawn.some(d => d.type === 'circle' && d.args[0] === 29 && d.args[1] === 29)).to.equal(false);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'D5,C4')).to.equal(false);
+    expect(drawn.some(d => d.type === 'text' && d.args[0] === 'DT0')).to.equal(false);
+    expect(drawn.some(d => d.type === 'text' && String(d.args[0]).startsWith('ValidStruct'))).to.equal(false);
   });
 });

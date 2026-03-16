@@ -138,10 +138,17 @@ Toggle in console:
 - `visual.runMode('live'|'theoretical'|'maintenance')` - switch runtime pipeline mode
 - `startFresh({ maintenanceMode: true })` - wipe memory and boot into strict maintenance mode
 - `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3' })` - wipe memory and boot into theoretical planner mode with Harabi-style diagonal 2x2 road grid pattern
-- `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging (Harabi stage is foundation-only at runtime)
-- In Harabi `foundation` runtime, planner debug overlay previews labs plus late structures (`extension`, `factory`, `observer`, `nuker`) on valid tiles; those preview tiles replace green valid dots.
+- `startFresh({ theoreticalBuildingMode: true, extensionPattern: 'cluster3', layoutPlanDumpDebug: true })` - same as above, plus opt-in planner dump debugging
+- `startFresh({ wipe: 'all' })` - explicit full top-level Memory wipe (no preserved settings)
+- In Harabi `foundation` runtime, the `plan` overlay uses `RoomVisual` silhouettes for labs, ramparts, and late structure previews; ramparts use a filled outline with diagonal connectors, and green valid dots plus distance labels only appear when `Memory.settings.debugVisuals` is enabled.
 - `layoutPlanDump('W1N1')` - print planner debug dump (big/small stamp counts, structure totals, and buildQueue entries) when debug flag is enabled
 - Theoretical planner includes optional replay refinement between weighted evaluation and winner selection (Top-N seeds, local mutations, strict score-only acceptance).
+- In `harabi/full`, the theoretical planner now reranks the leading finalists on real full-plan materializations before persisting a winner, but uses the cheaper `estimate` defense pass during that rerank so practical road/rampart failures are caught without re-running expensive full minCut smoothing on every finalist.
+- Foundation-stage candidates with hard structural failures like incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors are now marked `selectionRejected` and cannot win the theoretical selection path.
+- Source-link placement now adds a local transit/chokepoint penalty so links prefer side pockets over narrow corridor tiles when a through-road still needs to continue past the source area.
+- Even before that final rerank, hard foundation-stage validation failures such as incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors are now penalized during candidate selection so obviously broken seeds do not survive as “good” finalists.
+- Single-exit defense planning now seeds the mincut from the actual exit opening center plus a short inward corridor, avoiding arbitrary storage-to-exit drift that could previously pull ramparts toward unrelated southern/eastern routes.
+- Detailed planner rules and debug workflow are documented in [`TyranidScreeps2.0.wiki/Layout-Planner.md`](./TyranidScreeps2.0.wiki/Layout-Planner.md).
 - `visual.layoutRefinement(1|0|'status')` - enable/disable replay refinement and inspect current budget/gate.
 - `visual.layoutRefinementBudget(generations, variants, minBucket)` - tune replay generations, variants per generation, and bucket gate.
 - `Memory.settings.layoutPlanningMode = 'theoretical'; Memory.settings.layoutExtensionPattern = 'cluster3';` - run the 3x3-cluster theoretical planner with Harabi stamps via the Top-N candidate HTM pipeline (bucket-aware)
@@ -150,8 +157,10 @@ Toggle in console:
 - `visual.cpuPolicy('aggressive'|'balanced'|'conservative')` - apply predefined stop/throttle thresholds
 - `visual.runtimeExplain()` - print why current tick is running idle or active path
 - `visual.memHack(1|0|'status')` - toggle or inspect Memory parse-cache optimization
-- `visual.memTrimNow(room?)` - prune theoretical layout memory (top candidates + latest run only)
+- `visual.memTrimNow(room?)` - prune theoretical layout memory (top candidates + latest run only, compact completed theoretical overlays/basePlan debug, and strip non-selected candidate plans down to summary data)
 - `visual.memoryFootprint(room?)` - inspect memory-heavy layout branches and raw bytes
+- `visual.memoryBreakdown()` - capture a size breakdown by major memory branch; `visual.memoryBreakdown('cached')` returns the latest stored snapshot
+- `visual.memoryBreakdownReport()` - print a shareable multi-line memory report to the Screeps console; `visual.memoryBreakdownReport('cached')` reprints the latest stored snapshot without recomputing it
 - `visual.htmOverlay(1)` - show HTM profiler overlay and queue `Game.profiler.background(...)`
 - `visual.htmOverlay(0)` - hide HTM profiler overlay and stop overlay-owned profiling session
 - `visual.overlayMode('off'|'normal'|'debug')` - one-command overlay profile:
@@ -172,7 +181,17 @@ Maintenance mode (`visual.runMode('maintenance')`) runs strict minimal runtime o
 
 Memory optimization defaults:
 - `Memory.settings.enableMemHack` is enabled by default.
-- theoretical planner memory is pruned to top candidates and a compact latest run summary.
+- completed theoretical planner state is now stored in compact form: heavy debug maps move out of `layout.theoretical`, base-plan debug keeps summary data, and non-selected candidate plans shed heavy placement arrays after pruning.
+- persisted `basePlan` memory keeps a compact queue-only representation for runtime/building use instead of duplicating the full `structures` map, and the selected winner candidate is also compacted once `basePlan` already covers that layout unless you explicitly pin that candidate overlay.
+- normal runtime now runs automatic memory hygiene:
+  - checks raw memory pressure every 25 ticks,
+  - warns from about `1.5 MB`,
+  - auto-trims safe planner memory from about `1.8 MB`,
+  - runs an `ownedOnly` safe sweep from about `1.95 MB`,
+  - also runs a periodic safe sweep every 500 ticks.
+- a compact `Memory.stats.memoryBreakdown` snapshot is refreshed automatically every 100 ticks so large branches like `stats.tickPipeline.byTick` are visible without manual profiling.
+- `visual.memoryBreakdownReport()` also prints the heaviest individual `stats.tickPipeline.byTick` ticks so oversized per-tick snapshots are easy to spot.
+- `Memory.stats.tickPipeline` now keeps only the most recent 60 committed ticks.
 
 Theoretical planning phase-4 recovery:
 - if a run is `running` with no active candidate and incomplete results for over 50 ticks,

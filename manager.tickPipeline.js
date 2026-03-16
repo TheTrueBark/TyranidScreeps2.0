@@ -1,5 +1,7 @@
 'use strict';
 
+const MAX_TICK_HISTORY = 60;
+
 function computeBurstAllowance(bucket) {
   const value = Number(bucket || 0);
   if (value >= 9000) return 220;
@@ -155,13 +157,14 @@ function commitTick(ctx) {
   }
   store.byTick[String(ctx.tick)] = snapshot;
   store.ticks.push(ctx.tick);
-  if (store.ticks.length > 200) {
+  if (store.ticks.length > MAX_TICK_HISTORY) {
     const removed = store.ticks.shift();
     delete store.byTick[String(removed)];
   }
 }
 
 module.exports = {
+  MAX_TICK_HISTORY,
   bootstrapTick,
   markPhaseStart,
   markPhaseEnd,
