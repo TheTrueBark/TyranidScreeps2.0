@@ -57,9 +57,22 @@ describe('debug.layoutDump', function() {
               topN: 3,
               selectedIndex: 1,
               candidates: [
-                { index: 0, foundationScore: 0.8, rawWeightedScore: 0.9, weightedScore: -4.1, selectionPenalty: 5, criticalCount: 1, majorCount: 0 },
-                { index: 1, foundationScore: 0.72, rawWeightedScore: 0.74, weightedScore: 0.74, selectionPenalty: 0, criticalCount: 0, majorCount: 0 },
+                { index: 0, foundationScore: 0.8, rawWeightedScore: 0.9, weightedScore: -4.1, selectionPenalty: 5, selectionStage: 'full-rerank', selectionRejected: true, criticalCount: 1, majorCount: 0, minorCount: 0 },
+                { index: 1, foundationScore: 0.72, rawWeightedScore: 0.74, weightedScore: 0.74, selectionPenalty: 0, selectionStage: 'full-rerank', selectionRejected: false, criticalCount: 0, majorCount: 0, minorCount: 0 },
               ],
+            },
+            selectionStage: 'full-rerank',
+            selectionBreakdown: {
+              stage: 'full-rerank',
+              rawWeightedScore: 0.74,
+              penalty: 0,
+              rejected: false,
+              bucketCounts: {
+                hardReject: 0,
+                critical: 0,
+                major: 0,
+                minor: 0,
+              },
             },
             validation: [],
           },
@@ -87,6 +100,7 @@ describe('debug.layoutDump', function() {
     expect(result.lines.some((line) => line.includes('type=spawn'))).to.equal(true);
     expect(result.lines.some((line) => line.includes('refinementDebug status=done'))).to.equal(true);
     expect(result.lines.some((line) => line.includes('fullSelectionRerank enabled=yes mode=estimate reranked=2/3 selected=1'))).to.equal(true);
+    expect(result.lines.some((line) => line.includes('selection stage=full-rerank raw=0.7400 penalty=0.00 rejected=no'))).to.equal(true);
   });
 
   it('formats buildQueue coordinates from entry.pos fallback', function() {

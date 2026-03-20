@@ -123,7 +123,7 @@ Theoretical planning now runs as a multi-candidate HTM pipeline:
 - With `visual.layoutCandidate('selected')`, the overlay automatically switches to the final winner once planning completes.
 - In theoretical mode, the normal task panel is hidden to avoid overlap; the planning HUD still shows `Currently Viewing Candidate: N`.
 
-For the current intended planner semantics behind those visuals, especially candidate rejection, finalist rerank, and source-link chokepoint behavior, see [[Layout-Planner]].
+For the current intended planner semantics behind those visuals, especially candidate rejection, finalist rerank, and source-link chokepoint behavior, see [Layout Planner](./Layout-Planner.md).
 
 ## Distance Transform Overlay
 

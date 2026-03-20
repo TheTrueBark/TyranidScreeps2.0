@@ -2,23 +2,24 @@
 
 ## Overview
 
-This project targets the Screeps runtime which implements **ECMAScript 5.1**. Modern
-ES6+ features such as arrow functions or object spread are not available in-game.
-All code should remain compatible with ES5.1.
+As of **March 20, 2026**, the live Screeps runtime for this project should still
+be treated as **ECMAScript 5.1**. Until the announced **Node.js 24** migration
+on **April 1, 2026** is confirmed live, runtime-critical code should remain
+compatible with ES5.1.
 
 Tyranid Screeps mimics a hierarchical swarm. Each module acts like a different
 organism in the hive:
 
 - **Scheduler** – central nervous system orchestrating tasks and events
 - **Hierarchical Memory** – data storage structured as Hive → Cluster → Colony → Creep
-- **Logging** – colorised and severity‑based output drawn by `console.console.js`
+- **Logging** – structured telemetry and optional console-facing output handled by `console.console.js`
 - **Spawn Manager** – plans and queues creeps according to demand
 - **Hierarchical Task Management** – adaptive objectives from hive down to single creep (`manager.htm.js`), supports task quantities and claim cooldowns
 - **HiveMind** – modular decision layer that queues HTM tasks; a subconscious
   triggers modules like the spawn planner on demand
 - **Hive's Gaze** – scans the map for threats and opportunities
 - **Movement System** – pathing via HiveTravel (Traveler library)
-- **Console Stats** – ASCII dashboard for CPU and room status
+- **Console Stats** – CPU/log telemetry storage for the runtime and the external Dashboard, with optional ASCII dashboard rendering
 - **DNA Builder** – generates creep bodies based on room energy
 
 The system is modular, reactive and geared towards expansion.
@@ -54,11 +55,23 @@ debug.toggle('spawnManager', true); // enable
 ```
 Current settings can be inspected via `debug.config()`.
 
+## Operations dashboard
+
+Operational graphs and log review are now meant to live in the external
+Dashboard repository:
+
+`https://github.com/TheTrueBark/Dashboard`
+
+The Screeps runtime still collects telemetry in `Memory.stats`, and the old
+ASCII dashboard can still be enabled manually when needed. It is no longer the
+default operator surface.
+
 ## Preview CPU metrics
 
-In `buildPreviewOnly` / theoretical mode the ASCII console is rendered directly
-from the main loop every 5 ticks (bucket >= 1000), so CPU and bucket telemetry
-remain visible even when live scheduler branches are bypassed.
+In `buildPreviewOnly` / theoretical mode the CPU/log telemetry is still collected
+from the main loop, but ASCII console rendering is now disabled by default.
+Set `Memory.settings.consoleDisplayEnabled = true` if you explicitly want the
+dashboard printed again.
 Theoretical HUD/overlay drawing is called every tick in preview mode.
 
 `statsConsole.run()` now includes intent-pipeline CPU rows:
@@ -149,10 +162,13 @@ Toggle in console:
 - In Harabi `foundation` runtime, the `plan` overlay uses `RoomVisual` silhouettes for labs, ramparts, and late structure previews; ramparts use a filled outline with diagonal connectors, and green valid dots plus distance labels only appear when `Memory.settings.debugVisuals` is enabled.
 - `layoutPlanDump('W1N1')` - print planner debug dump (big/small stamp counts, structure totals, and buildQueue entries) when debug flag is enabled
 - Theoretical planner includes optional replay refinement between weighted evaluation and winner selection (Top-N seeds, local mutations, strict score-only acceptance).
+- Winner selection now lives in `planner.winnerSelection.js` as a standalone heuristic module with strict reject/penalty/tie-break rules.
 - In `harabi/full`, the theoretical planner now reranks the leading finalists on real full-plan materializations before persisting a winner, but uses the cheaper `estimate` defense pass during that rerank so practical road/rampart failures are caught without re-running expensive full minCut smoothing on every finalist.
 - Foundation-stage candidates with hard structural failures like incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors are now marked `selectionRejected` and cannot win the theoretical selection path.
+- Winner-selection tuning now lives under `Memory.settings.layoutWinnerSelection` (`rerankTopN`, `rerankDefenseMode`, hard-reject prefixes, penalty buckets, tie-breakers).
 - Source-link placement now adds a local transit/chokepoint penalty so links prefer side pockets over narrow corridor tiles when a through-road still needs to continue past the source area.
 - Even before that final rerank, hard foundation-stage validation failures such as incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors are now penalized during candidate selection so obviously broken seeds do not survive as “good” finalists.
+- Persisted candidate/base-plan debug now also carries `selectionStage` and `selectionBreakdown`, and `layoutPlanDump` prints the final selection bucket summary.
 - Single-exit defense planning now seeds the mincut from the actual exit opening center plus a short inward corridor, avoiding arbitrary storage-to-exit drift that could previously pull ramparts toward unrelated southern/eastern routes.
 - Detailed planner rules and debug workflow are documented in [`TyranidScreeps2.0.wiki/Layout-Planner.md`](./TyranidScreeps2.0.wiki/Layout-Planner.md).
 - `visual.layoutRefinement(1|0|'status')` - enable/disable replay refinement and inspect current budget/gate.
@@ -183,7 +199,7 @@ Maintenance mode (`visual.runMode('maintenance')`) runs strict minimal runtime o
 - no scheduler/live/planner/HTM execution
 - no creep role loops
 - no HUD/layout rendering
-- CPU telemetry remains visible via `statsConsole` and ASCII console every 5 ticks
+- CPU telemetry continues to be collected via `statsConsole`; ASCII console output stays disabled by default unless `Memory.settings.consoleDisplayEnabled = true`
 
 Memory optimization defaults:
 - `Memory.settings.enableMemHack` is enabled by default.
@@ -232,25 +248,26 @@ Notes:
 
 Below is a high-level checklist tracking progress. Priority ranges from 1 (low) to 5 (high).
 
-### Grundlegende Bausteine
-- [x] **Scheduler** – Task orchestration (`scheduler.js`) – Prio 4
-- [x] **Memory Manager** – Rigid hive layout (`manager.memory.js`) – Prio 4
-- [x] **Logging** – Severity & toggles (`console.console.js`, `logger.js`) – Prio 5
+### Core Foundations
+- [x] **Scheduler** – Task orchestration (`scheduler.js`) – Priority 4
+- [x] **Memory Manager** – Rigid hive layout (`manager.memory.js`) – Priority 4
+- [x] **Logging** – Severity & toggles (`console.console.js`, `logger.js`) – Priority 5
 
-### Produktion & Einheiten
-- [ ] **Spawn Manager** – Queue and planning (`manager.spawn.js`, `manager.spawnQueue.js`) – Prio 4
-- [ ] **Hierarchical Task Management** – Adaptive tasks across hive – Prio 5
-- [ ] **Hive's Gaze** – Map awareness outside own rooms – Prio 3
+### Production and Units
+- [ ] **Spawn Manager** – Queue and planning (`manager.spawn.js`, `manager.spawnQueue.js`) – Priority 4
+- [ ] **Hierarchical Task Management** – Adaptive tasks across hive – Priority 5
+- [ ] **Hive's Gaze** – Map awareness outside own rooms – Priority 3
 
-### Bewegung & Wegfindung
-- [x] **HiveTravel Integration** – Improve pathing (`manager.hiveTravel.js`) – Prio 3
+### Movement and Pathing
+- [x] **HiveTravel Integration** – Improve pathing (`manager.hiveTravel.js`) – Priority 3
 
-### Überwachung & Visualisierung
-- [x] **Console Stats** – CPU and room dashboard (`console.console.js`) – Prio 3
-- [ ] **Agents** – Assimilation, Garbage, Efficiency – Prio 2
+### Observability and Visuals
+- [x] **Console Stats** – CPU and room dashboard (`console.console.js`) – Priority 3
+- [ ] **Agents** – Assimilation, Garbage, Efficiency – Priority 2
 
 Next step: focus on the hierarchical task system so the scheduler can trigger colony and creep level tasks dynamically.
 
 ## Documentation
 - [Project Wiki](./TyranidScreeps2.0.wiki/Home.md) - architecture and system guides
+- [Operations Dashboard](https://github.com/TheTrueBark/Dashboard) - external operator-facing telemetry and graphs
 - [Roadmap](./ROADMAP.md)

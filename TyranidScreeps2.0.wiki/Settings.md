@@ -7,6 +7,7 @@ This page lists the runtime settings used by the current codebase.
 ```javascript
 if (!Memory.settings) Memory.settings = {};
 Memory.settings.enableVisuals = true;
+Memory.settings.consoleDisplayEnabled = false;
 Memory.settings.alwaysShowHud = true;
 Memory.settings.showTaskList = false;
 Memory.settings.energyLogs = false;
@@ -36,9 +37,10 @@ Memory.settings.renewQueueBusyThreshold = 1;
 Memory.settings.recycleOverheadTicks = 20;
 ```
 
-`main.loop` initialisiert `Memory.settings` und kritische Flags (`pauseBot`, `buildPreviewOnly`,
-`alwaysShowHud`, `enableVisuals`, `showSpawnQueueHud`) zusätzlich defensiv pro Tick.
-Damit bleibt der Bot auch nach einem harten Memory-Reset oder Server-Crash lauffähig.
+`main.loop` also defensively initializes `Memory.settings` and critical flags
+(`pauseBot`, `buildPreviewOnly`, `alwaysShowHud`, `enableVisuals`,
+`showSpawnQueueHud`) every tick. This keeps the bot operational even after a
+hard memory reset or a server crash.
 
 ## Per-Setting Copy Boxes
 
@@ -46,6 +48,16 @@ Damit bleibt der Bot auch nach einem harten Memory-Reset oder Server-Crash lauff
 ```javascript
 Memory.settings.enableVisuals = true
 ```
+
+### `consoleDisplayEnabled` (default `false`)
+```javascript
+Memory.settings.consoleDisplayEnabled = true
+```
+
+Controls whether the ASCII dashboard, log panel, and histogram are printed into
+the Screeps console. Telemetry collection in `Memory.stats` continues even when
+this is `false`, which is the recommended default when using the external
+Dashboard at `https://github.com/TheTrueBark/Dashboard`.
 
 ### `alwaysShowHud` (default `true`)
 ```javascript
@@ -337,8 +349,26 @@ After a plan is generated, run `layoutPlanDump('W1N1')` to print:
 - finalist rerank diagnostics for `harabi/full` runs (foundation score vs reranked full-plan score and validation penalty)
 - rerank debug also shows which defense mode was used; finalists currently rerank on the cheaper `estimate` defense pass to avoid CPU spikes during theoretical selection
 - candidate rows can now also show `selectionRejected`/`hardRejectFlags` semantics indirectly in dump output, meaning some candidates were not merely outscored but fully disqualified from winner selection due to hard foundation failures
+- the final winner row now also prints `selectionStage` plus a compact `selectionBreakdown` summary (raw score, applied penalty, bucket counts)
 
-For the broader intended planner behavior and candidate-selection rules, see [[Layout-Planner]].
+Winner-selection heuristics are configurable under `Memory.settings.layoutWinnerSelection`, for example:
+
+```js
+Memory.settings.layoutWinnerSelection = {
+  profile: 'strict',
+  rerankTopN: 3,
+  rerankDefenseMode: 'estimate',
+  hardRejectPrefixes: ['controller-stamp-incomplete', 'road-network-disconnected'],
+  penaltyBuckets: {
+    critical: { prefixes: ['rampart-boundary-leak'], weight: 5 },
+    major: { prefixes: ['defense-score-low'], weight: 1.5 },
+    minor: { weight: 0.1, cap: 1 },
+  },
+  tieBreakers: ['selectionRejected', 'weightedScore', 'selectionPenalty', 'rawWeightedScore', 'defenseScore', 'index'],
+}
+```
+
+For the broader intended planner behavior and candidate-selection rules, see [Layout Planner](./Layout-Planner.md).
 
 To keep visual debugging usable after a wipe, these settings are preserved and restored:
 

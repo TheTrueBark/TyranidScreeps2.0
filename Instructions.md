@@ -1,128 +1,141 @@
-# Ã°Å¸Â§Â  Project Guidelines Ã¢â‚¬â€œ Screeps Tyranid AI (JavaScript)
+# Project Guidelines - Screeps Tyranid AI (JavaScript)
 
-This document defines the long-term development standards and behavioral rules for maintaining and extending the **TyranidScreeps2.0** codebase. The system is written entirely in **JavaScript** and simulates swarm-like intelligence across a modular agent-based architecture.
+This document defines the long-term development standards and maintenance rules
+for **TyranidScreeps2.0**. The system is written in JavaScript and models
+swarm-like intelligence through modular runtime systems.
 
 ---
 
-## Ã°Å¸â€Â Code Behavior & Architecture
+## Code Behavior and Architecture
 
-- All modules must be modular, testable, and injectable into the scheduler/task system.
-- All code should be clean, readable, and follow a consistent structure.
-- Always add or update **inline comments** when:
-  - Functions are added, removed, or renamed
-  - Behavior changes (e.g. logic branches, lifecycle conditions)
+- Keep modules modular, testable, and injectable into the scheduler/task system.
+- Prefer clean, readable code with small and well-defined responsibilities.
+- Add or update inline comments when functions are added, removed, renamed, or
+  when behavior changes in a non-obvious way.
 - Avoid global state pollution.
-- CPU usage must be considered at every step.
+- Treat CPU usage as a first-class design constraint.
 
 ---
 
-## Ã°Å¸Â§Âª Testing System (npm test)
+## Testing (`npm test`)
 
-- All new functionality must be covered by tests in the `/test/` directory.
-- Use **Mocha + Chai** as the test runner and assertion library.
-- Use a **custom mock system** in `/test/mocks/`, including:
-  - `Game` object with stubs for `Game.time`, `Game.cpu.getUsed()`, etc.
-  - `Memory` with simulated persistence
-  - `globals.js` to expose mocks to the global scope
-- Run tests via `npm test`. The test suite must never break.
-- All mocks must be **pure JavaScript** (no TypeScript).
+- Cover new or changed functionality with tests under `/test/`.
+- Use **Mocha + Chai** and the existing mock system under `/test/mocks/`.
+- Keep mocks in plain JavaScript.
+- Run `npm test` before committing. The suite must not be left broken.
 
----
-
-## Ã°Å¸â€œËœ Documentation Maintenance
-
-For every code or feature update, determine whether you must update:
-
-| Change Type                        | Requires Update In...                           |
-|-----------------------------------|--------------------------------------------------|
-| New function/module added         | Inline comments, roadmap, maybe wiki pages (`wiki/`)         |
-| New behavior or flow              | Roadmap and high-level doc section               |
-| Refactor or restructure           | Comments, roadmap task reference                 |
-| Console output or GUI changed     | README and/or visual behavior description        |
-| New test case                     | Add to `/test/`, update `README` if CLI exposed  |
-
-### Specific Locations:
-
-- `/README.md`: High-level overview, live behavior, links
-- `wiki/`: Feature-specific explanations and internals (task engine, scheduler flow, memory layout)
-- `/roadmap.md`: Tick off features, update status, priority, files affected
+The mock stack includes:
+- `Game` stubs (`Game.time`, `Game.cpu.getUsed()`, etc.)
+- simulated `Memory`
+- `globals.js` exposing mocks to the global scope
 
 ---
 
-## Ã°Å¸â€œÅ  Logging, Stats, and Console GUI
+## Documentation Maintenance
 
-- All modules (e.g., Creeps, Spawns, Towers) must report CPU usage:
-  - Inject CPU stats into `statsConsole.run()` as `[name, usage]` entries
-- Use `statsConsole.log(message, severity)` for persistent log display
+For every code or feature update, determine whether you must also update docs.
+
+| Change Type | Requires Update In... |
+|---|---|
+| New function/module added | Inline comments, `ROADMAP.md`, and possibly `TyranidScreeps2.0.wiki/` |
+| New behavior or flow | `README.md`, `ROADMAP.md`, and the relevant wiki page |
+| Refactor or restructure | Comments, roadmap references, and architecture docs if behavior changed |
+| Console/HUD/dashboard behavior changed | `README.md`, observability docs, and relevant settings pages |
+| New test case or new console helper | `/test/`, and `README.md` if user-facing |
+
+### Documentation policy
+
+- Keep all updated documentation in English.
+- Treat repo-tracked docs as the source of truth:
+  - `README.md`
+  - `ROADMAP.md`
+  - `TyranidScreeps2.0.wiki/`
+- Update docs in the same commit as the related code change whenever possible.
+- The primary operations UI is the external Dashboard:
+  `https://github.com/TheTrueBark/Dashboard`
+- Document the in-console ASCII display as optional/manual unless the runtime
+  explicitly depends on it.
+
+---
+
+## Logging, Stats, and Observability
+
+- All major modules should report CPU usage through `statsConsole.run()` rows.
+- Use `statsConsole.log(message, severity)` for persistent structured logging.
 - Log entries should:
-  - Include severity level (1Ã¢â‚¬â€œ5)
-  - Aggregate repeated messages into single entries
-  - Auto-expire after a default duration (e.g. 30 ticks)
-  - Include metadata like room name if possible
+  - include severity level (`1-5`)
+  - aggregate repeated messages
+  - expire automatically after a reasonable window
+  - include metadata such as room name where useful
+- Telemetry collection in `Memory.stats` must remain intact even if console
+  rendering is reduced or disabled.
 
 ---
 
-## Ã°Å¸Â§Â± Scheduler & HTM
+## Scheduler and HTM
 
-- Use the global `scheduler.addTask()` system to register recurring logic
-- Tasks should be one of:
-  - `INTERVAL` Ã¢â€ â€™ run every N ticks
-  - `EVENT` Ã¢â€ â€™ trigger-based
-  - `ONCE` Ã¢â€ â€™ one-time, auto-remove
-- HTM (Hierarchical Task Management) and HMM (Hierarchical Memory Management) modules must follow the same interface.
+- Register recurring logic through `scheduler.addTask()`.
+- Supported trigger types are:
+  - `INTERVAL` - run every N ticks
+  - `EVENT` - trigger-based
+  - `ONCE` - one-time, auto-remove
+- HTM and memory-management flows should keep predictable interfaces and
+  scheduling boundaries.
 
 ---
 
-## Ã°Å¸â€Â Bug Detection & Linting
+## Bug Detection and Code Health
 
 - Proactively review for:
-  - Memory leaks or stale creep/room references
-  - Inefficient CPU patterns
-  - Redundant logic in task runners
-- If a bug is found, document it as:
-  - Inline comment (`// TODO`, `// FIXME`)
-  - Separate note in `wiki/Issues.md` (if ongoing)
+  - stale creep/room references
+  - memory leaks
+  - inefficient CPU patterns
+  - redundant task-runner logic
+- If a bug is found, document it with:
+  - inline notes such as `TODO` or `FIXME`
+  - a durable roadmap or issue reference if it is ongoing
 
 ---
 
-## Ã°Å¸â€œË† GUI Extensions
+## Visuals and Operator UX
 
-If a feature provides enhanced visibility:
-- Consider integrating it visually into `statsConsole.displayStats()` or `displayLogs()`
-- Consider adding visual overlays using `RoomVisual` if relevant
-
----
-
-## Ã°Å¸â€™Â¡ Best Practices
-
-- All code should be modular and testable in isolation.
-- Avoid side-effects on import.
-- Prefer dependency injection or scheduler registration for behaviors.
-- All new logic must integrate with the existing CPU tracking and logging tools.
-
-## Ã°Å¸ÂÂ·Ã¯Â¸Â Codex Metadata
-
-Source files include comment tags used by the Codex documentation tools. When
-adding new modules or tasks be sure to annotate them with the appropriate tags:
-
-- `@codex-owner moduleName` Ã¢â‚¬â€œ declares ownership of a file or memory branch.
-- `@codex-task TASK_NAME` Ã¢â‚¬â€œ documents an HTM task registered in `taskRegistry`.
-- `@codex-scheduler-task` Ã¢â‚¬â€œ marks scheduled jobs in `main.js` or elsewhere.
-- `@codex-path Memory.path` Ã¢â‚¬â€œ specifies persisted memory locations.
-
-These annotations keep the docs in sync with the codebase and help trace task
-ownership during gameplay.
+If a feature improves visibility:
+- consider room visuals when they help in-game debugging
+- consider telemetry exposure through `Memory.stats` and the external Dashboard
+- only rely on console rendering when manual ad-hoc inspection is the goal
 
 ---
 
-## Ã°Å¸â€â€” Project References (Mocks, Ideas, Tools)
+## Best Practices
+
+- Keep logic modular and testable in isolation.
+- Avoid side effects during module import.
+- Prefer dependency injection or explicit scheduler registration.
+- New logic should integrate with existing logging and CPU tracking paths.
+
+## Codex Metadata
+
+Source files may include metadata tags used by documentation tooling. When
+adding new modules or tasks, annotate them where appropriate:
+
+- `@codex-owner moduleName` - declares ownership of a file or memory branch
+- `@codex-task TASK_NAME` - documents an HTM task registered in `taskRegistry`
+- `@codex-scheduler-task` - marks scheduled jobs in `main.js` or elsewhere
+- `@codex-path Memory.path` - specifies persisted memory locations
+
+These annotations help keep docs aligned with the codebase.
+
+---
+
+## Project References
 
 - [Repository README](./README.md)
 - [Roadmap](./ROADMAP.md)
-- [Scheduler Documentation](./wiki/Scheduler.md)
-- [HTM Design Notes](./wiki/Hierarchical-Task-Management.md)
-- [HiveMind Overview](./wiki/HiveMind.md)
+- [Scheduler Documentation](./TyranidScreeps2.0.wiki/Scheduler.md)
+- [HTM Design Notes](./TyranidScreeps2.0.wiki/Hierarchical-Task-Management.md)
+- [HiveMind Overview](./TyranidScreeps2.0.wiki/HiveMind.md)
 
 ---
 
-> Ã¢Å“â€¦ This document is considered authoritative. All future logic and features must conform to these standards or justify changes clearly in the PR or commit message.
+This document is authoritative. Future changes should follow these standards or
+explicitly document why they diverge.

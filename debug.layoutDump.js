@@ -267,6 +267,8 @@ function buildLayoutPlanDump(roomName) {
           labPlanning: activeCandidate.labPlanning || {},
           structurePlanning: activeCandidate.structurePlanning || {},
           refinementDebug: activeCandidate.refinementDebug || {},
+          selectionStage: activeCandidate.selectionStage || null,
+          selectionBreakdown: activeCandidate.selectionBreakdown || null,
           validStructurePositions: activeCandidate.validStructurePositions || {},
           validation: activeCandidate.validation || [],
         },
@@ -346,6 +348,12 @@ function buildLayoutPlanDump(roomName) {
       plannerDebug.fullSelectionRerank && typeof plannerDebug.fullSelectionRerank === 'object'
         ? plannerDebug.fullSelectionRerank
         : {},
+    selectionStage:
+      typeof plannerDebug.selectionStage === 'string' ? plannerDebug.selectionStage : null,
+    selectionBreakdown:
+      plannerDebug.selectionBreakdown && typeof plannerDebug.selectionBreakdown === 'object'
+        ? plannerDebug.selectionBreakdown
+        : null,
     validStructurePositions:
       plannerDebug.validStructurePositions && typeof plannerDebug.validStructurePositions === 'object'
         ? plannerDebug.validStructurePositions
@@ -557,11 +565,18 @@ function formatLayoutPlanDump(payload, options = {}) {
       lines.push(
         `[layoutPlanDump] fullSelectionRerank.candidates=${candidateRows
           .map((row) =>
-            `${row.index}:foundation=${Number(row.foundationScore || 0).toFixed(4)} raw=${Number(row.rawWeightedScore || 0).toFixed(4)} final=${Number(row.weightedScore || 0).toFixed(4)} penalty=${Number(row.selectionPenalty || 0).toFixed(2)} critical=${Number(row.criticalCount || 0)} major=${Number(row.majorCount || 0)}`,
+            `${row.index}:foundation=${Number(row.foundationScore || 0).toFixed(4)} raw=${Number(row.rawWeightedScore || 0).toFixed(4)} final=${Number(row.weightedScore || 0).toFixed(4)} penalty=${Number(row.selectionPenalty || 0).toFixed(2)} stage=${row.selectionStage || 'n/a'} rejected=${row.selectionRejected === true ? 'yes' : 'no'} critical=${Number(row.criticalCount || 0)} major=${Number(row.majorCount || 0)} minor=${Number(row.minorCount || 0)}`,
           )
           .join(' | ')}`,
       );
     }
+  }
+  const selectionBreakdown = payload.selectionBreakdown || {};
+  if (Object.keys(selectionBreakdown).length > 0) {
+    const bucketCounts = selectionBreakdown.bucketCounts || {};
+    lines.push(
+      `[layoutPlanDump] selection stage=${payload.selectionStage || selectionBreakdown.stage || 'n/a'} raw=${Number(selectionBreakdown.rawWeightedScore || 0).toFixed(4)} penalty=${Number(selectionBreakdown.penalty || 0).toFixed(2)} rejected=${selectionBreakdown.rejected === true ? 'yes' : 'no'} buckets=hard:${Number(bucketCounts.hardReject || 0)} critical:${Number(bucketCounts.critical || 0)} major:${Number(bucketCounts.major || 0)} minor:${Number(bucketCounts.minor || 0)}`,
+    );
   }
 
   const valid = payload.validStructurePositions || {};

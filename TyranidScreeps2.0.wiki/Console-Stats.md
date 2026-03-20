@@ -1,15 +1,38 @@
-# Console Stats & Display
+# Console Stats and Display
 
-The console module renders an ASCII dashboard inside the Screeps client. It combines CPU statistics, room information and recent log entries into a single view.
+The stats/console module collects CPU, room, and log telemetry under
+`Memory.stats`. The historical ASCII dashboard still exists as an optional
+manual view, but it is no longer the primary operator surface.
 
 ## Features
 
-- **CPU Histogram** – History of CPU usage drawn with console.ascii-chart.js.
-- **Stat Box** – Shows GCL progress, room energy and controller status.
-- **Logging Panel** – Latest messages from the logger sorted by severity.
-- Customisable characters for borders, bars and spacing.
-- **Console draw time** – CPU cost for rendering the dashboard, shown under the "Total" CPU line.
+- **Telemetry retention** - CPU samples, log aggregates, and room snapshots are
+  stored in `Memory.stats`.
+- **Optional ASCII dashboard** - a manual Screeps-console view combining the CPU
+  histogram, room stats, and recent logs.
+- **Console draw time** - CPU cost for rendering the dashboard, exposed for
+  profiling when that view is enabled.
+- **Dashboard-first operations** - the preferred operator UI is the external
+  Dashboard at `https://github.com/TheTrueBark/Dashboard`.
 
-The scheduler feeds data into the console module every tick. Use statsConsole.displayStats() to print the dashboard from the game console when needed.
+The runtime continues to feed telemetry into the stats module every tick. The
+main loop no longer prints the ASCII dashboard periodically by default.
 
-Each room section shows the stored energy along with workforce counts. The numbers are displayed as current/max for miners, haulers and workers based on the latest spawn evaluation. The worker entry includes a (B:x U:y) breakdown so you can see how many creeps currently have builder or upgrader priorities. When a manual spawn limit is set for any role the value is appended as manual limit: X, allowing rooms to be throttled for testing. Use debug.setSpawnLimit(room, role, amount) where mount can be a number or 'auto' to clear the override. This helps track at a glance whether the colony is meeting its target creep limits.
+## Default Behavior
+
+- Telemetry collection remains enabled.
+- Periodic console rendering is disabled by default.
+- Set `Memory.settings.consoleDisplayEnabled = true` if you explicitly want the
+  ASCII dashboard printed again.
+
+## Manual Use
+
+Use `statsConsole.displayStats()` if you want to print the dashboard on demand
+from the Screeps console.
+
+Each room section shows stored energy and workforce counts. Values are displayed
+as current/max for miners, haulers, and workers based on the latest spawn
+evaluation. The worker entry includes a `(B:x U:y)` breakdown so you can inspect
+builder vs upgrader priority splits. Manual spawn limits are appended as
+`manual limit: X`. Use `debug.setSpawnLimit(room, role, amount)` where `amount`
+is a number or `'auto'` to clear the override.

@@ -1,21 +1,24 @@
-# Baseplanner – Manual Verification Checklist (Phasen + Algorithmen)
+# Baseplanner - Manual Verification Checklist (Phases and Algorithms)
 
-Diese Checkliste ist als reproduzierbarer Debug-Run gedacht.  
-Ziel: Probleme schnell isolieren, reproduzieren und später vergleichen.
+This checklist is meant to drive a reproducible debug run.
+Use it to isolate issues quickly, reproduce them, and compare later changes
+against the same baseline.
 
 ---
 
-## 0) Vorbereitung
+## 0) Preparation
 
-1. Sicherstellen, dass du in einer **eigenen Test-Session** bist.
-2. Bot pausieren oder in theoretischen Modus wechseln, damit keine Live-Tasks stören.
-3. Für reproduzierbare CPU-Werte: Runtime + Overlay-Modus explizit setzen (kein Mischzustand aus alten Toggles).
+1. Make sure you are in a dedicated test session.
+2. Pause the bot or switch into theoretical mode so live tasks do not interfere.
+3. For reproducible CPU values, set runtime and overlay mode explicitly instead
+   of mixing older toggles.
 
-### Console-Setup (copy/paste)
+### Console setup (copy/paste)
+
 ```js
 visual.runMode('theoretical');
 visual.cpuPolicy('aggressive');
-visual.overlayMode('debug'); // alternativ 'off' für reine CPU-Messung ohne Draws
+visual.overlayMode('debug'); // or 'off' for CPU-only measurement without draws
 visual.memHack(1);
 Memory.settings = Memory.settings || {};
 Memory.settings.layoutPlanningManualMode = true;
@@ -28,7 +31,8 @@ Memory.settings.layoutPlanningDebugPhaseTo = 10;
 Memory.settings.layoutPlanningRecalcScope = 'all';
 ```
 
-### Optional: sauberer Start nur für Planner-Debug
+### Optional clean start for planner debugging only
+
 ```js
 startFresh({ theoreticalBuildingMode: true });
 visual.cpuPolicy('aggressive');
@@ -37,47 +41,59 @@ visual.memHack(1);
 
 ---
 
-## 1) Manual Planner Mode / Phasensteuerung prüfen
+## 1) Verify Manual Planner Mode and Phase Control
 
-### A) Mode aktivieren
+### A) Enable manual mode
+
 ```js
 visual.layoutManualMode(1)
 ```
-**Soll:** Log meldet manuellen Planner-Modus aktiv.
 
-### B) Initialrun bis Base-Phase 4 (entspricht intern 1..9)
+**Expected:** log confirms that manual planner mode is active.
+
+### B) Initial run through Base Phase 4 (maps internally to phases 1..9)
+
 ```js
 visual.layoutInitializePhase('W1N1', 4, 1)
 ```
-Dann 5–20 Ticks laufen lassen.
 
-**Soll prüfen:**
-- `Memory.rooms['W1N1'].layout.theoreticalPipeline.status` ist `paused_phase_9` oder `completed`.
-- `Memory.rooms['W1N1'].layout.theoretical.selectedCandidateIndex` ist gesetzt.
-- Keine Exceptions im Log.
-- Bei `overlayMode('off')` entstehen keine Render-Intents (`INTENT_RENDER_HUD` / `INTENT_SYNC_OVERLAY`).
+Let 5-20 ticks run.
 
-### C) Nur Base-Phasen 3..4 neu rechnen
+**Check:**
+
+- `Memory.rooms['W1N1'].layout.theoreticalPipeline.status` is
+  `paused_phase_9` or `completed`
+- `Memory.rooms['W1N1'].layout.theoretical.selectedCandidateIndex` is set
+- no exceptions in logs
+- with `overlayMode('off')`, no render intents are created
+  (`INTENT_RENDER_HUD` / `INTENT_SYNC_OVERLAY`)
+
+### C) Recalculate only Base Phases 3..4
+
 ```js
 visual.layoutInitializePhase('W1N1', 4, 3)
 ```
-Wieder 5–20 Ticks laufen lassen.
 
-**Soll prüfen:**
-- Re-Run startet ohne Full-Reset.
-- Candidate/Evaluation Daten aktualisieren sich.
+Let 5-20 ticks run again.
+
+**Check:**
+
+- rerun starts without a full reset
+- candidate and evaluation data refresh correctly
 
 ---
 
-## 2) MinCut-Algorithmus prüfen (flow + continuity)
+## 2) Verify the Min-Cut Algorithm (flow + continuity)
 
-### A) Overlay auf Kandidaten/Evaluation
+### A) Overlay on candidates / evaluation
+
 ```js
 visual.layoutView('candidates')
 visual.layoutCandidate('selected')
 ```
 
-### B) Memory-Metadaten checken
+### B) Inspect memory metadata
+
 ```js
 const p = Memory.rooms['W1N1'].layout.theoreticalPipeline;
 const t = Memory.rooms['W1N1'].layout.theoretical;
@@ -88,74 +104,98 @@ const t = Memory.rooms['W1N1'].layout.theoretical;
 })
 ```
 
-### C) Erwartung
-- Cut ist vorhanden (Rampart-Linie sichtbar/ableitbar).
-- Keine offensichtlich getrennten Rampart-Inseln.
-- Bei schwierigen Räumen: continuity bridging greift (bridgedTiles > 0 möglich).
+### C) Expectation
+
+- a cut exists and is visible / derivable as a rampart line
+- no obviously disconnected rampart islands
+- on difficult rooms, continuity bridging may legitimately show `bridgedTiles > 0`
 
 ---
 
-## 3) FloodFill-Algorithmus prüfen (weighted + 4-way im Unit-Test abgesichert)
+## 3) Verify the Flood-Fill Algorithm
 
-### A) Praktische Sichtprüfung
+Weighted expansion and 4-way behavior are already covered by unit tests. Here
+the goal is practical verification.
+
+### A) Visual inspection
+
 ```js
 visual.layoutView('floodDepth')
 ```
 
-**Soll prüfen:**
-- Flood-Tiefen sehen radial plausibel aus.
-- Keine unplausiblen Sprünge über Walls.
+**Check:**
 
-### B) Bei swamp-heavy rooms
-- Prüfen, ob Placement nicht unnatürlich durch Swamp-Korridore bevorzugt wird.
-- Kandidatenvergleich mit `visual.layoutView('evaluation')` gegenchecken.
+- flood depths look radially plausible
+- no implausible jumps across walls
+
+### B) On swamp-heavy rooms
+
+- verify that placement is not unnaturally biased toward swamp corridors
+- cross-check candidate ranking with `visual.layoutView('evaluation')`
 
 ---
 
-## 4) BasePlan Validation prüfen
+## 4) Verify BasePlan Validation
 
-### A) Validation-Objekt
+### A) Validation object
+
 ```js
 Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 ```
 
-### B) Recovery-Objekt
+### B) Recovery object
+
 ```js
 Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validationRecovery
 ```
 
-### C) Profiling
-```js
-Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation && Memory.rooms['W1N1'].basePlan.validation.checkedAt
-```
-> Detail: `durationMs` kommt aus dem Validator-Result und sollte bei Re-Runs beobachtbar bleiben.
+### C) Profiling field
 
-### D) Erwartung
-- `validation` vorhanden.
-- Bei Warnungen: `issues` sind konkret (z. B. `lab-range-fail`, `rampart-connectivity-fail`, etc.).
+```js
+Memory.rooms['W1N1'].basePlan &&
+Memory.rooms['W1N1'].basePlan.validation &&
+Memory.rooms['W1N1'].basePlan.validation.checkedAt
+```
+
+`durationMs` comes from the validator result and should stay observable across
+reruns.
+
+### D) Expectation
+
+- `validation` exists
+- if there are warnings, `issues` are concrete
+  (`lab-range-fail`, `rampart-connectivity-fail`, etc.)
 
 ---
 
-## 5) Building/HUD Integration prüfen
+## 5) Verify Building / HUD Integration
 
 ### A) HUD
-- Base Plan Block sichtbar.
-- Enthält: Status, Spawn, Score, Validation (`ok`/`warn(N)`), Next Build.
 
-### B) BuildQueue-Konsum
+- Base-plan block is visible
+- It contains: status, spawn, score, validation (`ok` / `warn(N)`), next build
+
+### B) BuildQueue consumption
+
 ```js
-Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue && Memory.rooms['W1N1'].basePlan.buildQueue.slice(0,5)
+Memory.rooms['W1N1'].basePlan &&
+Memory.rooms['W1N1'].basePlan.buildQueue &&
+Memory.rooms['W1N1'].basePlan.buildQueue.slice(0, 5)
 ```
 
-**Soll:**
-- `manager.building.executeLayout` arbeitet ausschließlich aus `basePlan.buildQueue` (kein Legacy-Matrix-Fallback).
-- Wenn `visual.overlayMode('off')` gesetzt ist: keine Layout-/HUD-Darstellung trotz laufender Pipeline (by design).
+**Expected:**
+
+- `manager.building.executeLayout` works exclusively from `basePlan.buildQueue`
+  with no legacy matrix fallback
+- if `visual.overlayMode('off')` is active, no HUD/layout rendering occurs even
+  while the pipeline is running
 
 ---
 
-## 6) Fehlerfall-Referenz (für spätere Debug-Sessions)
+## 6) Failure Snapshot Reference
 
-Wenn Probleme auftreten, direkt sichern:
+If something looks wrong, capture it immediately:
+
 ```js
 ({
   tick: Game.time,
@@ -169,85 +209,101 @@ Wenn Probleme auftreten, direkt sichern:
 })
 ```
 
-Damit hast du einen stabilen Snapshot zum Vergleich mit späteren Änderungen.
+This gives you a stable comparison snapshot for later debugging sessions.
 
 ---
 
-## 7) Abschlusskriterien „Platzhalter ersetzt“
+## 7) Completion Criteria
 
-Ein Algorithmus gilt als abgeschlossen, wenn:
-- Unit-Tests grün sind,
-- es im Manual-Run reproduzierbar funktioniert,
-- die zugehörige Roadmap/Wiki-Markierung gesetzt wurde,
-- und Debug/Metadaten vorhanden sind, um Fehler später nachvollziehen zu können.
+An algorithm is considered complete when:
 
+- unit tests are green
+- the manual run is reproducible
+- the corresponding roadmap / wiki marker was updated
+- debug metadata is available so later failures can still be reconstructed
 
 ---
 
-## 8) 10-Minuten Smoke-Test (kompakt)
+## 8) 10-Minute Smoke Test
 
-Wenn du nur schnell "grün/rot" prüfen willst:
+If you only want a fast green/red pass:
 
-1. **Manual Mode aktivieren + Initialisierung:**
+1. **Enable manual mode and initialize**
+
 ```js
 visual.layoutManualMode(1)
 visual.layoutInitializePhase('W1N1', 4, 1)
 ```
-**Erwartung:** Pipeline landet auf `paused_phase_9` oder `completed`, keine Exceptions.
 
-2. **BasePlan vorhanden + Validation ok/warn:**
+**Expectation:** pipeline lands on `paused_phase_9` or `completed`, with no exceptions.
+
+2. **BasePlan exists and validation is present**
+
 ```js
 ({
   hasBasePlan: !!(Memory.rooms['W1N1'].basePlan),
   validation: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 })
 ```
-**Erwartung:** `hasBasePlan === true`, Validation-Objekt vorhanden.
 
-3. **BuildQueue nicht leer + Next Build sichtbar:**
+**Expectation:** `hasBasePlan === true`, validation object exists.
+
+3. **BuildQueue is not empty and next build is plausible**
+
 ```js
-Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue && Memory.rooms['W1N1'].basePlan.buildQueue.slice(0,3)
+Memory.rooms['W1N1'].basePlan &&
+Memory.rooms['W1N1'].basePlan.buildQueue &&
+Memory.rooms['W1N1'].basePlan.buildQueue.slice(0, 3)
 ```
-**Erwartung:** Erste Einträge plausibel (spawn/roads/extensions je nach RCL).
 
-4. **HUD gegenprüfen:**
-- Base-Plan Block zeigt Status/Score/Validation/Next Build.
-- Keine widersprüchlichen Legacy-Indikatoren im HUD.
-- Bei `overlayMode('off')`: HUD bleibt aus, Datenprüfung erfolgt nur via Memory/Console.
+**Expectation:** early entries look plausible for the current RCL
+(spawn / roads / extensions depending on phase and room state).
 
-Wenn diese 4 Punkte passen, ist der Kernpfad für den E2E-Lauf stabil.
+4. **Cross-check HUD**
+
+- base-plan block shows status / score / validation / next build
+- no contradictory legacy indicators remain in the HUD
+- with `overlayMode('off')`, HUD stays hidden and verification happens only via
+  memory / console
+
+If these four checks pass, the core end-to-end path is stable.
 
 ---
 
-## 9) Speziell beobachten: Bootstrap-Base → Ziel-Base Umbau
+## 9) Watch the Bootstrap-Base to Target-Base Transition
 
-Für deinen Zukunftsplan (Spawn steht anfangs "falsch", später Ziel-Layout):
+For the future transition plan where the first spawn starts in a temporary spot:
 
-- **Achte auf diese Signale im Run:**
-  - Wird der erste Spawn im `basePlan.buildQueue` als persistentes Ziel geführt oder nur als Startzustand toleriert?
-  - Entsteht ab RCL 5/6 ein klarer Übergangspfad (zweiter Spawn + kritische Infrastruktur zuerst)?
-  - Bleibt die Queue nach RCL-Upgrades deterministisch (kein Flip-Flop bei Prioritäten)?
+### Watch these signals
 
-- **Snapshot für Vergleich zwischen Strategien (Rush vs. Dual-Mode):**
+- Is the first spawn kept as a persistent target in `basePlan.buildQueue`, or
+  merely tolerated as a bootstrap state?
+- Starting at RCL 5/6, does a clear transition path appear
+  (second spawn plus critical infrastructure first)?
+- Does the queue stay deterministic after RCL upgrades, or does it flip-flop?
+
+### Snapshot for strategy comparison (rush vs dual-mode)
+
 ```js
 ({
   tick: Game.time,
   rcl: Game.rooms['W1N1'] && Game.rooms['W1N1'].controller && Game.rooms['W1N1'].controller.level,
   spawns: (Game.rooms['W1N1'] && Game.rooms['W1N1'].find(FIND_MY_SPAWNS) || []).map(s => ({ id: s.id, x: s.pos.x, y: s.pos.y })),
   nextBuilds: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.buildQueue
-    ? Memory.rooms['W1N1'].basePlan.buildQueue.filter(i => !i.built).slice(0,8)
+    ? Memory.rooms['W1N1'].basePlan.buildQueue.filter(i => !i.built).slice(0, 8)
     : [],
   validation: Memory.rooms['W1N1'].basePlan && Memory.rooms['W1N1'].basePlan.validation
 })
 ```
 
-Damit kannst du später sauber entscheiden, ob wir einen harten RCL5-Rush-Pfad oder einen temporären Dual-Mode einbauen.
+This lets you compare later whether a hard RCL5 rush path or a temporary
+dual-mode transition is the cleaner implementation.
 
 ---
 
-## 10) Runtime/Memory Schnellcheck (neu)
+## 10) Runtime / Memory Quick Check
 
-Für Baseplanner-Debug mit stabiler CPU:
+For stable baseplanner debugging under constrained CPU:
 
 ```js
 JSON.stringify(visual.runtimeExplain(), null, 2)
@@ -261,7 +317,9 @@ JSON.stringify(visual.memHack('status'), null, 2)
 JSON.stringify(visual.memoryFootprint('W1N1'), null, 2)
 ```
 
-Erwartung:
-- Runtime zeigt klar `active` (bei laufender Planung) oder `idle` (ohne Work).
-- MemHack steht auf `enabled=true` und idealerweise `mode='hit'`.
-- Candidate-/Pipeline-Daten bleiben nach Abschluss kompakt (Top-Kandidaten + letzter Run).
+Expectation:
+
+- runtime clearly reports `active` or `idle`
+- MemHack shows `enabled=true` and ideally `mode='hit'`
+- candidate and pipeline data stay compact after completion
+  (top candidates plus latest run only)

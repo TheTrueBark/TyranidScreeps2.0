@@ -72,6 +72,10 @@ When a candidate hits one of these:
 
 This prevents obviously broken candidates from surviving merely because their geometry is compact or cheap.
 
+The rule set now lives in `planner.winnerSelection.js`, so reject prefixes,
+penalty buckets, deterministic tie-breaks, and finalist rerank behavior are no
+longer spread across `layoutPlanner.js`.
+
 ## Full-Plan Rerank
 
 In `harabi/full`, the planner reranks only the leading finalists as real full plans before persisting a winner.
@@ -105,6 +109,24 @@ The rerank and selection penalty path pays special attention to:
 - `container-count-fail`
 
 The goal is not "lowest geometric cost wins", but "best practical buildable base wins".
+
+## Heuristic Config
+
+Winner-selection tuning lives under `Memory.settings.layoutWinnerSelection`.
+Relevant keys:
+
+- `profile` (`strict` by default)
+- `rerankTopN`
+- `rerankDefenseMode`
+- `hardRejectPrefixes`
+- `penaltyBuckets.{critical,major,minor}`
+- `tieBreakers`
+
+The default profile stays compatible with the pre-module behavior, but the
+module now persists richer debug state:
+
+- `selectionStage` (`foundation` or `full-rerank`)
+- `selectionBreakdown` (raw score, penalty, bucket counts, matched flags, tie-break snapshot)
 
 ## Source Logistics Rules
 
@@ -194,6 +216,8 @@ Helpful fields to inspect:
 
 - `selectionRejected`
 - `hardRejectFlags`
+- `selectionStage`
+- `selectionBreakdown`
 - `validation`
 - `defenseScore`
 - `fullSelectionRerank`

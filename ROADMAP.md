@@ -32,62 +32,63 @@
 
 ## 🧭 Roadmap Refactor – Baseplanner Alignment (2026-02)
 
-> Ziel: Bestehende Aufgaben bleiben erhalten, werden aber gemäß dem neuen Baseplanner-Masterplan neu gruppiert und priorisiert.
+> Goal: keep the existing tasks, but regroup and reprioritize them according to
+> the new baseplanner master plan.
 
-### 🔥 Program-Top-Prioritäten (neu gewichtet)
-- [ ] **Prio 5**: Dynamic Baseplanner Phasen 1–6 (siehe `Baseplanner Master-Spec`) als primärer Delivery-Stream.
-- [ ] **Prio 5 / Highest**: Rampart-Queueing im Live-Builder exakt an Planner-Output angleichen. Stand 2026-03: Winner-Selection materialisiert jetzt den echten `full`-Plan statt nur `foundation`, aber das konkrete Queueing von Ramparts / `road+rampart`-Tiles / Zugangs-Ramparts passt noch nicht vollständig 1:1 zum geplanten Defense-Layout. Danach ist das Base-Building nahezu fertig.
-- [ ] **Prio 5**: `manager.building` an `basePlan.buildQueue` anbinden (RCL-Gates, Priority-Order, Reserved-Tiles).
-- [ ] **Prio 4**: Memory/HUD/Visual Overlay für Planqualität, Build-Fortschritt, Validation-Warnungen vervollständigen.
-- [ ] **Prio 4**: Validation & Fallback-Strategien (Lab-Constraint, Rampart-Konnektivität, Boundary-Regeln) produktionsreif machen.
-- [x] **Prio 4**: Standalone-Rampart-Mincut-Debugpfad für eine einzelne Schutzkoordinate mit Overlay, Dragon Teeth und Ranged-NoGo-Zone ergänzen.
-- [x] **Prio 4**: Rampart-Mincut-Outputs als Standard in den Full Builder übernehmen, inklusive NoGo-Relocation und geschützter Zugangsstraßen in die NoGo-Zone.
+### 🔥 Program Top Priorities (reweighted)
+- [ ] **Priority 5**: Dynamic baseplanner Phases 1-6 (see `Baseplanner Master-Spec`) as the primary delivery stream.
+- [ ] **Priority 5 / Highest**: Align rampart queueing in the live builder exactly with planner output. Status as of 2026-03: winner selection now materializes the real `full` plan instead of only `foundation`, but the concrete queueing of ramparts, `road+rampart` tiles, and access ramparts still does not match the planned defense layout 1:1. Once that is done, base-building is almost complete.
+- [ ] **Priority 5**: Wire `manager.building` to `basePlan.buildQueue` (RCL gates, priority order, reserved tiles).
+- [ ] **Priority 4**: Complete Memory/HUD/visual overlays for plan quality, build progress, and validation warnings.
+- [ ] **Priority 4**: Make validation and fallback strategies production-ready (lab constraints, rampart connectivity, boundary rules).
+- [x] **Priority 4**: Add a standalone rampart min-cut debug path for a single protected coordinate with overlay, dragon teeth, and a ranged no-go zone.
+- [x] **Priority 4**: Make rampart min-cut outputs the default source for the full builder, including no-go relocation and protected access roads into that zone.
 
-### 🧩 Re-Gruppierung bestehender Roadmap-Punkte
-- [ ] Auto-Layout-Aufgaben werden als **Legacy/Transition** geführt und in den Baseplanner-Phasen absorbiert statt parallel erweitert.
-- [ ] Room-Intelligence-Aufgaben (Distance Transform / Kandidatenbewertung / Overlay) zählen künftig zum Baseplanner-Foundation-Track.
-- [ ] Building-Manager-Aufgaben mit Layout-Bezug werden in Phase 3 + Phase 5 des Baseplanner-Plans umgesetzt.
+### 🧩 Regroup Existing Roadmap Items
+- [ ] Auto-layout tasks stay marked as **Legacy/Transition** and are absorbed into baseplanner phases instead of being extended in parallel.
+- [ ] Room-intelligence tasks (distance transform, candidate evaluation, overlay) now belong to the baseplanner foundation track.
+- [ ] Building-manager tasks with layout coupling are implemented through Phase 3 and Phase 5 of the baseplanner plan.
 
-### 📦 Obsoleszenz-Policy (ohne Löschen)
-- [ ] Alte Baseplanning-Einträge als `LEGACY` markieren, wenn sie durch den Masterplan ersetzt wurden.
-- [ ] Ersetzte Einträge mit Verweis auf Zielphase taggen (z. B. `→ Baseplanner P3/P5`).
-- [ ] Nur dann endgültig entfernen, wenn sie seit mindestens 1 Zyklus als `LEGACY` dokumentiert waren.
+### 📦 Obsolescence Policy (without deleting history)
+- [ ] Mark older baseplanning items as `LEGACY` when the master plan replaces them.
+- [ ] Tag replaced items with their target phase (for example `→ Baseplanner P3/P5`).
+- [ ] Only remove them completely after they have been documented as `LEGACY` for at least one cycle.
 
 ---
 
 ## 🧱 Core System Foundations
 
-### ✅ Scheduler (Prio 4)
+### ✅ Scheduler (Priority 4)
 - [x] Centralized task queue with `interval`, `event`, `once` types
 - [ ] Internal tick counter for global timing
 - [ ] Safe execution with error isolation
 - [x] Dynamic registration via `addTask(...)`
 - [x] Runs logger, stats display, and future HTM triggers
-- [x] Optional debug toggle to list active/queued tasks – *Prio 2*
+- [x] Optional debug toggle to list active/queued tasks – *Priority 2*
 
-### ✅ Logging (Prio 5)
+### ✅ Logging (Priority 5)
 - [ ] `logger.log(message, severity, roomName, duration)`
 - [x] Logs aggregated across ticks (e.g. “(12 times since Tick X)”)
 - [ ] Sorted by severity
  - [x] Integrated with `statsConsole.log` (color-based display)
 - [ ] Displayed every 5 ticks (via Scheduler)
-- [ ] Group logs by category (e.g. spawn, energy, defense) – *Prio 2*
-- [ ] Filter toggle (e.g. only show severity ≥ 3) – *Prio 2*
+- [ ] Group logs by category (e.g. spawn, energy, defense) – *Priority 2*
+- [ ] Filter toggle (e.g. only show severity ≥ 3) – *Priority 2*
 
-### ✅ Memory Manager (Prio 4)
+### ✅ Memory Manager (Priority 4)
 - [x] Hierarchical memory layout: Hive → Cluster → Colony → Creep
 - [x] Auto-initialization on boot
 - [x] Release mining positions when creeps die
 - [x] Cleanup HTM creep memory when creeps expire
 - [ ] Auto-assimilation of newly seen rooms into structure
 - [ ] Persistent memory for lost-vision rooms
-- [ ] Expiration system for temporary memory entries – *Prio 3*
+- [ ] Expiration system for temporary memory entries – *Priority 3*
 
 ---
 
 ## ⚙️ Production & Unit Control
 
-### 🧠 Hierarchical Task Management (HTM) (Prio 5)
+### 🧠 Hierarchical Task Management (HTM) (Priority 5)
 - [x] Intent-only meta pipeline for planning/evaluation (`INTENT_*` HTM colony tasks) with phase follow-up chaining and no periodic layout fallback loops.
 - [x] Tick-model main pipeline (A-E) with explicit Bootstrap/Snapshot/Planning/Execution/Commit phases and per-phase CPU accounting.
 - [x] HTM Phase-D execution migrated from `scheduler` interval task to budget-gated `htm.runScheduled()` call.
@@ -103,7 +104,7 @@
 - [x] Task priority aging / decay system
 - [x] Scheduler integration: tasks executed on time
 - [ ] Log differences between planned/active tasks
-- [x] Task cache: “what was already attempted?” – *Prio 3*
+- [x] Task cache: “what was already attempted?” – *Priority 3*
 - [x] Basic skeleton with scheduler hook
 - [x] Basic HiveMind decision module queues tasks
 - [x] Task claiming with cooldown and amount tracking
@@ -113,20 +114,20 @@
 - [x] Dynamic role evaluation via `hive.roles.js`
 - [x] Modular HiveMind with spawn and subconscious modules
 
-### ✅ Spawn Manager (Prio 4)
+### ✅ Spawn Manager (Priority 4)
 - [ ] Spawn queue with priority and timing
 - [ ] Scheduled pre-spawn logic (e.g. “Miner in 80 ticks”)
 - [x] Integrated with HTM task requests
 - [x] Processes HTM spawn tasks with cooldown estimates
 - [ ] Multi-room spawn and remote queue support
-- [x] Panic mode: minimum creep fallback during total loss – *Prio 5*
+- [x] Panic mode: minimum creep fallback during total loss – *Priority 5*
 - [x] Spawn request validation for positional roomName
 - [x] Direction-aware spawning to keep spawn exits clear
 - [x] Builder spawn logic driven by HiveMind
 - [x] Deterministic bootstrap order: miner → hauler paired spawning
-- [ ] Visual/debug marker for pending spawn queue – *Prio 2*
+- [ ] Visual/debug marker for pending spawn queue – *Priority 2*
 
-### ✅ Building Manager (Prio 3)
+### ✅ Building Manager (Priority 3)
 - [x] Queues container and extension construction
 - [x] Places controller containers at upgrade range and spawn buffer containers
 - [x] Controller containers placed two tiles from the controller in the closest direction to the spawn
@@ -134,7 +135,7 @@
 - [x] Prioritizes build sites via weighted queue
 - [x] Containers requested at RCL1, extensions start at RCL2
 
-### ✅ Demand & Room Manager (Prio 3)
+### ✅ Demand & Room Manager (Priority 3)
 - [x] Scans rooms for sources and structures
 - [x] Evaluates spawn demand per role
 - [x] Reserves mining positions for miners
@@ -144,7 +145,7 @@
 - [x] Reserved positions cleared on miner death
 - [x] Miners with 5 WORK parts reposition onto containers
 
-### 🔄 Energy Demand Module (Prio 3)
+### 🔄 Energy Demand Module (Priority 3)
 - [x] Record delivery performance for requesters
 - [x] Evaluate metrics to spawn extra haulers when throughput is low
 - [x] Maintain at least two haulers and spawn emergency collector when none remain
@@ -153,7 +154,7 @@
 - [x] Global demand totals aggregate per room and supply rate only counts hauler deliveries
 - [x] Haulers prioritise ruins and tombstones when closer than containers
 
-### 🚚 Remote Harvest Pipeline (Prio 4)
+### 🚚 Remote Harvest Pipeline (Priority 4)
 - [ ] Extend `manager.hiveGaze.remoteScoreRoom` to store per-source paths, terrain costs, and claimed-by data for downstream consumers.
 - [ ] Gate expansion promotion until surrounding scout intel is seeded and fresh (`seedReachableRoomMemory` + `lastScouted` age checks).
 - [ ] Add remote profitability model before promotion: `expectedIncome - (creep upkeep + spawn time cost + road/container upkeep + reservation upkeep)` and persist per remote under `Memory.rooms[remote].profit`.
@@ -164,7 +165,7 @@
 - [ ] Add lifecycle predictors that queue replacement miners/haulers/reservers based on travel time and TTL so replacements arrive before predecessor expiry.
 - [ ] Cover the full pipeline in `test/remotePipeline.test.js`: remote claim queues miner+hauler, hauler delivers home, reservation upkeep respected.
 
-### 🛰️ Empire Logistics Network (Prio 3)
+### 🛰️ Empire Logistics Network (Priority 3)
 - [ ] Create `manager.logistics` to scan all owned terminals/storage each tick and compute surplus/deficit per resource.
 - [ ] Allow rooms to lodge logistics requests (energy, boosts, power) via memory schema consumed by HTM planners.
 - [ ] Implement terminal balancing: move excess energy > threshold to deficit rooms before market sales.
@@ -174,7 +175,7 @@
 
 ---
 
-## 🛰️ Map Awareness – Hive's Gaze (Prio 3)
+## 🛰️ Map Awareness – Hive's Gaze (Priority 3)
 - [ ] Remote room vision analysis via `Memory.rooms`
 - [ ] Threat detection: enemy creeps, towers, spawns
 - [ ] Threat classification: harmless, scout, raid
@@ -182,14 +183,14 @@
 - [ ] Pattern analysis: recurring threats, raid timings
 - [ ] Persistent “intel” storage for enemy activity
 
-### 📈 Remote Profitability Modeling (Prio 4)
+### 📈 Remote Profitability Modeling (Priority 4)
 - [ ] Calculate per-source net energy (`harvest - miner upkeep - hauler upkeep - reservation`) using existing DNA helpers.
 - [ ] Track spawn-time consumption per remote (ticks of spawn blocked) and expose it via `Memory.rooms[remote].profit`.
 - [ ] Use profitability and spawn budgets to rank candidate remotes in `selectExpansionTarget` (knapsack selection when multiple remotes compete for spawn time).
 - [ ] Persist profitability history to detect remotes that have fallen below configured net thresholds and trigger HTM “drop remote” tasks.
 - [ ] Unit test scoring behaviour with mocked path lengths and source energy densities.
 
-### ✅ Room Intelligence (Prio 3)
+### ✅ Room Intelligence (Priority 3)
 - [x] Distance transform for terrain analysis
 - [x] HUD displays analysis status
 - [x] Stores structures and construction sites per room
@@ -198,7 +199,7 @@
 ---
 
 
-### 🧭 Baseplanner Master-Spec (Prio 5)
+### 🧭 Baseplanner Master-Spec (Priority 5)
 - [x] Integrate comprehensive dynamic baseplanner implementation paper into project docs (`TyranidScreeps2.0.wiki/Baseplanner-Roadmap.md`).
 - [x] Implement Phase 1 (Foundation): planner scaffolding, utility math, terrain/exit preprocessing. *(2026-02: `planner.baseplannerFoundation.js` extracted from `planner.buildCompendium.js` and wired into candidate + plan generation pipeline.)*
 - [x] Add builder-debug controls for phased Baseplanner iteration: HUD phase-window markers, selective theoretical recalculation scopes, and dedicated flood-depth overlay for per-step diagnostics.
@@ -207,23 +208,23 @@
 - [x] Implement Phase 4 (Scoring): multi-layout evaluation and best-candidate selection. *(2026-02: `planner.buildCompendium.js` now exposes phase-specific APIs (`evaluateLayoutForRoom`, `generateCompleteLayout`, `generateOptimalLayout`) and performs weighted candidate selection across generated layouts.)*
 - [x] Implement Phase 5 (Integration): memory schema + HUD overlay + building queue consumption. *(2026-02: theoretical winner now persists to `Memory.rooms[room].basePlan`, HUD displays base plan status/score/next item, and `manager.building.executeLayout` consumes `basePlan.buildQueue` before legacy matrix tasks.)*
 - [x] Implement Phase 6 (Validation): edge-case checks, auto-fixes, performance profiling. *(2026-02: `manager.basePlanValidation.js` now covers queue shape/bounds/border, overlap handling, extension RCL-cap normalization, controller-container + lab-range + rampart-connectivity checks, and records validation duration (`durationMs`) for profiling; manual phase initialization remains available for targeted recomputation.)*
-- [x] Harabi-Feinschliff: 3x3-Stamps priorisiert (2x2 nur lokaler Fallback), Source-Logistik mit `road first` vor Source-Link, und Overlay-Rendering für `Road + Rampart` auf derselben Koordinate.
-- [x] Foundation-Plan erweitert: Source-Container + Source-Link + Source-Roads auch im Foundation-Stage, Valid-Placement-Dots berücksichtigen belegte Source/Core-Tiles, und Planning-Checklist/HUD auf 11 Schritte (`Core+Foundations`, `Sources+Resources`, `Valid rough/fine`, `Road Network Evaluation`) aktualisiert.
-- [x] Theoretical Auswahl gehärtet und dokumentiert: harte Foundation-Fehler führen zu `selectionRejected`, Finalisten werden praktisch im `full`-Rerank bewertet, und Source-Links meiden Chokepoint-Durchgänge zugunsten freier Transitkorridore. *(2026-03: `layoutPlanner.js`, `planner.buildCompendium.js`, `README.md`, `TyranidScreeps2.0.wiki/Layout-Planner.md`.)*
+- [x] Harabi polish: prioritize 3x3 stamps (with 2x2 only as a local fallback), place source logistics as `road first` before source link, and render `Road + Rampart` on the same coordinate in overlays.
+- [x] Expanded the foundation plan: source containers, source links, and source roads now exist already in the foundation stage; valid-placement dots account for occupied source/core tiles; and the planning checklist/HUD now shows 11 steps (`Core+Foundations`, `Sources+Resources`, `Valid rough/fine`, `Road Network Evaluation`).
+- [x] Hardened and documented theoretical selection: hard foundation failures now cause `selectionRejected`, finalists are reevaluated practically in the `full` rerank, and source links avoid chokepoint transit tiles in favor of open corridors. *(2026-03: moved winner-selection heuristics into `planner.winnerSelection.js`, switched `layoutPlanner.js` to configurable reject/penalty/tie-break rules, and extended docs + dumps with `selectionStage` / `selectionBreakdown`.)*
 
 ### 🧱 Base-Building Workstream (Next)
-- [x] Runtime stabilisiert für Planner-Debug: Idle-Gating + HTM-Budgeting + strict overlay off-policy.
-- [x] Memory-Overhead reduziert: MemHack (default on) + theoretical pruning (Top-Kandidaten + kompakter Last-Run).
-- [ ] Highest open handoff: `basePlan.buildQueue` / `manager.building` müssen Ramparts, `road+rampart`-Overlays und NoGo-Zugangs-Ramparts exakt wie geplant umsetzen. Der theoretische Winner-Flow liefert nun `full` statt `foundation`, aber das Live-Queueing der Ramparts ist noch nicht pixelgenau genug.
-- [ ] Building rollout im Live-Mode gegen `basePlan.buildQueue` auf RCL-Stufen feinjustieren (Phase-spezifische Baufenster).
-- [ ] `manager.building` Prioritäten mit Planner-Scoring koppeln (kritische Infrastruktur zuerst bei CPU-/Bucket-Druck).
-- [ ] Candidate-to-build Traceability im HUD erweitern (Winner + Top-3 mit Build-Fortschritt je Kandidat).
-- [ ] Base-building failure playbook ergänzen (stale phase recovery, queue drift, validation regression).
+- [x] Stabilized runtime for planner debugging: idle gating, HTM budgeting, and a strict overlay-off policy.
+- [x] Reduced memory overhead: MemHack (default on) plus theoretical pruning (top candidates + compact last run).
+- [ ] Highest open handoff: `basePlan.buildQueue` / `manager.building` still need to place ramparts, `road+rampart` overlays, and no-go access ramparts exactly as planned. The theoretical winner flow now emits `full` instead of `foundation`, but live rampart queueing is not yet pixel-perfect.
+- [ ] Fine-tune live-mode building rollout against `basePlan.buildQueue` across RCL stages (phase-specific build windows).
+- [ ] Couple `manager.building` priorities to planner scoring so critical infrastructure wins under CPU/bucket pressure.
+- [ ] Extend HUD traceability from candidate to build state (winner + top 3 with per-candidate build progress).
+- [ ] Add a base-building failure playbook (stale phase recovery, queue drift, validation regression).
 
 ---
 ## 🧭 Movement & Pathing
 
-### 🧍 HiveTravel Integration (Prio 3)
+### 🧍 HiveTravel Integration (Priority 3)
 - [x] Integrate screepers' Traveler (`manager.hiveTravel.js`)
 - [x] Replace native `moveTo` calls with enhanced wrapper
 - [ ] Add reusable movement options (e.g. `reusePath`, `ignoreCreeps`)
@@ -235,7 +236,7 @@
   - [ ] Add destination-change reconciliation so cached paths are invalidated when destination mutates mid-travel.
   - [ ] Add tests for cross-room handoff on blocked exits and temporary hostile blocking creeps.
 
-### ✅ Deprecated Pathfinder (Prio 4)
+### ✅ Deprecated Pathfinder (Priority 4)
 - [x] Path caching to speed repeated routes
 - [x] Depth-first traffic manager to reduce congestion
 - [x] Supports cost matrix adjustments
@@ -245,19 +246,19 @@
 
 ## 🧼 Agent Intelligence – Memory Maintenance
 
-### 🧠 Assimilation Agent (Prio 2)
+### 🧠 Assimilation Agent (Priority 2)
 - [ ] Analyze dead creeps via `Memory.creeps`
 - [ ] Determine cause: under-spawned, blocked, out-of-energy
 - [ ] Feed into HTM to adjust future decisions
 
-### 🧹 Garbage Agent (Prio 2)
+### 🧹 Garbage Agent (Priority 2)
 - [x] Purge expired or unused memory entries
 - [x] Reset console log counts every 250 ticks
 - [x] Remove stale HTM creep containers regularly
 - [ ] Respect memory types: permanent, semi, temporary
 - [x] Run every N ticks via scheduler
 
-### 📈 Efficiency Agent (Prio 2)
+### 📈 Efficiency Agent (Priority 2)
 - [ ] Track creep paths to determine frequently used routes
 - [ ] Mark road candidates
 - [ ] Generate construction site plans into memory
@@ -266,13 +267,13 @@
 
 ## 📊 Console Stats & Visual Display
 
-### ✅ Console Stats (Prio 3)
+### ✅ Console Stats (Priority 3)
 - [x] CPU usage histogram (ascii-chart)
 - [x] Room energy/controller dashboards
 - [x] Integrated logging panel with severity-based color
-- [ ] Per-room toggle views – *Prio 2*
-- [ ] Layout toggle (minimal mode vs full debug) – *Prio 2*
-- [ ] Display scheduled tasks or HTM tree – *Prio 3*
+- [ ] Per-room toggle views – *Priority 2*
+- [ ] Layout toggle (minimal mode vs full debug) – *Priority 2*
+- [ ] Display scheduled tasks or HTM tree – *Priority 3*
 
 ---
 
@@ -283,27 +284,27 @@
 - [ ] Cost-aware scaling by room energy
 - [ ] Templates per role, RCL-dependent
 
-### 🧱 Auto-Layout System (Legacy/Transition → Baseplanner, ehem. Prio 3)
+### 🧱 Auto-Layout System (Legacy/Transition → Baseplanner, formerly Priority 3)
 - [x] Generate multiple dynamic layout candidates with distance transform filters and weighted pre-scoring.
 - [x] Score anchors by controller/source/mineral/exit/terrain symmetry inputs and keep top candidates.
-- [ ] **LEGACY → Baseplanner P3/P5:** Emit lab/extension/tower/road layers as buildQueue-ready structure plans (statt separater Stamp-Pipeline).
+- [ ] **LEGACY → Baseplanner P3/P5:** Emit lab/extension/tower/road layers as buildQueue-ready structure plans instead of a separate stamp pipeline.
 - [x] **LEGACY → Baseplanner P5:** `manager.building.executeLayout` consumes only `basePlan.buildQueue`; matrix fallback retired to avoid parallel legacy behavior.
 - [x] Persist selected layout + candidate evaluation data in `room.memory.layout` and expose debug overlays (`candidates`, `evaluation`).
-- [ ] **Migration (Restpunkt):** Legacy `room.memory.layout` cleanup for visualization/debug can follow after bootstrap-base strategy (spawn relocation / dual-mode decision).
+- [ ] **Migration (remaining item):** Legacy `room.memory.layout` cleanup for visualization/debug can follow after the bootstrap-base strategy decision (spawn relocation vs dual-mode).
 
 ### 🐞 Debug Tools
 - [ ] `console.command('scan')` for room diagnostics
 - [ ] Live creep debug (e.g. display current task)
 - [ ] Visualize HTM task tree (`console.taskTree()`)
 - [x] `startFresh()` console helper to wipe all memory
-### 🛡️ Active Defense Orchestration (Prio 3)
+### 🛡️ Active Defense Orchestration (Priority 3)
 - [ ] Implement `manager.defense` to classify incoming raids (scout, poke, siege) using hive gaze threat feeds.
 - [ ] Subtract tower DPS from hostile EHP to determine required defender compositions.
 - [ ] Add `role.defender` (melee/ranged/healer mixes) with coordinated rampart movement and focus fire.
 - [ ] Expose HTM hooks to request/retire defenders and to queue rampart repair tasks post-fight.
 - [ ] Simulate invasion waves in tests to validate defender spawn triggers and targeting logic.
 
-### 🛸 Quad Combat Doctrine (Prio 2)
+### 🛸 Quad Combat Doctrine (Priority 2)
 - [ ] Build `combat.quad` helper that maintains 2×2 formations, adjusts cost matrices, and issues synchronized moves.
 - [ ] Create `role.quadMember` behaviour for attack/heal combos and retreat sequencing.
 - [ ] Add HTM tasks for assembling quads at staging rooms, including creep DNA templates and rally positions.
@@ -312,12 +313,12 @@
 ---
 
 
-### 📌 Baseplanner Delivery Scope (Erstimplementierung vs. Vollausbau)
-- [x] **Erstimplementierung (Phase 1–3 Output-Delivery):** Kandidatenbewertung + Placement + `buildQueue`-Emission sind im Planner-Output vorhanden.
-- [ ] **Vollausbau-Nachzug nach Abschluss aller Phasen:** Algorithmische Kernbausteine mit Produktionsqualität erneut aufgreifen und nachschärfen.
-  - [ ] **MinCut/MaxFlow:** Proxy-MinCut durch vollständige MaxFlow/Edmonds-Karp-Cut-Extraktion ersetzen.
-  - [ ] Kontinuierliche, topologisch robuste Barrierebildung gegen komplexe Exit-Geometrien validieren.
-  - [ ] Performance-Budgets (CPU/Bucket) für Vollraum- und Replan-Läufe gegen Profiling-Grenzen absichern.
+### 📌 Baseplanner Delivery Scope (initial implementation vs. full production hardening)
+- [x] **Initial implementation (Phase 1-3 output delivery):** candidate evaluation, placement, and `buildQueue` emission are available in planner output.
+- [ ] **Full production follow-up after all phases are complete:** revisit and harden the algorithmic core with production-quality guarantees.
+  - [ ] **MinCut/MaxFlow:** replace the older proxy min-cut path with full MaxFlow / Edmonds-Karp cut extraction.
+  - [ ] Validate continuous, topologically robust barrier generation against complex exit geometry.
+  - [ ] Lock down performance budgets (CPU/bucket) for full-room and replan runs against profiling limits.
 
 ## 🧭 Immediate Focus
 

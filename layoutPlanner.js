@@ -3,6 +3,7 @@ const htm = require('./manager.htm');
 const constructionBlocker = require('./constructionBlocker');
 const buildCompendium = require('./planner.buildCompendium');
 const basePlanValidation = require('./manager.basePlanValidation');
+const winnerSelection = require('./planner.winnerSelection');
 
 /**
  * Modular layout planner storing structure matrix per room.
@@ -32,8 +33,6 @@ const DEFAULT_REFINEMENT_TOP_SEEDS = 2;
 const DEFAULT_REFINEMENT_MAX_GENERATIONS = 8;
 const DEFAULT_REFINEMENT_VARIANTS_PER_GENERATION = 4;
 const DEFAULT_REFINEMENT_MIN_BUCKET = 3500;
-const DEFAULT_FULL_SELECTION_RERANK_CANDIDATES = 3;
-const DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE = 'estimate';
 const EXPECTED_CPU_PARENT_TASK = 0.35;
 const EXPECTED_CPU_CANDIDATE_TASK = 8;
 const EXPECTED_CPU_FULL_PREVIEW = 6;
@@ -137,158 +136,8 @@ function compactPersistedEvaluation(evaluation = {}) {
   return compact;
 }
 
-const FULL_SELECTION_CRITICAL_VALIDATION_PREFIXES = [
-  'rampart-boundary-leak',
-  'road-network-disconnected',
-  'base-road-redundancy-missing',
-  'missing-logistics-route',
-  'source-road-anchor-missing',
-  'rampart-road-missing',
-  'rampart-road-disconnected',
-  'controller-stamp-missing',
-  'controller-stamp-incomplete',
-  'core-stamp-storage-fallback',
-  'core-stamp-spawn1-fallback',
-  'core-stamp-terminal-fallback',
-  'core-stamp-link-fallback',
-  'controller-link-missing',
-  'controller-link-range-fail',
-  'source-link-range-fail',
-  'source-link-container-range-fail',
-  'extension-foundation-rank-missing',
-];
-
-const FULL_SELECTION_MAJOR_VALIDATION_PREFIXES = [
-  'rampart-standoff-fail',
-  'defense-score-low',
-  'rampart-rogue-edge',
-  'rampart-rogue-corridor',
-  'rampart-diagonal-gap',
-  'sink-link-range-storage-fail',
-  'terminal-range-storage-fail',
-  'storage-neighbor-fail',
-  'spawn-neighbor-fail',
-  'spawn-spread-fail',
-  'spawn-exit-blocked',
-  'container-count-fail',
-  'exit-proximity-fail',
-];
-
-const FOUNDATION_SELECTION_HARD_REJECT_PREFIXES = [
-  'controller-stamp-missing',
-  'controller-stamp-incomplete',
-  'missing-logistics-route',
-  'source-road-anchor-missing',
-  'road-network-disconnected',
-  'spawn-exit-blocked',
-  'extension-foundation-rank-missing',
-];
-
-function validationMatchesPrefix(flag, prefixes = []) {
-  const value = String(flag || '');
-  return prefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}:`));
-}
-
-function summarizeFullSelectionValidation(validation = []) {
-  const flags = Array.isArray(validation) ? validation.filter(Boolean).map(String) : [];
-  const criticalFlags = [];
-  const majorFlags = [];
-  const minorFlags = [];
-
-  for (const flag of flags) {
-    if (validationMatchesPrefix(flag, FULL_SELECTION_CRITICAL_VALIDATION_PREFIXES)) {
-      criticalFlags.push(flag);
-      continue;
-    }
-    if (validationMatchesPrefix(flag, FULL_SELECTION_MAJOR_VALIDATION_PREFIXES)) {
-      majorFlags.push(flag);
-      continue;
-    }
-    minorFlags.push(flag);
-  }
-
-  return {
-    criticalFlags,
-    majorFlags,
-    minorFlags,
-    criticalCount: criticalFlags.length,
-    majorCount: majorFlags.length,
-    minorCount: minorFlags.length,
-    penalty:
-      criticalFlags.length * 5 +
-      majorFlags.length * 1.5 +
-      Math.min(1, minorFlags.length * 0.1),
-  };
-}
-
-function summarizeFoundationSelectionValidation(validation = []) {
-  const flags = Array.isArray(validation) ? validation.filter(Boolean).map(String) : [];
-  const hardRejectFlags = flags.filter((flag) =>
-    validationMatchesPrefix(flag, FOUNDATION_SELECTION_HARD_REJECT_PREFIXES),
-  );
-  return {
-    hardRejectFlags,
-    hardReject: hardRejectFlags.length > 0,
-  };
-}
-
-function applySelectionPenaltyToGeneratedPlan(generated) {
-  const rawWeightedScore =
-    generated &&
-    generated.evaluation &&
-    typeof generated.evaluation.weightedScore === 'number' &&
-    Number.isFinite(generated.evaluation.weightedScore)
-      ? Number(generated.evaluation.weightedScore)
-      : 0;
-  const validationSummary = summarizeFullSelectionValidation(
-    generated && generated.meta && Array.isArray(generated.meta.validation)
-      ? generated.meta.validation
-      : [],
-  );
-  const foundationSelection = summarizeFoundationSelectionValidation(
-    generated && generated.meta && Array.isArray(generated.meta.validation)
-      ? generated.meta.validation
-      : [],
-  );
-  return {
-    rawWeightedScore,
-    selectionPenalty: validationSummary.penalty,
-    weightedScore: foundationSelection.hardReject
-      ? Number.NEGATIVE_INFINITY
-      : rawWeightedScore - validationSummary.penalty,
-    validationSummary,
-    selectionRejected: foundationSelection.hardReject,
-    hardRejectFlags: foundationSelection.hardRejectFlags,
-  };
-}
-
 function compactFullSelectionRerankDebug(debug) {
-  if (!debug || typeof debug !== 'object') return {};
-  const candidateRows = Array.isArray(debug.candidates) ? debug.candidates : [];
-  return {
-    enabled: debug.enabled === true,
-    defensePlanningMode:
-      typeof debug.defensePlanningMode === 'string' ? debug.defensePlanningMode : null,
-    rerankedCount: Number(debug.rerankedCount || 0),
-    topN: Number(debug.topN || 0),
-    selectedIndex:
-      typeof debug.selectedIndex === 'number' && Number.isFinite(debug.selectedIndex)
-        ? debug.selectedIndex
-        : null,
-    candidates: candidateRows.map((row) => ({
-      index:
-        typeof row.index === 'number' && Number.isFinite(row.index)
-          ? row.index
-          : null,
-      foundationScore: Number(row.foundationScore || 0),
-      rawWeightedScore: Number(row.rawWeightedScore || 0),
-      weightedScore: Number(row.weightedScore || 0),
-      selectionPenalty: Number(row.selectionPenalty || 0),
-      selectionRejected: row.selectionRejected === true,
-      criticalCount: Number(row.criticalCount || 0),
-      majorCount: Number(row.majorCount || 0),
-    })),
-  };
+  return winnerSelection.compactRerankDebug(debug);
 }
 
 function compactPersistedBuildQueue(buildQueue = []) {
@@ -581,13 +430,76 @@ function readTheoreticalDefensePlanningMode() {
   return runtimeMode === 'theoretical' ? 'estimate' : 'full';
 }
 
+function readWinnerSelectionConfig() {
+  return winnerSelection.resolveConfig(
+    Memory && Memory.settings && typeof Memory.settings === 'object' ? Memory.settings : {},
+  );
+}
+
 function readFullSelectionRerankDefensePlanningMode() {
-  const explicit =
-    Memory && Memory.settings && typeof Memory.settings.layoutDefensePlanningMode === 'string'
-      ? String(Memory.settings.layoutDefensePlanningMode || '').toLowerCase()
-      : '';
-  if (explicit === 'full' || explicit === 'estimate') return explicit;
-  return DEFAULT_FULL_SELECTION_RERANK_DEFENSE_MODE;
+  return readWinnerSelectionConfig().rerankDefenseMode;
+}
+
+function cloneSelectionBreakdown(breakdown) {
+  return breakdown && typeof breakdown === 'object'
+    ? JSON.parse(JSON.stringify(breakdown))
+    : null;
+}
+
+function applySelectionFields(target, selectionEvaluation) {
+  if (!target || !selectionEvaluation || typeof selectionEvaluation !== 'object') return target;
+  target.weightedScore = Number(selectionEvaluation.weightedScore || 0);
+  target.rawWeightedScore = Number(selectionEvaluation.rawWeightedScore || 0);
+  target.selectionPenalty = Number(selectionEvaluation.selectionPenalty || 0);
+  target.selectionRejected = selectionEvaluation.selectionRejected === true;
+  target.hardRejectFlags = Array.isArray(selectionEvaluation.hardRejectFlags)
+    ? selectionEvaluation.hardRejectFlags.slice()
+    : [];
+  target.selectionBreakdown = cloneSelectionBreakdown(selectionEvaluation.selectionBreakdown);
+  target.selectionStage = selectionEvaluation.selectionStage || null;
+  return target;
+}
+
+function buildSelectionEvaluationFromResult(result = {}, fallbackStage = 'foundation') {
+  const selectionStage = result.selectionStage || fallbackStage;
+  const selectionBreakdown =
+    result.selectionBreakdown && typeof result.selectionBreakdown === 'object'
+      ? cloneSelectionBreakdown(result.selectionBreakdown)
+      : {
+          stage: selectionStage,
+          rawWeightedScore: Number(result.rawWeightedScore || 0),
+          penalty: Number(result.selectionPenalty || 0),
+          rejected: result.selectionRejected === true,
+          bucketCounts: {
+            hardReject: Array.isArray(result.hardRejectFlags) ? result.hardRejectFlags.length : 0,
+            critical: 0,
+            major: 0,
+            minor: 0,
+          },
+          matchedFlags: {
+            hardReject: Array.isArray(result.hardRejectFlags) ? result.hardRejectFlags.slice() : [],
+            critical: [],
+            major: [],
+            minor: [],
+          },
+          tieBreakers: {
+            selectionRejected: result.selectionRejected === true,
+            weightedScore: Number(result.weightedScore || 0),
+            selectionPenalty: Number(result.selectionPenalty || 0),
+            rawWeightedScore: Number(result.rawWeightedScore || 0),
+            defenseScore: Number(result.defenseScore || 0),
+            index: typeof result.index === 'number' ? result.index : null,
+          },
+        };
+  return {
+    weightedScore: Number(result.weightedScore || 0),
+    rawWeightedScore: Number(result.rawWeightedScore || 0),
+    selectionPenalty: Number(result.selectionPenalty || 0),
+    selectionRejected: result.selectionRejected === true,
+    hardRejectFlags: Array.isArray(result.hardRejectFlags) ? result.hardRejectFlags.slice() : [],
+    selectionBreakdown,
+    selectionStage,
+  };
 }
 
 function isWalkable(room, x, y) {
@@ -960,9 +872,15 @@ function compactTheoreticalCandidateRow(row) {
   if (typeof row.selectionPenalty === 'number' && Number.isFinite(row.selectionPenalty)) {
     compact.selectionPenalty = Number(row.selectionPenalty);
   }
+  if (typeof row.selectionStage === 'string' && row.selectionStage) {
+    compact.selectionStage = row.selectionStage;
+  }
   if (row.selectionRejected === true) {
     compact.selectionRejected = true;
     compact.hardRejectFlags = Array.isArray(row.hardRejectFlags) ? row.hardRejectFlags.slice() : [];
+  }
+  if (row.selectionBreakdown && typeof row.selectionBreakdown === 'object') {
+    compact.selectionBreakdown = cloneSelectionBreakdown(row.selectionBreakdown);
   }
   if (typeof row.defenseScore === 'number' && Number.isFinite(row.defenseScore)) {
     compact.defenseScore = Number(row.defenseScore);
@@ -984,6 +902,11 @@ function compactBasePlanPlannerDebug(meta = {}) {
     structurePlanning: compactStructurePlanningDebug(meta.structurePlanning),
     refinementDebug: summarizeRefinement(meta.refinementDebug),
     fullSelectionRerank: compactFullSelectionRerankDebug(meta.fullSelectionRerank),
+    selectionStage: typeof meta.selectionStage === 'string' ? meta.selectionStage : null,
+    selectionBreakdown:
+      meta.selectionBreakdown && typeof meta.selectionBreakdown === 'object'
+        ? cloneSelectionBreakdown(meta.selectionBreakdown)
+        : null,
     validStructurePositions: compactValidStructureDebug(meta.validStructurePositions),
     validation: Array.isArray(meta.validation) ? meta.validation : [],
     compacted: true,
@@ -1027,6 +950,11 @@ function compactCompletedTheoreticalState(theoretical = {}) {
         ? theoretical.selectedCandidateIndex
         : null,
     selectedWeightedScore: Number(theoretical.selectedWeightedScore || 0),
+    selectionStage: typeof theoretical.selectionStage === 'string' ? theoretical.selectionStage : null,
+    selectionBreakdown:
+      theoretical.selectionBreakdown && typeof theoretical.selectionBreakdown === 'object'
+        ? cloneSelectionBreakdown(theoretical.selectionBreakdown)
+        : null,
     candidates: Array.isArray(theoretical.candidates)
       ? theoretical.candidates
           .map((row) => compactTheoreticalCandidateRow(row))
@@ -1164,6 +1092,8 @@ const layoutPlanner = {
       index: typeof plan.index === 'number' ? plan.index : null,
       anchor: plan.anchor || null,
       weightedScore: Number(plan.weightedScore || 0),
+      rawWeightedScore: Number(plan.rawWeightedScore || 0),
+      selectionPenalty: Number(plan.selectionPenalty || 0),
       weightedMetrics: plan.weightedMetrics || {},
       weightedContributions: plan.weightedContributions || {},
       validation: plan.validation || [],
@@ -1178,6 +1108,8 @@ const layoutPlanner = {
       compacted: keepPlacements !== true,
       selectionRejected: plan.selectionRejected === true,
       hardRejectFlags: Array.isArray(plan.hardRejectFlags) ? plan.hardRejectFlags : [],
+      selectionStage: typeof plan.selectionStage === 'string' ? plan.selectionStage : null,
+      selectionBreakdown: cloneSelectionBreakdown(plan.selectionBreakdown),
       structureCounts:
         plan.structureCounts && typeof plan.structureCounts === 'object'
           ? plan.structureCounts
@@ -1342,6 +1274,12 @@ const layoutPlanner = {
         compactResults[key] = {
           index: typeof result.index === 'number' ? result.index : Number(key),
           weightedScore: Number(result.weightedScore || 0),
+          rawWeightedScore: Number(result.rawWeightedScore || 0),
+          selectionPenalty: Number(result.selectionPenalty || 0),
+          selectionRejected: result.selectionRejected === true,
+          hardRejectFlags: Array.isArray(result.hardRejectFlags) ? result.hardRejectFlags : [],
+          selectionStage: typeof result.selectionStage === 'string' ? result.selectionStage : null,
+          selectionBreakdown: cloneSelectionBreakdown(result.selectionBreakdown),
           weightedMetrics: result.weightedMetrics || {},
           weightedContributions: result.weightedContributions || {},
           validation: result.validation || [],
@@ -1891,16 +1829,19 @@ const layoutPlanner = {
         ? pipeline.results[pipeline.bestCandidateIndex]
         : null;
     if (selectedResult && typeof selectedResult.weightedScore === 'number') {
+      const selectionEvaluation = buildSelectionEvaluationFromResult(selectedResult, 'full-rerank');
       generated.evaluation = Object.assign({}, generated.evaluation || {}, {
-        rawWeightedScore:
-          typeof selectedResult.rawWeightedScore === 'number'
-            ? selectedResult.rawWeightedScore
-            : generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
-              ? generated.evaluation.weightedScore
-              : 0,
-        selectionPenalty: Number(selectedResult.selectionPenalty || 0),
-        weightedScore: Number(selectedResult.weightedScore || 0),
+        rawWeightedScore: selectionEvaluation.rawWeightedScore,
+        selectionPenalty: selectionEvaluation.selectionPenalty,
+        weightedScore: selectionEvaluation.weightedScore,
       });
+      generated.meta.selectionBreakdown = cloneSelectionBreakdown(selectionEvaluation.selectionBreakdown);
+      generated.meta.selectionStage = selectionEvaluation.selectionStage;
+      generated.selection = {
+        selectedCandidateIndex: pipeline.bestCandidateIndex,
+        selectionBreakdown: cloneSelectionBreakdown(selectionEvaluation.selectionBreakdown),
+        selectionStage: selectionEvaluation.selectionStage,
+      };
     }
     const planMode = 'theoretical';
     mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
@@ -1923,10 +1864,14 @@ const layoutPlanner = {
         initialMetrics: candidate.initialMetrics,
         initialContributions: candidate.initialContributions,
         weightedScore: result ? result.weightedScore : null,
+        rawWeightedScore: result ? result.rawWeightedScore : null,
+        selectionPenalty: result ? result.selectionPenalty : null,
         weightedMetrics: result ? result.weightedMetrics : null,
         weightedContributions: result ? result.weightedContributions : null,
         selectionRejected: result ? result.selectionRejected === true : false,
         hardRejectFlags: result ? result.hardRejectFlags || [] : [],
+        selectionBreakdown: result ? cloneSelectionBreakdown(result.selectionBreakdown) : null,
+        selectionStage: result ? result.selectionStage || null : null,
         validation: result ? result.validation : [],
         defenseScore: result ? result.defenseScore : 0,
         completedAt: result ? result.completedAt : null,
@@ -1942,7 +1887,7 @@ const layoutPlanner = {
       { persisted: true },
     );
 
-    mem.layout.theoreticalCandidatePlans[pipeline.bestCandidateIndex] = {
+    const selectedPlanRecord = {
       index: pipeline.bestCandidateIndex,
       anchor: { x: generated.anchor.x, y: generated.anchor.y },
       placements: generated.placements,
@@ -1969,6 +1914,11 @@ const layoutPlanner = {
       completedAt: Game.time,
       refinementInput: null,
     };
+    applySelectionFields(
+      selectedPlanRecord,
+      buildSelectionEvaluationFromResult(selectedResult || {}, generated.meta.selectionStage || 'full-rerank'),
+    );
+    mem.layout.theoreticalCandidatePlans[pipeline.bestCandidateIndex] = selectedPlanRecord;
 
     mem.layout.theoretical = compactCompletedTheoreticalState({
       controllerPos: { x: room.controller.pos.x, y: room.controller.pos.y },
@@ -2000,6 +1950,8 @@ const layoutPlanner = {
       validStructurePositions: generated.meta.validStructurePositions || {},
       structurePlanning: generated.meta.structurePlanning || {},
       refinementDebug: generated.meta.refinementDebug || {},
+      selectionStage: generated.meta.selectionStage || null,
+      selectionBreakdown: cloneSelectionBreakdown(generated.meta.selectionBreakdown),
       selectedCandidateIndex: pipeline.bestCandidateIndex,
       selectedWeightedScore: selectedEvaluation.weightedScore || 0,
       selectedMetrics: selectedEvaluation.metrics || {},
@@ -2234,6 +2186,7 @@ const layoutPlanner = {
 
     const cpuLimit = typeof Game.cpu.limit === 'number' ? Game.cpu.limit : 20;
     const softCeiling = cpuLimit + Math.max(0, Math.min(120, Math.floor((bucket - minBucket) / 20)));
+    const winnerSelectionConfig = readWinnerSelectionConfig();
     const startGen = Number(refinement.generation || 0);
     for (let generation = startGen; generation < maxGenerations; generation++) {
       if (typeof Game.cpu.getUsed === 'function' && Game.cpu.getUsed() >= softCeiling) break;
@@ -2253,14 +2206,18 @@ const layoutPlanner = {
           });
           if (!generated || !generated.evaluation) continue;
           generated.meta = generated.meta || {};
-          const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
+          const selectionEvaluation = winnerSelection.evaluateGeneratedPlan(
+            generated,
+            winnerSelectionConfig,
+            { stage: 'foundation', candidateIndex: seedIndex },
+          );
           const newScore = selectionEvaluation.weightedScore;
           const current = pipeline.results && pipeline.results[seedIndex] ? pipeline.results[seedIndex] : null;
           const currentScore = current ? Number(current.weightedScore || 0) : -Infinity;
           if (!(newScore > currentScore)) continue;
 
           mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
-          mem.layout.theoreticalCandidatePlans[seedIndex] = {
+          const refinedPlanRecord = {
             index: seedIndex,
             anchor: { x: generated.anchor.x, y: generated.anchor.y },
             placements: generated.placements,
@@ -2311,7 +2268,9 @@ const layoutPlanner = {
               mutation,
             },
           };
-          pipeline.results[seedIndex] = {
+          applySelectionFields(refinedPlanRecord, selectionEvaluation);
+          mem.layout.theoreticalCandidatePlans[seedIndex] = refinedPlanRecord;
+          const refinedResult = {
             index: seedIndex,
             weightedScore: newScore,
             rawWeightedScore: selectionEvaluation.rawWeightedScore,
@@ -2328,6 +2287,8 @@ const layoutPlanner = {
             completedAt: Game.time,
             refined: true,
           };
+          applySelectionFields(refinedResult, selectionEvaluation);
+          pipeline.results[seedIndex] = refinedResult;
           refinement.acceptedMutations = Number(refinement.acceptedMutations || 0) + 1;
           if (Array.isArray(refinement.history) && refinement.history.length < 40) {
             refinement.history.push({
@@ -2360,164 +2321,20 @@ const layoutPlanner = {
   },
 
   _rankPipelineResults(results = {}) {
-    return Object.values(results || {}).sort((a, b) => {
-      const aRejected = a && a.selectionRejected === true ? 1 : 0;
-      const bRejected = b && b.selectionRejected === true ? 1 : 0;
-      if (aRejected !== bRejected) return aRejected - bRejected;
-      const aScore = Number(a && a.weightedScore ? a.weightedScore : 0);
-      const bScore = Number(b && b.weightedScore ? b.weightedScore : 0);
-      if (bScore !== aScore) return bScore - aScore;
-      return Number(a && a.index ? a.index : 0) - Number(b && b.index ? b.index : 0);
-    });
+    return winnerSelection.rankResults(results, readWinnerSelectionConfig());
   },
 
   _pickBestSelectableResult(ranked = []) {
-    if (!Array.isArray(ranked) || ranked.length === 0) return null;
-    return ranked.find((result) => !(result && result.selectionRejected === true)) || null;
+    return winnerSelection.pickBestSelectableResult(ranked);
   },
 
   _rerankTopCandidatesWithFullPlans(roomName, pipeline, mem, ranked = []) {
-    if (!pipeline || !mem || !mem.layout) return Array.isArray(ranked) ? ranked : [];
-    const requestedHarabiStage =
-      typeof pipeline.requestedHarabiStage === 'string' ? pipeline.requestedHarabiStage : 'foundation';
-    const candidateHarabiStage =
-      typeof pipeline.candidateHarabiStage === 'string' ? pipeline.candidateHarabiStage : requestedHarabiStage;
-    const finalHarabiStage =
-      typeof pipeline.finalHarabiStage === 'string' ? pipeline.finalHarabiStage : requestedHarabiStage;
-    if (
-      requestedHarabiStage !== 'full' ||
-      finalHarabiStage !== 'full' ||
-      candidateHarabiStage === finalHarabiStage
-    ) {
-      return Array.isArray(ranked) ? ranked : this._rankPipelineResults(pipeline.results);
-    }
-
-    const rankedRows = Array.isArray(ranked) && ranked.length > 0
-      ? ranked.slice()
-      : this._rankPipelineResults(pipeline.results);
-    if (rankedRows.length === 0) return rankedRows;
-
-    const rerankCount = Math.max(
-      1,
-      Math.min(DEFAULT_FULL_SELECTION_RERANK_CANDIDATES, rankedRows.length),
-    );
-    // The finalist rerank is only a selection pass. Keep it on the cheap estimate-defense
-    // path so we can compare practical candidates without running full minCut smoothing
-    // multiple times in a single theoretical tick.
-    const defensePlanningMode = readFullSelectionRerankDefensePlanningMode();
-    mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
-    const rerankedCandidates = [];
-
-    for (let i = 0; i < rerankCount; i++) {
-      const baseResult = rankedRows[i];
-      if (!baseResult || typeof baseResult.index !== 'number') continue;
-      const selectedCandidate = (pipeline.candidates || []).find((candidate) => candidate.index === baseResult.index);
-      if (!selectedCandidate || !selectedCandidate.anchor) continue;
-      const selectedPlan = mem.layout.theoreticalCandidatePlans[String(selectedCandidate.index)] || null;
-      const refinementInput =
-        selectedPlan &&
-        selectedPlan.refinementInput &&
-        selectedPlan.refinementInput.anchor &&
-        selectedPlan.refinementInput.mutation
-          ? selectedPlan.refinementInput
-          : null;
-
-      const generated = buildCompendium.generatePlanForAnchor(
-        roomName,
-        refinementInput && refinementInput.anchor ? refinementInput.anchor : selectedCandidate.anchor,
-        {
-          candidateMeta: selectedCandidate,
-          extensionPattern: readLayoutPattern(),
-          harabiStage: finalHarabiStage,
-          defensePlanningMode,
-          mutation: refinementInput ? refinementInput.mutation : null,
-        },
-      );
-      if (!generated) continue;
-
-      generated.meta = generated.meta || {};
-      generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
-      const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
-      const validationSummary = selectionEvaluation.validationSummary;
-      const rawWeightedScore = selectionEvaluation.rawWeightedScore;
-      const rerankedScore = selectionEvaluation.weightedScore;
-
-      pipeline.results[selectedCandidate.index] = {
-        index: selectedCandidate.index,
-        weightedScore: rerankedScore,
-        rawWeightedScore,
-        selectionScore: rerankedScore,
-        selectionPenalty: validationSummary.penalty,
-        selectionRejected: selectionEvaluation.selectionRejected,
-        hardRejectFlags: selectionEvaluation.hardRejectFlags,
-        weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
-        weightedContributions: generated.evaluation ? generated.evaluation.contributions || {} : {},
-        validation: generated.meta.validation || [],
-        defenseScore:
-          generated.meta && typeof generated.meta.defenseScore === 'number'
-            ? generated.meta.defenseScore
-            : 0,
-        completedAt: Game.time,
-        fullMaterialized: true,
-        rerankedFromFoundationScore: Number(baseResult.weightedScore || 0),
-      };
-
-      mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = {
-        index: selectedCandidate.index,
-        anchor: { x: generated.anchor.x, y: generated.anchor.y },
-        placements: generated.placements,
-        weightedScore: rerankedScore,
-        rawWeightedScore,
-        selectionPenalty: validationSummary.penalty,
-        selectionRejected: selectionEvaluation.selectionRejected,
-        hardRejectFlags: selectionEvaluation.hardRejectFlags,
-        weightedMetrics: generated.evaluation ? generated.evaluation.metrics || {} : {},
-        weightedContributions: generated.evaluation ? generated.evaluation.contributions || {} : {},
-        validation: generated.meta.validation || [],
-        stampStats: generated.meta.stampStats || {},
-        stampPruning: generated.meta.stampPruning || {},
-        sourceLogistics: generated.meta.sourceLogistics || {},
-        foundationDebug: generated.meta.foundationDebug || {},
-        sourceResourceDebug: generated.meta.sourceResourceDebug || {},
-        logisticsRoutes: generated.meta.logisticsRoutes || {},
-        labPlanning: generated.meta.labPlanning || {},
-        structurePlanning: generated.meta.structurePlanning || {},
-        foundationSnapshot: generated.meta.foundationSnapshot || null,
-        fullOptimization: generated.meta.fullOptimization || null,
-        refinementDebug: generated.meta.refinementDebug || {},
-        validStructurePositions: generated.meta.validStructurePositions || {},
-        defenseScore:
-          generated.meta && typeof generated.meta.defenseScore === 'number'
-            ? generated.meta.defenseScore
-            : 0,
-        completedAt: Game.time,
-        refinementInput: refinementInput || null,
-      };
-
-      rerankedCandidates.push({
-        index: selectedCandidate.index,
-        foundationScore: Number(baseResult.weightedScore || 0),
-        rawWeightedScore,
-        weightedScore: rerankedScore,
-        selectionPenalty: validationSummary.penalty,
-        selectionRejected: selectionEvaluation.selectionRejected,
-        criticalCount: validationSummary.criticalCount,
-        majorCount: validationSummary.majorCount,
-      });
-    }
-
-    const reranked = this._rankPipelineResults(pipeline.results);
-    const bestSelectable = this._pickBestSelectableResult(reranked);
-    pipeline.fullSelectionRerank = {
-      enabled: rerankedCandidates.length > 0,
-      defensePlanningMode,
-      rerankedCount: rerankedCandidates.length,
-      topN: rerankCount,
-      selectedIndex: bestSelectable ? bestSelectable.index : null,
-      candidates: rerankedCandidates,
-      completedAt: Game.time,
-    };
-    return reranked;
+    return winnerSelection.rerankTopCandidates(roomName, pipeline, mem, ranked, {
+      settings: Memory && Memory.settings ? Memory.settings : {},
+      generatePlanForAnchor: buildCompendium.generatePlanForAnchor,
+      readLayoutPattern,
+      summarizeRefinement,
+    });
   },
 
   _materializeTheoreticalFullPreview(roomName, pipeline, mem, selectedCandidate, selectedResult, options = {}) {
@@ -2565,16 +2382,19 @@ const layoutPlanner = {
     generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
     generated.meta.fullSelectionRerank = pipeline.fullSelectionRerank || null;
     if (selectedResult && typeof selectedResult.weightedScore === 'number') {
+      const selectionEvaluation = buildSelectionEvaluationFromResult(selectedResult, 'full-rerank');
       generated.evaluation = Object.assign({}, generated.evaluation || {}, {
-        rawWeightedScore:
-          typeof selectedResult.rawWeightedScore === 'number'
-            ? selectedResult.rawWeightedScore
-            : generated.evaluation && typeof generated.evaluation.weightedScore === 'number'
-              ? generated.evaluation.weightedScore
-              : 0,
-        selectionPenalty: Number(selectedResult.selectionPenalty || 0),
-        weightedScore: Number(selectedResult.weightedScore || 0),
+        rawWeightedScore: selectionEvaluation.rawWeightedScore,
+        selectionPenalty: selectionEvaluation.selectionPenalty,
+        weightedScore: selectionEvaluation.weightedScore,
       });
+      generated.meta.selectionBreakdown = cloneSelectionBreakdown(selectionEvaluation.selectionBreakdown);
+      generated.meta.selectionStage = selectionEvaluation.selectionStage;
+      generated.selection = {
+        selectedCandidateIndex: selectedCandidate.index,
+        selectionBreakdown: cloneSelectionBreakdown(selectionEvaluation.selectionBreakdown),
+        selectionStage: selectionEvaluation.selectionStage,
+      };
     }
     persistBasePlan(roomName, generated, pipeline);
     const spawnCandidate = Array.isArray(generated.placements)
@@ -2587,7 +2407,7 @@ const layoutPlanner = {
       ? generated.placements.filter((p) => p.tag && p.tag.startsWith('source.container.'))
       : [];
     mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
-    mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = {
+    const previewPlanRecord = {
       index: selectedCandidate.index,
       anchor: { x: generated.anchor.x, y: generated.anchor.y },
       placements: generated.placements,
@@ -2621,6 +2441,11 @@ const layoutPlanner = {
       completedAt: Game.time,
       refinementInput: refinementInput || null,
     };
+    applySelectionFields(
+      previewPlanRecord,
+      buildSelectionEvaluationFromResult(selectedResult || {}, generated.meta.selectionStage || 'full-rerank'),
+    );
+    mem.layout.theoreticalCandidatePlans[selectedCandidate.index] = previewPlanRecord;
     mem.layout.theoretical = compactCompletedTheoreticalState(Object.assign({}, mem.layout.theoretical || {}, {
       spawnCandidate: spawnCandidate
         ? {
@@ -2657,6 +2482,8 @@ const layoutPlanner = {
         : 0,
       validation: generated.meta.validation || [],
       validStructurePositions: generated.meta.validStructurePositions || {},
+      selectionStage: generated.meta.selectionStage || null,
+      selectionBreakdown: cloneSelectionBreakdown(generated.meta.selectionBreakdown),
       selectedCandidateIndex: selectedCandidate.index,
       selectedWeightedScore:
         selectedResult && typeof selectedResult.weightedScore === 'number'
@@ -2729,10 +2556,14 @@ const layoutPlanner = {
         initialMetrics: candidate.initialMetrics,
         initialContributions: candidate.initialContributions,
         weightedScore: result ? result.weightedScore : null,
+        rawWeightedScore: result ? result.rawWeightedScore : null,
+        selectionPenalty: result ? result.selectionPenalty : null,
         weightedMetrics: result ? result.weightedMetrics : null,
         weightedContributions: result ? result.weightedContributions : null,
         selectionRejected: result ? result.selectionRejected === true : false,
         hardRejectFlags: result ? result.hardRejectFlags || [] : [],
+        selectionBreakdown: result ? cloneSelectionBreakdown(result.selectionBreakdown) : null,
+        selectionStage: result ? result.selectionStage || null : null,
         validation: result ? result.validation : [],
         defenseScore: result ? result.defenseScore : 0,
         completedAt: result ? result.completedAt : null,
@@ -2767,6 +2598,13 @@ const layoutPlanner = {
           : selectedPlan.weightedContributions || {},
       completedAt: Game.time,
     });
+    applySelectionFields(
+      mem.layout.theoreticalCandidatePlans[selectedCandidate.index],
+      buildSelectionEvaluationFromResult(
+        selectedResult || selectedPlan || {},
+        (selectedResult && selectedResult.selectionStage) || selectedPlan.selectionStage || 'full-rerank',
+      ),
+    );
     this._applyTheoreticalPlacements(
       mem.layout,
       {
@@ -2787,6 +2625,11 @@ const layoutPlanner = {
           selectedResult && typeof selectedResult.weightedScore === 'number'
             ? selectedResult.weightedScore
             : Number(selectedPlan.weightedScore || 0),
+        selectionStage:
+          (selectedResult && selectedResult.selectionStage) || selectedPlan.selectionStage || null,
+        selectionBreakdown: cloneSelectionBreakdown(
+          (selectedResult && selectedResult.selectionBreakdown) || selectedPlan.selectionBreakdown,
+        ),
         selectedMetrics:
           selectedResult && selectedResult.weightedMetrics ? selectedResult.weightedMetrics : selectedPlan.weightedMetrics || {},
         selectedContributions:
@@ -2879,6 +2722,7 @@ const layoutPlanner = {
     const remainingCpuBudget = Math.max(0, cpuCeiling - currentCpuUsed);
     const cpuSizedBatch = Math.max(1, Math.floor(remainingCpuBudget / expectedCandidateCpu));
     const effectiveBatchSize = Math.max(1, Math.min(plannedBatchSize, cpuSizedBatch));
+    const winnerSelectionConfig = readWinnerSelectionConfig();
 
     let processed = 0;
     while (processed < effectiveBatchSize) {
@@ -2917,9 +2761,13 @@ const layoutPlanner = {
       if (generated) {
         generated.meta = generated.meta || {};
         generated.meta.refinementDebug = summarizeRefinement(pipeline.refinement);
-        const selectionEvaluation = applySelectionPenaltyToGeneratedPlan(generated);
+        const selectionEvaluation = winnerSelection.evaluateGeneratedPlan(
+          generated,
+          winnerSelectionConfig,
+          { stage: 'foundation', candidateIndex: candidate.index },
+        );
         mem.layout.theoreticalCandidatePlans = mem.layout.theoreticalCandidatePlans || {};
-        mem.layout.theoreticalCandidatePlans[candidate.index] = {
+        const candidatePlanRecord = {
           index: candidate.index,
           anchor: { x: generated.anchor.x, y: generated.anchor.y },
           placements: generated.placements,
@@ -2970,7 +2818,9 @@ const layoutPlanner = {
           completedAt: Game.time,
           refinementInput: null,
         };
-        pipeline.results[candidate.index] = {
+        applySelectionFields(candidatePlanRecord, selectionEvaluation);
+        mem.layout.theoreticalCandidatePlans[candidate.index] = candidatePlanRecord;
+        const candidateResultRecord = {
           index: candidate.index,
           weightedScore: selectionEvaluation.weightedScore,
           rawWeightedScore: selectionEvaluation.rawWeightedScore,
@@ -2988,6 +2838,8 @@ const layoutPlanner = {
               : 0,
           completedAt: Game.time,
         };
+        applySelectionFields(candidateResultRecord, selectionEvaluation);
+        pipeline.results[candidate.index] = candidateResultRecord;
       }
 
       container.tasks.splice(container.tasks.indexOf(nextTask), 1);
@@ -3020,10 +2872,14 @@ const layoutPlanner = {
         initialMetrics: candidate.initialMetrics,
         initialContributions: candidate.initialContributions,
         weightedScore: result ? result.weightedScore : null,
+        rawWeightedScore: result ? result.rawWeightedScore : null,
+        selectionPenalty: result ? result.selectionPenalty : null,
         weightedMetrics: result ? result.weightedMetrics : null,
         weightedContributions: result ? result.weightedContributions : null,
         selectionRejected: result ? result.selectionRejected === true : false,
         hardRejectFlags: result ? result.hardRejectFlags || [] : [],
+        selectionBreakdown: result ? cloneSelectionBreakdown(result.selectionBreakdown) : null,
+        selectionStage: result ? result.selectionStage || null : null,
         validation: result ? result.validation : [],
         defenseScore: result ? result.defenseScore : 0,
         completedAt: result ? result.completedAt : null,

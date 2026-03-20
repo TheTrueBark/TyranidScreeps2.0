@@ -357,8 +357,12 @@ Memory.empire = {
 @codex-path Memory.stats
 @codex-version 1
 
-Console and task execution metrics are aggregated here.
+Console, dashboard, and task-execution telemetry is aggregated here.
 `Memory.stats.taskLogs` keeps the most recent task executions.
+
+The external operator surface is expected to be the Dashboard at
+`https://github.com/TheTrueBark/Dashboard`, while `Memory.stats` remains the
+authoritative in-game storage branch.
 
 Lifecycle-based miner stats are recorded under:
 
@@ -582,18 +586,20 @@ In theoretical mode the planner also stores:
 - in `harabi/full`, the pipeline reranks the leading candidates once more on real full-materialized plans before winner selection; that rerank intentionally uses the cheaper `estimate` defense pass so `theoreticalPipeline.results[*].weightedScore` reflects practical full-plan penalties without re-running the heaviest minCut smoothing on every finalist.
 - candidate-stage scores already include penalties for hard foundation validation failures (for example incomplete controller stamps, disconnected road nets, blocked spawn exits, or missing source-route anchors), so broken seeds are pushed down before the finalist rerank ever starts.
 - if a candidate hits those hard foundation failures, the planner now persists it as `selectionRejected: true` with `hardRejectFlags`, and winner selection skips it entirely instead of merely accepting a worse score.
+- candidate rows and persisted winner debug now also retain `selectionStage` plus `selectionBreakdown` (raw score, applied penalty, bucket counts, matched flags, tie-break snapshot) so score changes remain explainable after compaction.
 - source-link candidate selection also retains enough debug state in candidate validation and logistics snapshots to explain why a side-pocket link beat a closer corridor tile in a chokepoint room.
 - `theoreticalCandidatePlans` keeps explicitly requested overlay candidates renderable and compacts the persisted winner down to score/debug summaries (`compacted: true`) once `basePlan` already covers the final layout.
 - `currentDisplayCandidateIndex` stores which candidate is currently rendered in the building overlay.
 - completed `theoretical` payloads are compacted to HUD/overlay essentials; heavy arrays like distance maps, flood tiles, and duplicate preview placements are dropped after persistence.
 - `theoretical.candidates` keeps compact score rows for overlay debugging.
 - `theoretical.fullSelectionRerank` and `basePlan.plannerDebug.fullSelectionRerank` summarize that last rerank pass (defense mode used, how many finalists were reranked, which candidate won, and how much validation penalty each finalist took).
+- `basePlan.plannerDebug.selectionBreakdown` mirrors the final chosen winner evaluation so `layoutPlanDump` can print the last applied winner-selection buckets without reconstructing them from raw validation strings.
 - `theoretical.checklist` for stage-progress display (`X`, `n/5`, `✔`).
 - persisted `basePlan` keeps a compact `buildQueue` for runtime/building consumers instead of duplicating a second full `structures` map; overlays and dumps can reconstruct counts from that queue.
 - `basePlan.plannerDebug` keeps summary diagnostics for labs, structure ranking, refinement, and valid-structure counts instead of full duplicate placement arrays.
 - `Memory.stats.tickPipeline` keeps the most recent 60 tick snapshots.
 
-For the full intended selection and logistics rules, see [[Layout-Planner]].
+For the full intended selection and logistics rules, see [Layout Planner](./Layout-Planner.md).
 
 Set `rebuildLayout` to `true` if you want the planner to wipe and
 recalculate the layout on the next tick. It resets automatically after

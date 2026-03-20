@@ -375,6 +375,11 @@ function processPendingLayoutRecalculation() {
 }
 
 function drawAsciiConsole() {
+  if (!statsConsole.isConsoleDisplayEnabled()) {
+    if (!Memory.stats) Memory.stats = {};
+    Memory.stats.consoleDrawTime = 0;
+    return 0;
+  }
   const start = Game.cpu.getUsed();
   console.log(statsConsole.displayHistogram());
   console.log(statsConsole.displayStats());

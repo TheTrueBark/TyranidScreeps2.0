@@ -89,7 +89,7 @@ The main loop registers several core jobs which drive the colony:
 | `energyDemand`       | 1000 ticks     | `demand`           | Updates delivery stats. |
 | `roleUpdateEvent`    | event `roleUpdate` | `main`        | Triggers role evaluation on spawn/death. |
 | `roleUpdateFallback` | 50 ticks       | `main`             | Periodic role evaluation when bucket high. |
-| `consoleDisplay`     | 5 ticks        | `console.console`  | Prints stats and logs to console. |
+| `consoleDisplay`     | 5 ticks        | `console.console`  | Runs optional ASCII console rendering when enabled. |
 | `purgeLogs`          | 250 ticks      | `memoryManager`    | Clears aggregated log counts. |
 | `predictMinerLifecycles` | 25 ticks | `lifecyclePredictor` | Queues miner replacements before death. |
 | `predictHaulerLifecycle` | 25 ticks | `haulerLifecycle` | Queues hauler replacements before death. |
@@ -104,7 +104,10 @@ scouting memory via `hiveGaze.initializeScoutMemory` before the regular
 
 Use `scheduler.listTasks()` to see current timers and next execution tick for each job.
 
-`consoleDisplay` only executes when the CPU bucket exceeds 1000 thanks to its `minBucket` setting. Likewise `showScheduled` respects `Memory.settings.showTaskList` before printing.
+`consoleDisplay` only executes when the CPU bucket exceeds 1000 thanks to its
+`minBucket` setting, and the renderer itself now stays quiet unless
+`Memory.settings.consoleDisplayEnabled === true`. Likewise `showScheduled`
+respects `Memory.settings.showTaskList` before printing.
 
 ## Codex Metadata
 

@@ -45,6 +45,14 @@ var statsConsole = {
     return true;
   },
 
+  isConsoleDisplayEnabled: function () {
+    return Boolean(
+      Memory &&
+      Memory.settings &&
+      Memory.settings.consoleDisplayEnabled === true
+    );
+  },
+
   displayHistogram: function (width = 100, height = 20) {
     var asciiChart = require("console.ascii-chart");
     let cpuData = Memory.stats.__cpu || [0];

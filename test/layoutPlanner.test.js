@@ -572,6 +572,8 @@ describe('layoutPlanner.plan', function() {
       expect(reranked[0].index).to.equal(1);
       expect(pipeline.results[0].rawWeightedScore).to.equal(0.98);
       expect(pipeline.results[0].weightedScore).to.be.below(0);
+      expect(pipeline.results[0].selectionStage).to.equal('full-rerank');
+      expect(pipeline.results[0].selectionBreakdown.bucketCounts.critical).to.equal(1);
       expect(pipeline.results[1].weightedScore).to.equal(0.74);
       expect(pipeline.fullSelectionRerank.selectedIndex).to.equal(1);
       expect(pipeline.fullSelectionRerank.rerankedCount).to.equal(2);
@@ -592,6 +594,63 @@ describe('layoutPlanner.plan', function() {
     Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
     const pipeline = {
       runId: 'test:full-rerank-mode',
+      requestedHarabiStage: 'full',
+      candidateHarabiStage: 'foundation',
+      finalHarabiStage: 'full',
+      candidates: [{ index: 0, anchor: { x: 25, y: 25 } }],
+      results: {
+        0: { index: 0, weightedScore: 0.95, completedAt: Game.time },
+      },
+      refinement: {
+        enabled: false,
+        status: 'disabled',
+      },
+    };
+
+    const original = buildCompendium.generatePlanForAnchor;
+    buildCompendium.generatePlanForAnchor = function (roomName, anchorInput, options = {}) {
+      expect(options.defensePlanningMode).to.equal('full');
+      return {
+        anchor: { x: anchorInput.x, y: anchorInput.y },
+        placements: [{ type: 'spawn', x: anchorInput.x, y: anchorInput.y }],
+        evaluation: { weightedScore: 0.98, metrics: {}, contributions: {} },
+        meta: {
+          validation: [],
+          defenseScore: 2400,
+          validStructurePositions: {},
+          fullOptimization: { mode: 'foundation-derived-full-v1' },
+        },
+      };
+    };
+
+    try {
+      const ranked = layoutPlanner._rankPipelineResults(pipeline.results);
+      layoutPlanner._rerankTopCandidatesWithFullPlans(
+        'W1N1',
+        pipeline,
+        Memory.rooms.W1N1,
+        ranked,
+      );
+      expect(pipeline.fullSelectionRerank.defensePlanningMode).to.equal('full');
+    } finally {
+      buildCompendium.generatePlanForAnchor = original;
+    }
+  });
+
+  it('uses winner-selection-specific rerank defense mode override when configured', function() {
+    Memory.settings = {
+      runtimeMode: 'theoretical',
+      layoutPlanningMode: 'theoretical',
+      layoutExtensionPattern: 'cluster3',
+      layoutHarabiStage: 'full',
+      layoutDefensePlanningMode: 'estimate',
+      layoutWinnerSelection: {
+        rerankDefenseMode: 'full',
+      },
+    };
+    Memory.rooms.W1N1.layout = { theoreticalCandidatePlans: {} };
+    const pipeline = {
+      runId: 'test:full-rerank-nested-mode',
       requestedHarabiStage: 'full',
       candidateHarabiStage: 'foundation',
       finalHarabiStage: 'full',
@@ -666,6 +725,9 @@ describe('layoutPlanner.plan', function() {
       const layout = Memory.rooms.W1N1.layout;
       expect(layout.theoretical.selectedCandidateIndex).to.equal(1);
       expect(layout.theoretical.selectedWeightedScore).to.equal(0.7);
+      expect(layout.theoretical.candidates[0].selectionRejected).to.equal(true);
+      expect(layout.theoretical.candidates[1]).to.not.have.property('selectionRejected');
+      expect(layout.theoretical.candidates[0].selectionBreakdown.bucketCounts.hardReject).to.equal(2);
     } finally {
       buildCompendium.generatePlanForAnchor = original;
     }
@@ -898,6 +960,10 @@ describe('layoutPlanner.plan', function() {
     );
 
     expect(Memory.rooms.W1N1.layout.theoretical.selectedWeightedScore).to.equal(0.41);
+    expect(Memory.rooms.W1N1.layout.theoretical.selectionStage).to.equal('full-rerank');
+    expect(Memory.rooms.W1N1.layout.theoretical.selectionBreakdown.penalty).to.equal(0.5);
+    expect(Memory.rooms.W1N1.layout.theoreticalCandidatePlans[0].selectionBreakdown.penalty).to.equal(0.5);
+    expect(Memory.rooms.W1N1.basePlan.plannerDebug.selectionBreakdown.penalty).to.equal(0.5);
     expect(Memory.rooms.W1N1.basePlan.evaluation.weightedScore).to.equal(0.41);
     expect(Memory.rooms.W1N1.basePlan.plannerDebug.fullSelectionRerank.enabled).to.equal(true);
   });
