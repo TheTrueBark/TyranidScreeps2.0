@@ -1,0 +1,43 @@
+name: Sync GitHub Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'TyranidScreeps2.0.wiki/**'
+      - 'scripts/syncWikiToGitHub.sh'
+      - '.github/workflows/sync-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Ensure wiki push token is configured
+        env:
+          WIKI_PUSH_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
+        run: |
+          if [ -z "$WIKI_PUSH_TOKEN" ]; then
+            echo "::error::Missing WIKI_PUSH_TOKEN repository secret."
+            echo "::error::Set a token that can push to ${GITHUB_REPOSITORY}.wiki.git."
+            exit 1
+          fi
+
+      - name: Sync repo wiki folder to GitHub Wiki
+        env:
+          WIKI_REPO_URL: https://github.com/${{ github.repository }}.wiki.git
+          WIKI_TOKEN: ${{ secrets.WIKI_PUSH_TOKEN }}
+          WIKI_USERNAME: ${{ github.actor }}
+          WIKI_COMMIT_MESSAGE: "Sync wiki from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
+        run: |
+          echo "::add-mask::$WIKI_TOKEN"
+          bash scripts/syncWikiToGitHub.sh

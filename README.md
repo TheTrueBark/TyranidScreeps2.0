@@ -24,6 +24,42 @@ organism in the hive:
 
 The system is modular, reactive and geared towards expansion.
 
+## Wiki workflow
+
+`TyranidScreeps2.0.wiki/` in this repository is the documentation source of
+truth. The GitHub `Wiki` tab is a separate git repository
+(`TyranidScreeps2.0.wiki.git`), so it does not update automatically when files
+inside the main project repo change.
+
+To keep both in sync, this repository now includes:
+
+- `scripts/syncWikiToGitHub.sh` - mirrors `TyranidScreeps2.0.wiki/` into the
+  GitHub wiki repository
+- `.github/workflows/sync-wiki.yml` - runs the mirror on pushes to `main` when
+  wiki files change
+
+Required setup:
+
+- Add a repository secret named `WIKI_PUSH_TOKEN`
+- Use a token that can push to `https://github.com/TheTrueBark/TyranidScreeps2.0.wiki.git`
+- Never commit the token into the repository or workflow file; only store it in
+  GitHub Actions secrets
+- Keep editing docs in `TyranidScreeps2.0.wiki/`; the workflow publishes the
+  mirror after merge
+
+Security notes:
+
+- The workflow passes the token as an environment secret, not as a committed
+  value in the repository
+- `actions/checkout` is configured with `persist-credentials: false`
+- The sync script uses a temporary git credentials file inside the runner
+  workspace instead of embedding the token in the remote URL
+- If you want an extra approval gate, move `WIKI_PUSH_TOKEN` to an environment
+  secret and add required reviewers for that environment
+
+If the wiki has never been initialized on GitHub, create the first wiki page in
+the GitHub UI once so the `*.wiki.git` repository exists.
+
 ### Stabilization status (critical gate)
 
 Recent sweep results before expansion/combat work:

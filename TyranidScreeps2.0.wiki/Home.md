@@ -4,6 +4,9 @@ Welcome to the Tyranid Screeps knowledge base. This repo-tracked wiki replaces
 the old `docs/` flow and serves as the source of truth for architecture notes,
 debugging workflows, and operator-facing runtime guidance.
 
+Changes merged to `main` are mirrored automatically into the GitHub `Wiki` tab
+through the repository sync workflow.
+
 ## Quick Links
 
 - [System Overview](./System-Overview.md) - high-level architecture map
@@ -50,5 +53,11 @@ debugging workflows, and operator-facing runtime guidance.
 - Update docs in the same commit as the code change whenever possible.
 - Treat `TyranidScreeps2.0.wiki/` as the source of truth even if a separate wiki
   mirror exists elsewhere.
+- The GitHub `Wiki` tab is mirrored from this folder by
+  `.github/workflows/sync-wiki.yml`.
+- Configure the `WIKI_PUSH_TOKEN` repository secret before relying on the
+  automatic wiki mirror.
+- Keep the token in GitHub Actions secrets only; do not commit it into tracked
+  files.
 - Remove or update any stale legacy stubs after migration work.
 - Track long-lived bugs and investigations in [Issues](./Issues.md).
