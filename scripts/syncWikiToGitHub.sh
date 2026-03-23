@@ -21,15 +21,16 @@ if [ -z "$WIKI_REPO_URL" ]; then
   exit 1
 fi
 
-tmpdir="$(mktemp -d)"
+tmp_root="$(mktemp -d)"
+tmpdir="$tmp_root/wiki"
 cleanup() {
-  rm -rf "$tmpdir"
+  rm -rf "$tmp_root"
 }
 trap cleanup EXIT
 
 git_cmd=(git)
 if [ -n "$WIKI_TOKEN" ]; then
-  credentials_file="$tmpdir/.git-credentials"
+  credentials_file="$tmp_root/.git-credentials"
   printf 'https://%s:%s@github.com\n' "$WIKI_USERNAME" "$WIKI_TOKEN" > "$credentials_file"
   chmod 600 "$credentials_file"
   git_cmd+=( -c "credential.helper=store --file=$credentials_file" )
